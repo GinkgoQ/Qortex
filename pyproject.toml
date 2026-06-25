@@ -1,0 +1,82 @@
+[project]
+name = "qortex"
+version = "0.1.0"
+description = "Qortex by GinkgoQ — ML-ready neurodata infrastructure for OpenNeuro and BIDS datasets."
+requires-python = ">=3.10"
+authors = [{ name = "GinkgoQ", email = "arman.asgharpoor1993@gmail.com" }]
+keywords = ["neuroscience", "bids", "openneuro", "neuroimaging", "eeg", "meg", "fmri", "ml"]
+classifiers = [
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Medical Science Apps.",
+]
+dependencies = [
+  "httpx>=0.27",
+  "aiofiles>=24.1",
+  "pydantic>=2.7",
+  "pydantic-settings>=2.3",
+  "platformdirs>=4.2",
+  "tqdm>=4.66",
+  "typer>=0.12",
+  "wcmatch>=10.1",
+  "truststore>=0.10",
+  "polars>=1.0",
+  "pyarrow>=16.0",
+  "duckdb>=1.0",
+  "rich>=13.7",
+  "ruamel.yaml>=0.18",
+  "fsspec>=2024.6",
+]
+
+[project.optional-dependencies]
+eeg    = ["mne>=1.7", "mne-bids>=0.15"]
+mri    = ["nibabel>=5.2", "nilearn>=0.10"]
+dwi    = ["nibabel>=5.2", "dipy>=1.9"]
+zarr   = ["zarr>=2.17", "numcodecs>=0.12"]
+hdf5   = ["h5py>=3.11"]
+torch  = ["torch>=2.2"]
+lightning = ["lightning>=2.3", "torch>=2.2"]
+tf     = ["tensorflow>=2.16"]
+hf     = ["datasets>=2.19", "huggingface-hub>=0.23"]
+ray    = ["ray>=2.20"]
+dask   = ["dask>=2024.5"]
+braindecode = ["braindecode>=0.8", "mne>=1.7"]
+sklearn = ["scikit-learn>=1.5"]
+validation = ["pybids>=0.22"]
+dashboard = ["fastapi>=0.111", "uvicorn>=0.30", "streamlit>=1.36", "plotly>=5.22"]
+all = [
+  "qortex[eeg,mri,dwi,zarr,hdf5,torch,lightning,hf,ray,dask,braindecode,sklearn,validation,dashboard]"
+]
+
+[project.scripts]
+qortex = "qortex.cli.app:app"
+
+[project.entry-points."qortex.loaders"]
+eeg      = "qortex.parse.eeg:EEGLoader"
+meg      = "qortex.parse.meg:MEGLoader"
+ieeg     = "qortex.parse.ieeg:IEEGLoader"
+fnirs    = "qortex.parse.fnirs:FNIRSLoader"
+mri      = "qortex.parse.mri:MRILoader"
+fmri     = "qortex.parse.fmri:FMRILoader"
+dwi      = "qortex.parse.dwi:DWILoader"
+pet      = "qortex.parse.pet:PETLoader"
+behavior = "qortex.parse.behavior:BehaviorLoader"
+
+[project.entry-points."qortex.formats"]
+parquet    = "qortex.convert.formats.parquet:ParquetWriter"
+zarr       = "qortex.convert.formats.zarr:ZarrWriter"
+hdf5       = "qortex.convert.formats.hdf5:HDF5Writer"
+webdataset = "qortex.convert.formats.webdataset:WebDatasetWriter"
+huggingface = "qortex.convert.formats.huggingface:HuggingFaceWriter"
+tfrecord   = "qortex.convert.formats.tfrecord:TFRecordWriter"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/qortex"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]
+ignore = ["E501"]
