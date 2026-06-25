@@ -5,7 +5,10 @@ OpenNeuro and BIDS datasets. It provides a real dataset workflow: discover a
 dataset, inspect its manifest, preview metadata, plan selective downloads,
 download only what is needed, analyze readiness, summarize labels, convert local
 tables/events into ML-ready artifacts, and open those artifacts through ML
-adapters.
+adapters. It also includes decision-first workflows for answering practical
+questions such as "what is the smallest real download?", "can I train from this
+dataset?", "can I inspect the first batch?", and "does this local/artifact state
+look safe?".
 
 Qortex is not a thin file downloader. Its core contribution is a semantic layer
 over OpenNeuro manifests: files are interpreted as BIDS entities, logical
@@ -60,8 +63,10 @@ metadata_dir = Path("data/ds000001-metadata")
 ds.download_metadata(output_dir=metadata_dir)
 
 # 5. Analyze readiness and labels from the local metadata.
-readiness = ds.check(local_path=metadata_dir, conversion_target="sklearn")
-print(readiness.summary())
+doctor = ds.doctor(local_path=metadata_dir)
+can_train = ds.can_train(local_path=metadata_dir)
+print(doctor.to_text())
+print(can_train.to_text())
 
 eda = ds.eda(local_path=metadata_dir, output_html=Path("eda.html"))
 print(eda.quality.ml_readiness_score)
@@ -85,6 +90,10 @@ CLI equivalents:
 qortex metadata ds000001 --limit 20
 qortex preview ds000001 participants.tsv --rows 5
 qortex plan ds000001 --subjects 01 --modalities fmri
+qortex doctor ds000001
+qortex minimum ds000001 --goal first-batch
+qortex can-train ds000001 --local-path data/ds000001-metadata
+qortex first-batch --dataset ds000001
 qortex metadata ds000001 --download --output-dir data/ds000001-metadata
 qortex local-index data/ds000001-metadata
 qortex validate data/ds000001-metadata --markdown-output validation.md
@@ -106,13 +115,57 @@ qortex validate data/ds000001-metadata --markdown-output validation.md
 | Local indexing | Local BIDS tree indexing and reconciliation against the OpenNeuro manifest |
 | Validation | Official BIDS Validator wrapper, typed report, cache, JSON/Markdown/HTML export, report diff |
 | Readiness | Download, event, label, loadability, split, and conversion readiness reports |
+| Decision workflows | `doctor`, `minimum`, `can-train`, `first-batch`, `content-status`, `leakage-check`, and reproducible recipes |
 | EDA/QC | Dataset summaries, modality summaries, coverage, quality scores, event-label summaries, HTML reports |
 | Loaders | Lazy plugin registry and modality-aware loaders for behavior, EEG, MEG, iEEG, fNIRS, MRI, fMRI, DWI, and PET |
 | Conversion | Loader resolution, optional windowing, split assignment, writer dispatch, provenance, artifact manifests |
 | Artifacts | Reopen converted artifacts, inspect sample/split/source metadata, hand off to adapters |
-| ML adapters | Torch, Lightning, sklearn, TensorFlow, HuggingFace, Ray, Dask, and Braindecode modules |
-| Catalog | Local OpenNeuro catalog refresh and search backed by DuckDB or SQLite fallback |
-| CLI | Search, inspect, metadata, preview, plan, download, validate, local-index, EDA, convert, cache, login |
+| ML adapters | Basic artifact bridges for Torch, Lightning, sklearn, TensorFlow, HuggingFace, Ray, Dask, and Braindecode; maturity varies by framework |
+| Catalog | Normalized OpenNeuro catalog ingestion, deep file-summary digestion, structured facets, and weighted local search backed by DuckDB or SQLite fallback |
+| CLI | Search, inspect, metadata, preview, plan, download, decision workflows, validate, local-index, EDA, convert, cache, login |
+
+## Implementation Maturity
+
+Qortex intentionally separates what is deep today from what is present as an
+integration path. This avoids treating module existence as production maturity.
+
+| Subsystem | Current maturity | Honest status |
+| --- | --- | --- |
+| OpenNeuro manifest access | Strong | Used by the real scenario suite against `ds000001`; handles current GraphQL schema |
+| Metadata-first preview | Strong | Remote bounded JSON/TSV/CSV preview and first-row inspection are core, tested workflows |
+| Semantic recording graph | Strong | Builds logical recordings and companion closures from real manifests |
+| Companion-aware planning | Strong | Exact-path, metadata-only, and semantic companion plans are exercised on real OpenNeuro data |
+| Metadata/event download | Strong | Real metadata/event downloads are used by the scenario suite |
+| Decision-first workflow layer | Useful | `doctor`, `minimum`, `can-train`, `first-batch`, `content-status`, `leakage-check`, recipe read/write, and CLI commands are implemented and scenario-tested on real OpenNeuro metadata |
+| Catalog ingestion/search | Useful | Paged OpenNeuro metadata ingestion, per-dataset deep file-summary digestion, normalized modality/task/author/keyword/file-summary tables, facets, and structured search are scenario-tested |
+| Local index reconciliation | Useful | Detects missing remote files, extra local files, size mismatches; optional PyBIDS path exists |
+| Readiness scoring | Useful but evolving | Produces structured reports; score accounting is shown, but deeper weighting/explainability is future work |
+| Event/table EDA | Useful | Summarizes real local event labels, counts, classes, imbalance, and HTML reports |
+| Behavior/events loader | Useful | Loads real BIDS TSV/CSV tables and emits `SampleRecord` rows |
+| EEG/MEG/iEEG/fNIRS loaders | Real optional-dependency loaders | Use MNE/MNE-BIDS-style loading paths; require real modality fixtures and broader scenario coverage |
+| MRI/fMRI/DWI/PET loaders | Real optional-dependency loaders | Use NiBabel/domain dependencies and expose shape/metadata/sample records; need deeper roundtrip coverage |
+| Parquet writer | Useful | Real event/table artifact generation is scenario-tested; stores numeric arrays and structured row JSON |
+| Zarr/HDF5/WebDataset/HuggingFace/TFRecord writers | Basic | Writers exist with optional dependencies, but need formal roundtrip tests and larger-data validation |
+| Torch adapter | Basic/useful | Opens Parquet artifacts, supports split filtering and iterable mode; not yet advanced batching/collation |
+| sklearn adapter | Basic | Works for numeric signal bytes; event/table-only artifacts need dataframe workflows instead of `(X, y)` |
+| TensorFlow/HuggingFace/Ray/Dask/Braindecode adapters | Basic integration paths | Modules exist, but should not be treated as production-grade adapters yet |
+| Validation wrapper | Useful | Runs official `bids-validator` when installed; exports typed reports; does not fabricate results |
+| Dashboard | Experimental | Entrypoint exists; full dashboard product is future work |
+| Real scenario suite | Useful integration coverage | Uses real OpenNeuro data and shared metadata download; not a substitute for unit/contract tests |
+
+## Compatibility Matrix
+
+| Feature | Remote manifest only | Metadata-only local tree | Full local BIDS tree | Converted artifact |
+| --- | --- | --- | --- | --- |
+| Dataset summary | Yes | Yes | Yes | Via artifact summary |
+| Metadata preview | Yes | Yes | Yes | No |
+| Label status | Candidate only | Confirmed for downloaded event tables | Confirmed when local events are present | Confirmed from artifact metadata/rows |
+| Companion planning | Yes | Yes | Yes | No |
+| EDA | Manifest-level | Metadata/event-level | Best available local EDA | Artifact-level adapters only |
+| BIDS validation | No | Possible but will report missing raw files | Yes, with official CLI | No |
+| Conversion | No | Event/table conversion | Loader-dependent full conversion | No |
+| First ML batch | No | Possible for table artifacts | Possible when loaders/adapters support modality | Possible for compatible artifacts |
+| Leakage checks | Plan/local risk only | Plan/local risk only | Source/derivative risk checks | Subject/source/derivative split checks |
 
 ## Public Python API
 
@@ -134,6 +187,11 @@ qortex validate data/ds000001-metadata --markdown-output validation.md
 | `first_rows(path, n=5, ...)` | Return first rows from a remote/local TSV or CSV file |
 | `preview_metadata(...)` | Preview several metadata/sidecar/table files |
 | `check(...)` | Return a decision-oriented `ReadinessReport` |
+| `doctor(local_path=None)` | Return a high-level usability report with status, findings, and next actions |
+| `minimum(goal="first-batch", ...)` | Plan the smallest real download for `label-check`, `first-batch`, `validation`, or `metadata` |
+| `can_train(...)` | Report possible/uncertain/not possible training status, label status, split policy, and leakage risks |
+| `first_batch(...)` | Read first artifact rows or return the smallest plan needed to produce a first batch |
+| `content_status(local_path=None)` | Check local files for completeness, pointer-like content, and manifest mismatches |
 | `validate(...)` | Run official BIDS Validator and return a typed `ValidationReport` |
 | `index_local(...)` | Index a local BIDS tree and reconcile it with the manifest |
 | `eda(...)` | Run EDA/QC and optionally write an HTML report |
@@ -149,10 +207,16 @@ qortex validate data/ds000001-metadata --markdown-output validation.md
 | `qortex.configure(...)` | Override cache, endpoints, concurrency, retry, auth, and integrity settings |
 | `qortex.get_config()` | Read active configuration |
 | `qortex.search(...)` | Search the local catalog |
+| `qortex.refresh_catalog(...)` | Ingest paged OpenNeuro metadata into the local catalog |
+| `qortex.refresh_catalog_dataset(...)` | Ingest and return one dataset profile, optionally with recursive file-summary digestion |
 | `qortex.Artifact.open(path)` | Open a converted Qortex artifact |
 | `Artifact.summary()` | Return artifact ID, dataset, snapshot, format, samples, subjects, and split counts |
 | `Artifact.torch(...)` | Open a Parquet artifact for Torch |
 | `Artifact.sklearn(...)` | Open a Parquet artifact for sklearn |
+| `qortex.content_status(path, manifest=None)` | Inspect local content independently of a `Dataset` object |
+| `qortex.leakage_check(artifact_path)` | Check converted artifacts for split leakage by subject/source and derivative-source risk |
+| `qortex.Recipe` | Typed workflow recipe model |
+| `qortex.write_recipe(recipe, path)` / `qortex.read_recipe(path)` | Persist and reload reproducible workflow recipes |
 
 ## Selection and Planning
 
@@ -230,6 +294,48 @@ This is useful for:
 - Reviewing dataset description, license, authors, and DOI
 - Estimating whether a full or selective download is worthwhile
 - Building real tests and examples without downloading gigabytes of raw data
+
+## Decision-First Workflows
+
+Qortex exposes practical workflow decisions as first-class APIs and CLI
+commands. These reports do not guess silently: they use `possible`,
+`uncertain`, and `not_possible` states and explain the missing evidence.
+
+```python
+from qortex import Dataset, leakage_check
+
+ds = Dataset("ds000001")
+
+doctor = ds.doctor()
+print(doctor.to_text())
+
+minimum = ds.minimum(goal="label-check", output_dir="data/ds000001-meta")
+print(minimum.to_text())
+
+train = ds.can_train(local_path="data/ds000001-meta", target="trial_type")
+print(train.to_text())
+
+first = ds.first_batch(artifact_path="artifacts/ds000001-events", limit=5)
+print(first.to_text())
+
+content = ds.content_status("data/ds000001-meta")
+print(content.to_text())
+
+leakage = leakage_check("artifacts/ds000001-events")
+print(leakage.to_text())
+```
+
+Implemented decision reports:
+
+| Report | What It Answers |
+| --- | --- |
+| `DoctorReport` | Is the dataset usable, what is proven, what is uncertain, and what should the user do next? |
+| `MinimumPlanReport` | What exact files are the smallest useful real download for label checking, first batch, validation, or metadata inspection? |
+| `CanTrainReport` | Can supervised training start now, are labels confirmed or only candidates, what split policy is safe, and what leakage risks exist? |
+| `FirstBatchReport` | Can Qortex read first rows from a converted artifact, or what download plan is required before that can happen? |
+| `ContentStatusReport` | Does a local tree contain zero-byte files, pointer-like files, missing manifest files, extra files, or size mismatches? |
+| `LeakageReport` | Does an artifact leak subjects or source files across splits, or include derivative-source samples that need review? |
+| `Recipe` | A shareable JSON workflow description for reproducible Qortex decisions and downloads |
 
 ## Readiness and EDA
 
@@ -331,12 +437,12 @@ Supported writer targets:
 
 | Format | Status |
 | --- | --- |
-| Parquet | Implemented, default tabular artifact format |
-| Zarr | Implemented writer, requires optional dependencies |
-| HDF5 | Implemented writer, requires optional dependencies |
-| WebDataset | Implemented writer |
-| HuggingFace datasets | Implemented writer, requires optional dependencies |
-| TFRecord | Implemented writer, requires TensorFlow |
+| Parquet | Useful/default path; real event/table artifact generation is scenario-tested |
+| Zarr | Basic writer; requires optional dependencies and more roundtrip coverage |
+| HDF5 | Basic writer; requires optional dependencies and more roundtrip coverage |
+| WebDataset | Basic writer; needs larger-data and reader-side validation |
+| HuggingFace datasets | Basic writer; requires optional dependencies and more roundtrip coverage |
+| TFRecord | Basic writer; requires TensorFlow and more roundtrip coverage |
 
 Example:
 
@@ -366,36 +472,71 @@ print(artifact.summary())
 
 Qortex has loader modules for these BIDS data categories:
 
-| Modality | Loader Scope |
+| Modality | Loader Scope | Current Maturity |
 | --- | --- |
-| Behavior | BIDS `.tsv` and `.csv` event, participant, session, scan, and behavior tables |
-| EEG | MNE-compatible EEG recordings |
-| MEG | MNE-compatible MEG recordings |
-| iEEG | MNE-compatible iEEG recordings |
-| fNIRS | SNIRF and MNE-compatible fNIRS/NIRS recordings |
-| MRI | Anatomical image files through imaging dependencies |
-| fMRI | Functional/perfusion images and metadata |
-| DWI | Diffusion images with bvec/bval companions |
-| PET | PET imaging files and metadata helpers |
+| Behavior | BIDS `.tsv` and `.csv` event, participant, session, scan, and behavior tables | Useful and real-scenario tested |
+| EEG | MNE-compatible EEG recordings | Real optional-dependency loader; needs broader fixture coverage |
+| MEG | MNE-compatible MEG recordings | Real optional-dependency loader; needs broader fixture coverage |
+| iEEG | MNE-compatible iEEG recordings | Real optional-dependency loader; needs broader fixture coverage |
+| fNIRS | SNIRF and MNE-compatible fNIRS/NIRS recordings | Real optional-dependency loader; needs broader fixture coverage |
+| MRI | Anatomical image files through imaging dependencies | Real optional-dependency loader; needs broader fixture coverage |
+| fMRI | Functional/perfusion images and metadata | Real optional-dependency loader; needs broader fixture coverage |
+| DWI | Diffusion images with bvec/bval companions | Real optional-dependency loader; needs broader fixture coverage |
+| PET | PET imaging files and metadata helpers | Real optional-dependency loader; needs broader fixture coverage |
 
 Loader discovery is lazy and fault-isolated. Missing optional dependencies for
 one modality do not prevent importing Qortex or using metadata-first workflows.
 
 ## Catalog Search
 
-Qortex includes a local catalog index for OpenNeuro discovery.
+Qortex includes a normalized local catalog index for OpenNeuro discovery. The
+ingester stores dataset metadata, latest snapshot metadata, authors,
+modalities, tasks, derived keywords, and optional recursive file-summary
+digests. Deep ingestion counts file extensions, BIDS datatypes, suffixes, event
+files, derivative files, primary files, and metadata files without downloading
+the raw dataset content.
 
 ```python
 import qortex
-from qortex.catalog.refresh import refresh
 
 qortex.configure(cache_dir=".qortex-cache")
-refresh(max_pages=1, progress=False)
+qortex.refresh_catalog(max_pages=1, progress=False)
 
-results = qortex.search(modality="eeg", min_subjects=20, limit=10)
+results = qortex.search(
+    query="auditory",
+    modality="eeg",
+    min_subjects=20,
+    limit=10,
+)
 for row in results:
-    print(row["dataset_id"], row["name"], row["n_subjects"])
+    print(row["dataset_id"], row["name"], row["score"], row["tasks"])
+
+profile = qortex.refresh_catalog_dataset("ds000001", include_file_summary=True)
+print(profile["n_event_files"], profile["file_summaries"][:5])
 ```
+
+Supported catalog search filters:
+
+- Free-text query over dataset ID, name, description, DOI, authors, modalities,
+  tasks, keywords, and license
+- `modality`
+- `task`
+- `author`
+- `license`
+- `min_subjects`
+- `max_size_gb`
+- `has_events`
+- `has_derivatives`
+- `limit` and `offset`
+
+Catalog profiles expose:
+
+- Dataset ID, name, DOI, license, authors, latest snapshot, subjects, sessions,
+  tasks, modalities, files, and bytes
+- Raw OpenNeuro metadata/description JSON retained for downstream inspection
+- `has_events`, `has_derivatives`, event-file count, derivative-file count,
+  primary-file count, metadata-file count
+- File-summary facets by extension, datatype, and suffix
 
 The catalog uses DuckDB when available and falls back to SQLite.
 
@@ -409,6 +550,14 @@ The catalog uses DuckDB when available and falls back to SQLite.
 | `qortex preview` | Preview first rows/text of a remote/local file |
 | `qortex plan` | Compute a download plan without downloading |
 | `qortex download` | Download a dataset or selected subset |
+| `qortex doctor` | Explain dataset usability, uncertainty, findings, and next actions |
+| `qortex minimum` | Compute the smallest real download for label check, first batch, validation, or metadata |
+| `qortex can-train` | Decide whether supervised training is possible, uncertain, or blocked |
+| `qortex first-batch` | Print first artifact rows or the required first-batch download plan |
+| `qortex content-status` | Check local files, pointer-like content, and manifest mismatches |
+| `qortex leakage-check` | Check converted artifacts for subject/source split leakage |
+| `qortex make-recipe` | Write a reusable workflow recipe JSON |
+| `qortex run-recipe` | Load a recipe and run its minimum download decision |
 | `qortex validate` | Run official BIDS Validator and normalize its report |
 | `qortex local-index` | Index a local BIDS tree and optionally reconcile with a saved manifest |
 | `qortex eda` | Run EDA and optionally write HTML |
@@ -416,6 +565,7 @@ The catalog uses DuckDB when available and falls back to SQLite.
 | `qortex cache` | Inspect and manage local cache/registry state |
 | `qortex login` | Save or remove an OpenNeuro API token |
 | `qortex catalog-refresh` | Refresh the local OpenNeuro catalog |
+| `qortex catalog-profile` | Print or refresh one digested catalog dataset profile |
 | `qortex dashboard` | Launch the Streamlit dashboard entrypoint when dashboard extras are installed |
 
 ## Real Scenario Suite
@@ -454,6 +604,8 @@ The suite covers:
 | `12_cli_project` | Installed CLI against real metadata |
 | `13_dataset_facade_project` | High-level `Dataset` facade workflow |
 | `14_live_openneuro_metadata_project` | Live manifest and metadata smoke check |
+| `15_decision_workflows_project` | Real doctor, minimum, can-train, first-batch, content-status, and recipe workflow |
+| `16_catalog_ingestion_project` | Deep catalog ingestion, task/event search, facets, and file-summary digestion |
 
 `test/run_all.py` shares one real metadata download across downstream stages so
 the suite does not redownload the same event/sidecar files for every project.
@@ -462,6 +614,10 @@ the suite does not redownload the same event/sidecar files for every project.
 
 Qortex is strict about what it can prove.
 
+- Decision-first commands are implemented, but they report uncertainty when
+  local evidence is missing instead of treating remote manifests as proof.
+- Semantic Atlas-style search over dataset meaning and tasks is still future
+  work; current catalog search is structured/local-catalog based.
 - Confirmed label readiness requires local event-file inspection.
 - `Dataset.validate()` requires the external official `bids-validator` CLI.
 - Torch and sklearn convenience adapters currently expect Parquet artifacts.
@@ -500,6 +656,9 @@ Qortex is strict about what it can prove.
 Near-term work should preserve the current manifest-first architecture and add
 depth in these areas:
 
+- Deepen decision workflows with richer split diagnostics, session/run leakage
+  detection, class-imbalance thresholds, expected batch-shape contracts, and
+  recipe execution logs.
 - Map validation issues back to `FileRecord` and `LogicalRecording`.
 - Extend readiness scoring with license, citation, class imbalance, split risk,
   and local storage feasibility.

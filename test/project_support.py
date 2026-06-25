@@ -131,9 +131,8 @@ def split_subject_rows(train, val, test) -> list[dict[str, Any]]:
 
 
 def artifact_dir(root: Path, name: str) -> Path:
-    base = Path(os.environ.get("QORTEX_REAL_ARTIFACT_ROOT", ""))
-    if not str(base):
-        base = root.parent / "artifacts"
+    configured = os.environ.get("QORTEX_REAL_ARTIFACT_ROOT")
+    base = Path(configured) if configured else root.parent / "artifacts"
     path = base.expanduser().resolve() / name
     path.mkdir(parents=True, exist_ok=True)
     return path

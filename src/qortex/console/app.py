@@ -46,6 +46,13 @@ if mode == "Catalog Search":
         modality = st.selectbox("Modality", ["", "eeg", "mri", "fmri", "meg", "ieeg", "fnirs", "pet", "dwi"])
     with col3:
         min_subs = st.number_input("Min subjects", min_value=0, value=0, step=1)
+    col4, col5, col6 = st.columns([2, 2, 1])
+    with col4:
+        task = st.text_input("Task", placeholder="rest, nback, …")
+    with col5:
+        author = st.text_input("Author", placeholder="optional")
+    with col6:
+        has_events = st.checkbox("Events only", value=False)
 
     if st.button("Search", type="primary"):
         try:
@@ -53,7 +60,10 @@ if mode == "Catalog Search":
             results = search(
                 query=query or None,
                 modality=modality or None,
+                task=task or None,
+                author=author or None,
                 min_subjects=int(min_subs) if min_subs > 0 else None,
+                has_events=True if has_events else None,
                 limit=50,
             )
             if results:

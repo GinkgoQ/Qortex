@@ -43,11 +43,28 @@ async def health() -> dict[str, str]:
 async def catalog_search(
     q: Optional[str] = Query(None, description="Free-text search"),
     modality: Optional[str] = Query(None),
+    task: Optional[str] = Query(None),
+    author: Optional[str] = Query(None),
+    license: Optional[str] = Query(None),
     min_subjects: Optional[int] = Query(None),
+    max_size_gb: Optional[float] = Query(None),
+    has_events: Optional[bool] = Query(None),
+    has_derivatives: Optional[bool] = Query(None),
     limit: int = Query(20, le=200),
 ) -> list[dict[str, Any]]:
     from qortex.catalog.search import search
-    return search(query=q, modality=modality, min_subjects=min_subjects, limit=limit)
+    return search(
+        query=q,
+        modality=modality,
+        task=task,
+        author=author,
+        license=license,
+        min_subjects=min_subjects,
+        max_size_gb=max_size_gb,
+        has_events=has_events,
+        has_derivatives=has_derivatives,
+        limit=limit,
+    )
 
 
 @app.get("/catalog/{dataset_id}")
@@ -68,6 +85,16 @@ async def catalog_refresh_endpoint(max_pages: int = 40) -> dict[str, Any]:
     from qortex.catalog.refresh import refresh
     n = refresh(max_pages=max_pages, progress=False)
     return {"datasets_indexed": n}
+
+
+@app.post("/catalog/refresh/{dataset_id}")
+async def catalog_refresh_dataset_endpoint(
+    dataset_id: str,
+    deep: bool = Query(True),
+) -> dict[str, Any]:
+    from qortex.catalog.refresh import refresh_dataset
+
+    return refresh_dataset(dataset_id, include_file_summary=deep)
 
 
 @app.get("/dataset/{dataset_id}/manifest")
@@ -117,7 +144,7 @@ async def get_eda(
     else:
         snap_ref = client.get_latest_snapshot(dataset_id)
 
-    raw_files = client.get_files(dataset_id, snap_ref.tag)
+    snap_ref, raw_files = client.get_files(dataset_id, snap_ref.tag)
     manifest = builder.build(dataset_id, snap_ref, raw_files)
 
     engine = EDAEngine(manifest)

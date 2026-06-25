@@ -33,6 +33,20 @@ from qortex.core.entities import (
     ValidationReport,
 )
 from qortex.core.exceptions import QortexError
+from qortex.decision import (
+    CanTrainReport,
+    ContentStatusReport,
+    DecisionFinding,
+    DoctorReport,
+    FirstBatchReport,
+    LeakageReport,
+    MinimumPlanReport,
+    Recipe,
+    content_status,
+    leakage_check,
+    read_recipe,
+    write_recipe,
+)
 
 
 class Dataset:
@@ -509,6 +523,83 @@ class Dataset:
         artifact_dir = output_dir or self._resolve_data_dir().parent / "converted" / "parquet"
         return SklearnAdapter().from_dir(artifact_dir, split=split)
 
+    # ── Decision workflows ─────────────────────────────────────────────────
+
+    def doctor(self, local_path: Path | None = None) -> DoctorReport:
+        """Return a decision report for download, conversion, and training readiness."""
+        from qortex.decision import doctor
+
+        return doctor(self.manifest(), local_path=local_path or self._data_dir)
+
+    def minimum(
+        self,
+        goal: str = "first-batch",
+        *,
+        modality: str | None = None,
+        target: str | None = None,
+        output_dir: Path | None = None,
+    ) -> MinimumPlanReport:
+        """Plan the smallest real download needed for a concrete workflow goal."""
+        from qortex.decision import minimum_plan
+
+        return minimum_plan(
+            self.manifest(),
+            goal=goal,  # type: ignore[arg-type]
+            modality=modality,
+            target=target,
+            output_dir=output_dir,
+        )
+
+    def can_train(
+        self,
+        *,
+        modality: str | None = None,
+        target: str | None = None,
+        local_path: Path | None = None,
+    ) -> CanTrainReport:
+        """Assess whether the dataset can support supervised training."""
+        from qortex.decision import can_train
+
+        return can_train(
+            self.manifest(),
+            modality=modality,
+            target=target,
+            local_path=local_path or self._data_dir,
+        )
+
+    def first_batch(
+        self,
+        *,
+        artifact_path: Path | None = None,
+        local_path: Path | None = None,
+        modality: str | None = None,
+        target: str | None = None,
+        limit: int = 8,
+    ) -> FirstBatchReport:
+        """Preview the first rows from an artifact or create a first-batch plan."""
+        from qortex.decision import first_batch
+
+        manifest = None if artifact_path is not None else self.manifest()
+        return first_batch(
+            artifact_path=artifact_path,
+            manifest=manifest,
+            local_path=local_path or self._data_dir,
+            modality=modality,
+            target=target,
+            limit=limit,
+        )
+
+    def content_status(self, local_path: Path | None = None) -> ContentStatusReport:
+        """Check local content completeness and pointer-like files against the manifest."""
+        from qortex.decision import content_status
+
+        path = local_path or self._data_dir
+        if path is None:
+            raise RuntimeError(
+                "No local dataset path is available. Pass local_path or call download() first."
+            )
+        return content_status(path, manifest=self.manifest())
+
     # ── Plan / lock ───────────────────────────────────────────────────────
 
     def plan(
@@ -579,6 +670,20 @@ def search(*args, **kwargs):
 
     return _search(*args, **kwargs)
 
+
+def refresh_catalog(*args, **kwargs):
+    """Refresh the local OpenNeuro catalog index."""
+    from qortex.catalog.refresh import refresh
+
+    return refresh(*args, **kwargs)
+
+
+def refresh_catalog_dataset(*args, **kwargs):
+    """Refresh and return one dataset profile in the local catalog index."""
+    from qortex.catalog.refresh import refresh_dataset
+
+    return refresh_dataset(*args, **kwargs)
+
 __all__ = [
     "__version__",
     "Dataset",
@@ -587,9 +692,23 @@ __all__ = [
     "get_config",
     "QortexError",
     "search",
+    "refresh_catalog",
+    "refresh_catalog_dataset",
     "LocalIndexReport",
     "EventLabelSummary",
     "FilePreview",
     "ValidationDiff",
     "ValidationReport",
+    "DecisionFinding",
+    "DoctorReport",
+    "MinimumPlanReport",
+    "CanTrainReport",
+    "FirstBatchReport",
+    "LeakageReport",
+    "ContentStatusReport",
+    "Recipe",
+    "content_status",
+    "leakage_check",
+    "read_recipe",
+    "write_recipe",
 ]

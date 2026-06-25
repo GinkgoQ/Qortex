@@ -21,7 +21,8 @@ The stages move from install/configuration to manifest semantics, structural
 planning, remote metadata preview, metadata-only and exact-path plans, EDA,
 event/table conversion, readiness, loaders, windowing, local indexing,
 validation report exports, catalog search, CLI behavior, high-level Dataset
-facade usage, and live OpenNeuro metadata when the network is available.
+facade usage, live OpenNeuro metadata, decision-first workflows, and deep
+catalog metadata ingestion when the network is available.
 
 `test/run_all.py` shares one real metadata download across downstream projects.
 If the official `bids-validator` CLI is not installed, the validation scenario

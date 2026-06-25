@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import typer
 
@@ -22,23 +22,38 @@ app = typer.Typer(
 def search(
     query: Optional[str] = typer.Argument(None, help="Free-text search term"),
     modality: Optional[str] = typer.Option(None, "--modality", "-m", help="Filter by modality (eeg, mri, …)"),
+    task: Optional[str] = typer.Option(None, "--task", help="Filter by BIDS/OpenNeuro task"),
+    author: Optional[str] = typer.Option(None, "--author", help="Filter by author substring"),
+    license: Optional[str] = typer.Option(None, "--license", help="Filter by exact license value"),
     min_subjects: Optional[int] = typer.Option(None, "--min-subjects", "-n"),
+    max_size_gb: Optional[float] = typer.Option(None, "--max-size-gb", help="Maximum latest snapshot size in GB"),
+    has_events: Optional[bool] = typer.Option(None, "--has-events/--no-events", help="Filter by event-file availability when indexed"),
+    has_derivatives: Optional[bool] = typer.Option(None, "--has-derivatives/--no-derivatives", help="Filter by derivative-file availability when indexed"),
     limit: int = typer.Option(20, "--limit", "-l"),
+    offset: int = typer.Option(0, "--offset"),
     refresh_catalog: bool = typer.Option(False, "--refresh", help="Refresh catalog before searching"),
+    deep: bool = typer.Option(False, "--deep", help="During --refresh, also ingest file summaries"),
 ) -> None:
     """Search the local OpenNeuro catalog."""
     if refresh_catalog:
         from qortex.catalog.refresh import refresh as do_refresh
         typer.echo("Refreshing catalog from OpenNeuro …")
-        n = do_refresh(progress=False)
+        n = do_refresh(progress=False, include_file_summary=deep)
         typer.echo(f"  {n} datasets indexed.")
 
     from qortex.catalog.search import search as do_search
     results = do_search(
         query=query,
         modality=modality,
+        task=task,
+        author=author,
+        license=license,
         min_subjects=min_subjects,
+        max_size_gb=max_size_gb,
+        has_events=has_events,
+        has_derivatives=has_derivatives,
         limit=limit,
+        offset=offset,
     )
     if not results:
         typer.echo("No results found.")
@@ -46,9 +61,12 @@ def search(
 
     for r in results:
         mods = ", ".join(r.get("modalities") or [])
+        tasks = ", ".join((r.get("tasks") or [])[:4])
+        score = r.get("score")
+        score_text = f"  score={score}" if score is not None else ""
         typer.echo(
             f"[{r['dataset_id']}]  {r.get('name') or '(no name)'}  "
-            f"  subjects={r.get('n_subjects')}  modalities={mods}"
+            f"  subjects={r.get('n_subjects')}  modalities={mods}  tasks={tasks}{score_text}"
         )
 
 
@@ -137,6 +155,186 @@ def preview(
             typer.echo(row)
     elif result.text:
         typer.echo(result.text)
+
+
+# ── decision workflows ───────────────────────────────────────────────────────
+
+@app.command("doctor")
+def doctor_cmd(
+    dataset_id: str = typer.Argument(..., help="Dataset ID, e.g. ds004130"),
+    snapshot: Optional[str] = typer.Option(None, "--snapshot", "-s"),
+    local_path: Optional[Path] = typer.Option(None, "--local-path"),
+    output_json: Optional[Path] = typer.Option(None, "--json-output"),
+) -> None:
+    """Explain whether a dataset is usable and what the next real action is."""
+    ds = _dataset(dataset_id, snapshot)
+    report = ds.doctor(local_path=local_path)
+    typer.echo(report.to_text())
+    _write_model_json(report, output_json)
+
+
+@app.command("minimum")
+def minimum_cmd(
+    dataset_id: str = typer.Argument(..., help="Dataset ID, e.g. ds004130"),
+    snapshot: Optional[str] = typer.Option(None, "--snapshot", "-s"),
+    goal: str = typer.Option("first-batch", "--goal", help="label-check|first-batch|validation|metadata"),
+    modality: Optional[str] = typer.Option(None, "--modality"),
+    target: Optional[str] = typer.Option(None, "--target"),
+    output_dir: Optional[Path] = typer.Option(None, "--output-dir", "-o"),
+    download: bool = typer.Option(False, "--download", help="Execute the plan after printing it"),
+    output_json: Optional[Path] = typer.Option(None, "--json-output"),
+) -> None:
+    """Plan the smallest real download needed for a concrete workflow goal."""
+    from qortex.fetch.engine import DownloadEngine
+
+    ds = _dataset(dataset_id, snapshot)
+    try:
+        report = ds.minimum(
+            goal=goal,
+            modality=modality,
+            target=target,
+            output_dir=output_dir,
+        )
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2)
+    typer.echo(report.to_text())
+    _write_model_json(report, output_json)
+    if download:
+        result = DownloadEngine().execute(report.plan)
+        typer.echo(result.report())
+
+
+@app.command("can-train")
+def can_train_cmd(
+    dataset_id: str = typer.Argument(..., help="Dataset ID, e.g. ds004130"),
+    snapshot: Optional[str] = typer.Option(None, "--snapshot", "-s"),
+    modality: Optional[str] = typer.Option(None, "--modality"),
+    target: Optional[str] = typer.Option(None, "--target"),
+    local_path: Optional[Path] = typer.Option(None, "--local-path"),
+    output_json: Optional[Path] = typer.Option(None, "--json-output"),
+) -> None:
+    """Assess if supervised training is actually supported by this dataset."""
+    ds = _dataset(dataset_id, snapshot)
+    report = ds.can_train(modality=modality, target=target, local_path=local_path)
+    typer.echo(report.to_text())
+    _write_model_json(report, output_json)
+
+
+@app.command("first-batch")
+def first_batch_cmd(
+    dataset_id: Optional[str] = typer.Option(None, "--dataset", help="Dataset ID when reading from local BIDS data"),
+    snapshot: Optional[str] = typer.Option(None, "--snapshot", "-s"),
+    artifact: Optional[Path] = typer.Option(None, "--artifact", help="Converted Qortex artifact directory"),
+    local_path: Optional[Path] = typer.Option(None, "--local-path", help="Downloaded BIDS dataset root"),
+    modality: Optional[str] = typer.Option(None, "--modality"),
+    target: Optional[str] = typer.Option(None, "--target"),
+    limit: int = typer.Option(8, "--limit", "-n"),
+    output_json: Optional[Path] = typer.Option(None, "--json-output"),
+) -> None:
+    """Print first artifact rows or the smallest plan needed to produce them."""
+    from qortex.decision import first_batch
+
+    if artifact is not None:
+        report = first_batch(artifact_path=artifact, limit=limit)
+    else:
+        if dataset_id is None:
+            typer.echo("Provide --artifact or --dataset.", err=True)
+            raise typer.Exit(2)
+        ds = _dataset(dataset_id, snapshot)
+        report = ds.first_batch(
+            local_path=local_path,
+            modality=modality,
+            target=target,
+            limit=limit,
+        )
+    typer.echo(report.to_text())
+    _write_model_json(report, output_json)
+
+
+@app.command("leakage-check")
+def leakage_check_cmd(
+    artifact: Path = typer.Argument(..., help="Converted Qortex artifact directory"),
+    output_json: Optional[Path] = typer.Option(None, "--json-output"),
+) -> None:
+    """Check a converted artifact for subject/source split leakage."""
+    from qortex.decision import leakage_check
+
+    report = leakage_check(artifact)
+    typer.echo(report.to_text())
+    _write_model_json(report, output_json)
+
+
+@app.command("content-status")
+def content_status_cmd(
+    path: Path = typer.Argument(..., help="Local BIDS dataset root"),
+    dataset_id: Optional[str] = typer.Option(None, "--dataset", help="Dataset ID for manifest reconciliation"),
+    snapshot: Optional[str] = typer.Option(None, "--snapshot", "-s"),
+    output_json: Optional[Path] = typer.Option(None, "--json-output"),
+) -> None:
+    """Check local files, pointer-like content, and optional manifest mismatches."""
+    from qortex.decision import content_status
+
+    manifest = _dataset(dataset_id, snapshot).manifest() if dataset_id else None
+    report = content_status(path, manifest=manifest)
+    typer.echo(report.to_text())
+    _write_model_json(report, output_json)
+
+
+@app.command("make-recipe")
+def make_recipe_cmd(
+    dataset_id: str = typer.Argument(..., help="Dataset ID, e.g. ds004130"),
+    output: Path = typer.Argument(..., help="Recipe JSON path"),
+    snapshot: Optional[str] = typer.Option(None, "--snapshot", "-s"),
+    modality: Optional[str] = typer.Option(None, "--modality"),
+    target: Optional[str] = typer.Option(None, "--target"),
+    split: str = typer.Option("subject", "--split"),
+    goal: str = typer.Option("first-batch", "--goal"),
+    output_dir: Optional[Path] = typer.Option(None, "--output-dir", "-o"),
+    metadata_only: bool = typer.Option(False, "--metadata-only"),
+) -> None:
+    """Write a reproducible Qortex workflow recipe."""
+    from qortex.decision import Recipe, write_recipe
+
+    try:
+        recipe = Recipe(
+            dataset_id=dataset_id,
+            snapshot=snapshot,
+            modality=modality,
+            target=target,
+            split=split,
+            goal=goal,
+            output_dir=str(output_dir) if output_dir else None,
+            metadata_only=metadata_only,
+        )
+    except Exception as exc:
+        typer.echo(f"Invalid recipe: {exc}", err=True)
+        raise typer.Exit(2)
+    write_recipe(recipe, output)
+    typer.echo(f"Recipe saved to {output}")
+
+
+@app.command("run-recipe")
+def run_recipe_cmd(
+    recipe_path: Path = typer.Argument(..., help="Recipe JSON path"),
+    download: bool = typer.Option(False, "--download", help="Execute the planned download"),
+) -> None:
+    """Load a Qortex recipe and run its minimum download decision."""
+    from qortex.decision import read_recipe
+    from qortex.fetch.engine import DownloadEngine
+
+    recipe = read_recipe(recipe_path)
+    ds = _dataset(recipe.dataset_id, recipe.snapshot)
+    report = ds.minimum(
+        goal=recipe.goal,
+        modality=recipe.modality,
+        target=recipe.target,
+        output_dir=Path(recipe.output_dir) if recipe.output_dir else None,
+    )
+    typer.echo(report.to_text())
+    if download:
+        result = DownloadEngine().execute(report.plan)
+        typer.echo(result.report())
 
 
 # ── plan ──────────────────────────────────────────────────────────────────────
@@ -482,12 +680,56 @@ def login(
 @app.command()
 def catalog_refresh(
     max_pages: int = typer.Option(40, "--max-pages"),
+    page_size: int = typer.Option(50, "--page-size"),
+    deep: bool = typer.Option(False, "--deep", help="Also fetch recursive file manifests and digest file summaries"),
+    deep_limit: Optional[int] = typer.Option(None, "--deep-limit", help="Limit how many datasets receive deep file-summary ingestion"),
 ) -> None:
     """Refresh the local dataset catalog from OpenNeuro."""
     from qortex.catalog.refresh import refresh as do_refresh
     typer.echo("Refreshing catalog …")
-    n = do_refresh(max_pages=max_pages, progress=True)
+    n = do_refresh(
+        max_pages=max_pages,
+        page_size=page_size,
+        include_file_summary=deep,
+        file_summary_limit=deep_limit,
+        progress=True,
+    )
     typer.echo(f"Done. {n} datasets in catalog.")
+
+
+@app.command("catalog-profile")
+def catalog_profile(
+    dataset_id: str = typer.Argument(..., help="Dataset ID, e.g. ds000001"),
+    refresh: bool = typer.Option(False, "--refresh", help="Fetch and index this dataset before printing"),
+    deep: bool = typer.Option(True, "--deep/--metadata-only", help="When refreshing, ingest recursive file summaries"),
+    output_json: Optional[Path] = typer.Option(None, "--json-output"),
+) -> None:
+    """Print a digested local catalog profile for one dataset."""
+    if refresh:
+        from qortex.catalog.refresh import refresh_dataset
+
+        profile = refresh_dataset(dataset_id, include_file_summary=deep)
+    else:
+        from qortex.catalog.index import CatalogIndex
+        from qortex.core.config import get_config
+
+        cfg = get_config()
+        index = CatalogIndex(cfg.cache_dir / "catalog" / "catalog.duckdb")
+        try:
+            profile = index.profile(dataset_id)
+        finally:
+            index.close()
+        if profile is None:
+            typer.echo(f"{dataset_id} is not in the local catalog. Run with --refresh.", err=True)
+            raise typer.Exit(1)
+
+    typer.echo(_profile_text(profile))
+    if output_json:
+        output_json.parent.mkdir(parents=True, exist_ok=True)
+        import json
+
+        output_json.write_text(json.dumps(profile, indent=2, default=str), encoding="utf-8")
+        typer.echo(f"\nJSON profile saved to {output_json}")
 
 
 # ── dashboard ─────────────────────────────────────────────────────────────────
@@ -516,6 +758,46 @@ def dashboard(
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
+
+def _dataset(dataset_id: str, snapshot: str | None):
+    from qortex import Dataset
+
+    return Dataset(dataset_id, snapshot=snapshot)
+
+
+def _write_model_json(model, path: Path | None) -> None:
+    if path is None:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(model.model_dump_json(indent=2), encoding="utf-8")
+    typer.echo(f"\nJSON report saved to {path}")
+
+
+def _profile_text(profile: dict[str, Any]) -> str:
+    lines = [
+        f"Dataset    : {profile.get('dataset_id')}",
+        f"Name       : {profile.get('name')}",
+        f"Snapshot   : {profile.get('snapshot')}",
+        f"Subjects   : {profile.get('n_subjects')}",
+        f"Sessions   : {profile.get('n_sessions')}",
+        f"Files      : {profile.get('n_files')}",
+        f"Size       : {(profile.get('total_bytes') or 0) / 1e9:.2f} GB",
+        f"License    : {profile.get('license')}",
+        f"DOI        : {profile.get('doi')}",
+        f"Modalities : {', '.join(profile.get('modalities') or [])}",
+        f"Tasks      : {', '.join(profile.get('tasks') or [])}",
+        f"Events     : {profile.get('has_events')} ({profile.get('n_event_files')} files)",
+        f"Derivatives: {profile.get('has_derivatives')} ({profile.get('n_derivative_files')} files)",
+    ]
+    summaries = profile.get("file_summaries") or []
+    if summaries:
+        lines.append("File summary:")
+        for row in summaries[:20]:
+            lines.append(
+                f"  {row.get('category')}={row.get('value')}  files={row.get('n_files')}  bytes={row.get('bytes') or 0}"
+            )
+    return "\n".join(lines)
+
 
 def _fetch_files(client, dataset_id: str, snapshot: str | None):
     """Resolve the latest (or named) snapshot and return (snap_ref, raw_files)."""
