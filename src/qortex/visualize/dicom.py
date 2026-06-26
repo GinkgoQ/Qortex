@@ -3,7 +3,7 @@
 Supports:
 - Listing all series in a study directory (multi-series folder)
 - Inspecting a single series: geometry, modality, orientation, window settings
-- Generating an HTML study/series browser (table view)
+- Generating an HTML study/series browser (series table with modality icons)
 - Loading a DICOM series as a sorted 3D numpy array (via SimpleITK or pydicom)
 
 No PACS/DICOMweb in this module — that belongs to qortex.connectors.dicomweb.
@@ -11,6 +11,7 @@ No PACS/DICOMweb in this module — that belongs to qortex.connectors.dicomweb.
 
 from __future__ import annotations
 
+import html as _html_lib
 import logging
 from pathlib import Path
 from typing import Any
@@ -260,11 +261,20 @@ class DicomSeriesBrowser:
     """HTML series browser for a DICOM study directory (panel 7 style).
 
     Lists all series with modality, image count, description, date,
-    and a thumbnail preview of the middle slice.
+    and a small thumbnail of the middle slice (if pixel data is readable).
+
+    Parameters
+    ----------
+    directory:
+        Path to the DICOM study directory.
+    show_phi:
+        When False (default), anonymize patient ID and hide date-of-birth.
+        Set True to show full patient metadata.
     """
 
-    def __init__(self, directory: Path | str) -> None:
+    def __init__(self, directory: Path | str, *, show_phi: bool = False) -> None:
         self.directory = Path(directory)
+        self.show_phi = show_phi
         self._series: list[DicomSeries] | None = None
         self._study_meta: dict = {}
 
@@ -294,26 +304,55 @@ class DicomSeriesBrowser:
                 pass
 
     def _modality_icon(self, modality: str) -> str:
-        icons = {"MR": "🧠", "CT": "🦴", "PT": "☢️", "US": "🔊", "XA": "📡", "CR": "📷"}
-        return icons.get(modality.upper(), "📄")
+        icons = {"MR": "MR", "CT": "CT", "PT": "PT", "US": "US", "XA": "XA", "CR": "CR"}
+        return icons.get(modality.upper(), modality.upper() or "?")
 
-    def to_html(self) -> str:
+    def _render_series_thumbnail(self, series: "DicomSeries") -> str | None:
+        """Render middle slice of series as base64 PNG thumbnail (32×32 display)."""
+        if not series.files:
+            return None
+        try:
+            pydicom = _require_pydicom()
+            mid_file = series.files[len(series.files) // 2]
+            ds = pydicom.dcmread(str(mid_file), stop_before_pixels=False, force=True)
+            arr = ds.pixel_array.astype(np.float32)
+            if hasattr(ds, "RescaleSlope"):
+                arr = arr * float(ds.RescaleSlope) + float(getattr(ds, "RescaleIntercept", 0))
+            # Auto-window
+            from qortex.visualize._colors import auto_window
+            modality = series.modality.lower()
+            vmin, vmax = auto_window(arr, "ct" if modality == "ct" else "mri")
+            from qortex.visualize._html import array_to_b64png
+            return array_to_b64png(arr, vmin, vmax, "gray", flip_ud=False)
+        except Exception as exc:
+            log.debug("Thumbnail failed for series %s: %s", series.series_uid[:8], exc)
+            return None
+
+    def to_html(self, *, show_phi: bool | None = None) -> str:
         try:
             series_list = self.scan()
         except Exception as exc:
             return self._error_html(str(exc))
 
+        # Determine PHI visibility: method param overrides constructor default
+        _show_phi = show_phi if show_phi is not None else self.show_phi
+
+        def _e(v: str) -> str:
+            """Escape and truncate for safe HTML injection."""
+            return _html_lib.escape(str(v)[:200])
+
         study = self._study_meta
-        study_desc = study.get("study_description", str(self.directory.name))
-        patient_id = study.get("patient_id", "ANON")
-        dob = study.get("patient_dob", "")
-        sex = study.get("patient_sex", "")
-        study_date = study.get("study_date", "")
+        study_desc = _e(study.get("study_description", str(self.directory.name)))
+        patient_id = _e(study.get("patient_id", "ANON")) if _show_phi else "ANON"
+        sex = _e(study.get("patient_sex", "")) if _show_phi else ""
+        study_date = _e(study.get("study_date", ""))
+        # Only show DOB when PHI is enabled
+        dob = _e(study.get("patient_dob", "")) if _show_phi else ""
 
         # Format date
         if len(study_date) == 8:
             study_date = f"{study_date[:4]}-{study_date[4:6]}-{study_date[6:]}"
-        if len(dob) == 8:
+        if dob and len(dob) == 8:
             dob = f"{dob[:4]}-{dob[4:6]}-{dob[6:]}"
 
         rows_html = ""
@@ -322,14 +361,24 @@ class DicomSeriesBrowser:
             selected = ' style="background:#1a2a3a;border-left:3px solid #6af"' if i == 0 else ""
             date_str = f"{s.date[:4]}-{s.date[4:6]}-{s.date[6:]}" if len(s.date) == 8 else s.date
             time_str = f"{s.time[:2]}:{s.time[2:4]}" if len(s.time) >= 4 else s.time
+            desc_html = _e(s.description or "—")
+            thumb = self._render_series_thumbnail(s)
+            thumb_html = (
+                f'<img src="data:image/png;base64,{thumb}" '
+                f'style="width:32px;height:32px;object-fit:contain;image-rendering:pixelated;" alt="">'
+                if thumb else
+                f'<span style="display:inline-block;width:32px;height:32px;background:#2a2a2a;'
+                f'border-radius:3px;text-align:center;line-height:32px;font-size:0.7em;color:#666">'
+                f'{icon}</span>'
+            )
             rows_html += f"""
 <tr{selected} onclick="selectSeries({i})" style="cursor:pointer">
-  <td style="padding:8px 4px;text-align:center;font-size:1.2em">{icon}</td>
+  <td style="padding:4px 8px;text-align:center">{thumb_html}</td>
   <td style="padding:8px 12px;color:#ccc">{s.series_number}</td>
-  <td style="padding:8px 12px;color:#fff;font-weight:500">{s.description or '—'}</td>
-  <td style="padding:8px 12px;color:#6af">{s.modality}</td>
+  <td style="padding:8px 12px;color:#fff;font-weight:500">{desc_html}</td>
+  <td style="padding:8px 12px;color:#6af">{_e(s.modality)}</td>
   <td style="padding:8px 12px;color:#aaa;text-align:right">{s.n_images}</td>
-  <td style="padding:8px 12px;color:#888;font-size:0.85em">{date_str} {time_str}</td>
+  <td style="padding:8px 12px;color:#888;font-size:0.85em">{_e(date_str)} {_e(time_str)}</td>
 </tr>"""
 
         detail_items = ""
@@ -339,16 +388,17 @@ class DicomSeriesBrowser:
             detail_items += f"""
 <div id="detail_{i}" style="display:{display};padding:12px 0">
   <table style="border-collapse:collapse;font-size:0.85em">
-    <tr><td style="color:#888;padding:3px 16px 3px 0">Description</td><td style="color:#ccc">{s.description}</td></tr>
-    <tr><td style="color:#888;padding:3px 16px 3px 0">Modality</td><td style="color:#6af">{s.modality}</td></tr>
+    <tr><td style="color:#888;padding:3px 16px 3px 0">Description</td><td style="color:#ccc">{_e(s.description)}</td></tr>
+    <tr><td style="color:#888;padding:3px 16px 3px 0">Modality</td><td style="color:#6af">{_e(s.modality)}</td></tr>
     <tr><td style="color:#888;padding:3px 16px 3px 0">Shape</td><td style="color:#ccc">{s.rows} × {s.cols} × {s.n_images}</td></tr>
-    <tr><td style="color:#888;padding:3px 16px 3px 0">Spacing</td><td style="color:#ccc">{s.spacing_str}</td></tr>
-    <tr><td style="color:#888;padding:3px 16px 3px 0">Window</td><td style="color:#ccc">{wc_str}</td></tr>
-    <tr><td style="color:#888;padding:3px 16px 3px 0">Manufacturer</td><td style="color:#888">{s.manufacturer}</td></tr>
-    <tr><td style="color:#888;padding:3px 16px 3px 0">Series UID</td><td style="color:#555;font-size:0.75em;word-break:break-all">{s.series_uid[:40]}…</td></tr>
+    <tr><td style="color:#888;padding:3px 16px 3px 0">Spacing</td><td style="color:#ccc">{_e(s.spacing_str)}</td></tr>
+    <tr><td style="color:#888;padding:3px 16px 3px 0">Window</td><td style="color:#ccc">{_e(wc_str)}</td></tr>
+    <tr><td style="color:#888;padding:3px 16px 3px 0">Manufacturer</td><td style="color:#888">{_e(s.manufacturer)}</td></tr>
+    <tr><td style="color:#888;padding:3px 16px 3px 0">Series UID</td><td style="color:#555;font-size:0.75em;word-break:break-all">{_e(s.series_uid[:40])}…</td></tr>
   </table>
 </div>"""
 
+        dob_row = f'<span>DOB: {dob}</span>' if dob else ""
         js = f"""
 function selectSeries(idx) {{
   var n = {len(series_list)};
@@ -388,7 +438,7 @@ function selectSeries(idx) {{
 <div class="study-header">
   <span>Study: <b>{study_desc}</b></span>
   <span>Patient ID: <b>{patient_id}</b></span>
-  <span>DOB: {dob}</span>
+  {dob_row}
   <span>Sex: {sex}</span>
   <span>Date: {study_date}</span>
 </div>
@@ -397,7 +447,7 @@ function selectSeries(idx) {{
     <table>
       <thead>
         <tr>
-          <th style="width:32px"></th>
+          <th style="width:40px">Thumb</th>
           <th>#</th>
           <th>Description</th>
           <th>Modality</th>

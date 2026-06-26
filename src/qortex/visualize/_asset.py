@@ -333,15 +333,30 @@ class VisualResult:
         out = Path(path)
         if self.png_bytes:
             out.write_bytes(self.png_bytes)
-        elif self.figures:
+            return out
+        if self.figures:
             try:
                 import plotly.io as pio
                 pio.write_image(self.figures[0], str(out))
-            except ImportError:
-                raise RuntimeError("PNG export requires kaleido: pip install kaleido")
-        else:
-            raise RuntimeError("No renderable output available")
-        return out
+                return out
+            except Exception:
+                pass
+        # Last resort: render center-slice PNG from the asset
+        if self.asset.family == "nifti" and self.asset.path.exists():
+            try:
+                from qortex.visualize.volume import VolumeViewer
+                from qortex.visualize._html import array_to_b64png
+                import base64
+                viewer = VolumeViewer(self.asset.path, modality=self.asset.modality)
+                vol3d = viewer._vol3d()
+                cz = vol3d.shape[2] // 2
+                slc = vol3d[:, :, cz].T[::-1, :]
+                b64 = array_to_b64png(slc, viewer._vmin, viewer._vmax, viewer.colormap)
+                out.write_bytes(base64.b64decode(b64))
+                return out
+            except Exception as exc:
+                raise RuntimeError(f"Cannot export PNG: {exc}")
+        raise RuntimeError("No renderable output available for PNG export")
 
     def to_provenance_dict(self) -> dict:
         return {

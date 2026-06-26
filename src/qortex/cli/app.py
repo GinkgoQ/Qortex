@@ -732,6 +732,128 @@ def catalog_profile(
         typer.echo(f"\nJSON profile saved to {output_json}")
 
 
+# ── visualize ────────────────────────────────────────────────────────────────
+
+@app.command("visualize")
+def visualize_cmd(
+    path: Path = typer.Argument(..., help="File or directory to visualize"),
+    mode: str = typer.Option("auto", "--mode", "-m", help="Rendering mode: auto|static|interactive|thumbnail|summary"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Write HTML/PNG output to this path"),
+    colormap: Optional[str] = typer.Option(None, "--colormap", help="Matplotlib colormap name (e.g. gray, hot, plasma)"),
+    modality: Optional[str] = typer.Option(None, "--modality", help="Override modality: mri|ct|pet|fmri|eeg"),
+    open_browser: bool = typer.Option(False, "--open", help="Open the result in the default browser"),
+) -> None:
+    """Inspect and render a local neuroimaging file (NIfTI, DICOM, EEG, …)."""
+    try:
+        from qortex import visualize as _viz
+    except ImportError as exc:
+        typer.echo(
+            f"Visualization dependencies not installed: {exc}\n"
+            "Install with: pip install qortex[visual]",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    if not path.exists():
+        typer.echo(f"Path does not exist: {path}", err=True)
+        raise typer.Exit(1)
+
+    typer.echo(f"Inspecting {path} …")
+    try:
+        asset = _viz.inspect(path)
+    except Exception as exc:
+        typer.echo(f"Inspection failed: {exc}", err=True)
+        raise typer.Exit(1)
+
+    typer.echo(asset.summary())
+
+    if mode == "summary":
+        return  # Summary-only mode — don't render
+
+    # Override modality if provided
+    if modality:
+        asset.modality = modality
+
+    typer.echo(f"\nRendering (mode={mode}) …")
+    kwargs: dict = {}
+    if colormap:
+        kwargs["colormap"] = colormap
+
+    try:
+        result = asset.render(mode=mode, **kwargs)
+    except Exception as exc:
+        typer.echo(f"Rendering failed: {exc}", err=True)
+        raise typer.Exit(1)
+
+    if output:
+        suffix = output.suffix.lower()
+        if suffix == ".png":
+            result.to_png(output)
+            typer.echo(f"PNG saved to {output}")
+        else:
+            result.to_html(output, write_sidecar=True)
+            typer.echo(f"HTML saved to {output}")
+    elif open_browser:
+        result.show()
+        typer.echo("Opened in browser.")
+    else:
+        if result.html:
+            typer.echo(f"HTML rendered ({len(result.html)} chars). Use --output or --open to save/view.")
+        elif result.png_bytes:
+            typer.echo(f"PNG rendered ({len(result.png_bytes)} bytes). Use --output to save.")
+        else:
+            typer.echo("Rendering produced no output.")
+
+
+@app.command("dicom-browser")
+def dicom_browser_cmd(
+    directory: Path = typer.Argument(..., help="DICOM series directory to browse"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Write HTML to this path"),
+    show_phi: bool = typer.Option(False, "--show-phi", help="Include patient identifiable information in output"),
+    open_browser: bool = typer.Option(False, "--open", help="Open the result in the default browser"),
+) -> None:
+    """Browse a DICOM series directory and render an interactive series table."""
+    try:
+        from qortex.visualize.dicom import DicomSeriesBrowser
+    except ImportError as exc:
+        typer.echo(
+            f"DICOM dependencies not installed: {exc}\n"
+            "Install with: pip install qortex[dicom]",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    if not directory.exists() or not directory.is_dir():
+        typer.echo(f"Directory does not exist: {directory}", err=True)
+        raise typer.Exit(1)
+
+    typer.echo(f"Scanning DICOM directory: {directory} …")
+    try:
+        browser = DicomSeriesBrowser(directory, show_phi=show_phi)
+        series_list = browser.scan()
+    except Exception as exc:
+        typer.echo(f"DICOM scan failed: {exc}", err=True)
+        raise typer.Exit(1)
+
+    typer.echo(f"Found {len(series_list)} series:")
+    for s in series_list:
+        typer.echo(f"  [{s.modality}] {s.description or '(no description)'}  ({s.n_images} images)")
+
+    html = browser.to_html(show_phi=show_phi)
+
+    if output:
+        output.write_text(html, encoding="utf-8")
+        typer.echo(f"\nHTML browser saved to {output}")
+    elif open_browser:
+        import tempfile, webbrowser
+        with tempfile.NamedTemporaryFile(suffix=".html", delete=False, mode="w") as f:
+            f.write(html)
+            webbrowser.open(f"file://{f.name}")
+        typer.echo("Opened in browser.")
+    else:
+        typer.echo(f"HTML generated ({len(html)} chars). Use --output or --open to save/view.")
+
+
 # ── dashboard ─────────────────────────────────────────────────────────────────
 
 @app.command()

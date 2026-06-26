@@ -218,6 +218,16 @@ _VIEWER_JS = r"""
     return arr[best];
   }
 
+  function getTimeSlice(t) {
+    if (!DATA.slices_t || !DATA.si_t) return null;
+    var best = 0, bestDist = Math.abs(DATA.si_t[0] - t);
+    for (var i = 1; i < DATA.si_t.length; i++) {
+      var d = Math.abs(DATA.si_t[i] - t);
+      if (d < bestDist) { bestDist = d; best = i; }
+    }
+    return DATA.slices_t[best];
+  }
+
   function updateView() {
     document.getElementById('img-axial').src    = b64img(getSlice('z', state.z));
     document.getElementById('img-coronal').src  = b64img(getSlice('y', state.y));
@@ -226,7 +236,7 @@ _VIEWER_JS = r"""
     document.getElementById('lbl-y').textContent = 'y=' + state.y;
     document.getElementById('lbl-x').textContent = 'x=' + state.x;
     if (DATA.n_volumes > 1) {
-      var tSlice = DATA.slices_t ? DATA.slices_t[state.t] : null;
+      var tSlice = getTimeSlice(state.t);
       if (tSlice) document.getElementById('img-time').src = b64img(tSlice);
       document.getElementById('lbl-t').textContent = 't=' + state.t +
         (DATA.tr ? '  (' + (state.t * DATA.tr).toFixed(1) + 's)' : '');
@@ -238,11 +248,19 @@ _VIEWER_JS = r"""
     updateView();
   }
 
-  function applyPreset(center, width) {
-    // Re-fetch with new window by reloading (client-side windowing not implemented)
-    // Show indicator that preset was applied (server would re-render in full impl)
+  function applyPreset(name) {
+    if (!DATA.windows || !DATA.windows[name]) return;
+    var w = DATA.windows[name];
+    DATA.slices_x = w.slices_x; DATA.si_x = w.si_x;
+    DATA.slices_y = w.slices_y; DATA.si_y = w.si_y;
+    DATA.slices_z = w.slices_z; DATA.si_z = w.si_z;
+    document.querySelectorAll('.preset-btn').forEach(function(b) {
+      b.style.background = (b.dataset.preset === name) ? '#1a3a5a' : '#2a2a2a';
+      b.style.color = (b.dataset.preset === name) ? '#6af' : '#aaa';
+    });
     var info = document.getElementById('window-info');
-    if (info) info.textContent = 'W:' + width + ' L:' + center;
+    if (info) info.textContent = name;
+    updateView();
   }
 
   document.addEventListener('keydown', function(e) {
@@ -282,6 +300,8 @@ def build_interactive_html(
     n_volumes: int = 1,
     tr: float | None = None,
     slices_t: list[str] | None = None,
+    si_t: list[int] | None = None,
+    ct_window_stacks: dict | None = None,
 ) -> str:
     """Build a standalone interactive orthogonal viewer HTML page."""
     nx, ny, nz = shape[:3]
@@ -298,21 +318,25 @@ def build_interactive_html(
     }
     if slices_t:
         data_obj["slices_t"] = slices_t
+    if si_t is not None:
+        data_obj["si_t"] = si_t
+    if ct_window_stacks:
+        data_obj["windows"] = ct_window_stacks
 
     data_json = json.dumps(data_obj)
 
     ct_buttons = ""
     if modality == "ct":
         presets = [
-            ("Brain", 40, 80),
-            ("Soft tissue", 60, 400),
-            ("Bone", 500, 2000),
-            ("Lung", -600, 1500),
-            ("Subdural", 100, 300),
+            ("Brain", "brain"),
+            ("Soft tissue", "soft_tissue"),
+            ("Bone", "bone"),
+            ("Lung", "lung"),
+            ("Subdural", "subdural"),
         ]
         buttons = " ".join(
-            f'<button class="preset-btn" onclick="applyPreset({c},{w})">{n}</button>'
-            for n, c, w in presets
+            f'<button class="preset-btn" data-preset="{key}" onclick="applyPreset(\'{key}\')">{label}</button>'
+            for label, key in presets
         )
         ct_buttons = f"""
         <div class="footer">

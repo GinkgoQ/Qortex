@@ -36,7 +36,7 @@ log = logging.getLogger(__name__)
 
 # ── Extension maps ────────────────────────────────────────────────────────────
 
-_NIFTI_EXTS = frozenset({".nii", ".gz", ".mgz", ".mgh", ".mnc"})
+_NIFTI_EXTS = frozenset({".nii", ".mgz", ".mgh", ".mnc"})
 _DICOM_EXTS = frozenset({".dcm", ".dicom", ".ima"})
 _EEG_EXTS   = frozenset({".edf", ".bdf", ".fif", ".set", ".cnt", ".vhdr", ".gdf", ".mff", ".egi"})
 _GIFTI_EXTS = frozenset({".gii"})
@@ -179,10 +179,13 @@ def _inspect_nifti(path: Path) -> VisualAsset:
             asset.intent = INTENT_STAT_MAP
             asset.is_stat_map = True
 
-        # Mask/labelmap detection: small number of unique values in header
-        if asset.ndim == 3 and "int" in asset.dtype:
+        # Mask/labelmap detection: filename/BIDS suffix based only (not dtype)
+        suffix_l = bids_suffix.lower()
+        name_l = path.name.lower()
+        if any(kw in suffix_l or kw in name_l
+               for kw in ("mask", "seg", "dseg", "label", "atlas", "aparc", "aseg")):
             asset.is_mask = True
-            asset.intent = INTENT_MASK
+            asset.intent = INTENT_MASK if "mask" in suffix_l or "mask" in name_l else INTENT_LABELMAP
 
         # Large file flag (~4 GB threshold)
         if asset.estimated_memory_mb > 4000:
@@ -333,6 +336,65 @@ def _inspect_eeg(path: Path) -> VisualAsset:
     return asset
 
 
+# ── Directory inspection ──────────────────────────────────────────────────────
+
+def _inspect_directory(path: Path) -> VisualAsset:
+    """Classify a directory by its contents before treating it as DICOM."""
+    _dcm_exts = {".dcm", ".dicom", ".ima"}
+
+    # 1. Check for DICOM files
+    try:
+        dcm_candidates = [
+            f for f in path.iterdir()
+            if f.is_file() and (
+                f.suffix.lower() in _dcm_exts
+                or (not f.suffix and f.name.isdigit())
+            )
+        ]
+    except PermissionError:
+        dcm_candidates = []
+
+    if dcm_candidates:
+        return _inspect_dicom(path)
+
+    # 2. BIDS dataset root
+    if (path / "dataset_description.json").exists():
+        asset = VisualAsset(path=path, family="bids_dataset")
+        asset.intent = "dataset_collection"
+        asset.recommended_view = "summary"
+        asset.warn("bids_root",
+                   "This is a BIDS dataset root. Use qortex.visualize.inspect() on individual files.",
+                   "info")
+        return asset
+
+    # 3. Qortex artifact
+    if (path / "artifact_manifest.json").exists():
+        asset = VisualAsset(path=path, family="qortex_artifact")
+        asset.intent = INTENT_UNKNOWN
+        asset.warn("artifact_dir", "Qortex artifact directory", "info")
+        return asset
+
+    # 4. Try subdirectories for DICOM series (multi-series study folder)
+    try:
+        for subdir in sorted(path.iterdir()):
+            if subdir.is_dir():
+                try:
+                    sub_dcm = [
+                        f for f in subdir.iterdir()
+                        if f.is_file() and f.suffix.lower() in _dcm_exts
+                    ]
+                    if sub_dcm:
+                        return _inspect_dicom(path)  # multi-series study folder
+                except PermissionError:
+                    continue
+    except PermissionError:
+        pass
+
+    asset = VisualAsset(path=path, family="unknown")
+    asset.warn("unknown_directory", "Directory type could not be determined", "warning")
+    return asset
+
+
 # ── Main inspection entry point ───────────────────────────────────────────────
 
 def inspect_file(source: Any) -> VisualAsset:
@@ -415,10 +477,10 @@ def inspect_file(source: Any) -> VisualAsset:
         asset.recommended_view = MODE_STATIC
         return asset
 
-    if suffix in _DICOM_EXTS or path.is_dir():
-        # DICOM file or series directory
-        if path.is_dir():
-            return _inspect_dicom(path)
+    if path.is_dir():
+        return _inspect_directory(path)
+
+    if suffix in _DICOM_EXTS:
         # Single DICOM file
         try:
             import pydicom
@@ -428,7 +490,8 @@ def inspect_file(source: Any) -> VisualAsset:
             asset.warn("pydicom_missing", "pydicom not installed", "info")
             return asset
 
-    if suffix in _NIFTI_EXTS or (suffix == ".gz" and ".nii" in name_lower):
+    is_nifti = (suffix in _NIFTI_EXTS) or name_lower.endswith(".nii.gz")
+    if is_nifti:
         return _inspect_nifti(path)
 
     # Unknown extension — try NIfTI, then give up
@@ -558,15 +621,40 @@ def _render_volume(asset: VisualAsset, plan: VisualPlan, **kwargs) -> VisualResu
             window=plan.window_preset,
             colormap=plan.colormap,
         )
+
+        if plan.mode == "summary":
+            return _render_summary_only(asset, plan)
+
+        elif plan.mode == "thumbnail":
+            # Fast single-slice PNG
+            vol3d = viewer._vol3d()
+            from qortex.visualize._html import array_to_b64png
+            import base64
+            cz = vol3d.shape[2] // 2
+            slc = vol3d[:, :, cz].T
+            b64 = array_to_b64png(slc, viewer._vmin, viewer._vmax, viewer.colormap)
+            png_bytes = base64.b64decode(b64)
+            return VisualResult(asset=asset, plan=plan, png_bytes=png_bytes,
+                                warnings=list(asset.warnings))
+
+        elif plan.mode == "static":
+            # Ortho view via plotly (returns figures)
+            try:
+                fig = viewer.ortho(title=kwargs.get("title", ""))
+                result = VisualResult(asset=asset, plan=plan, figures=[fig],
+                                      warnings=list(asset.warnings))
+                return result
+            except ImportError:
+                pass  # fall through to interactive
+
+        # Default / interactive_html
         html = viewer.interactive_html(
-            title=f"{asset.intent.replace('_', ' ').title()} — {asset.path.name}",
+            title=kwargs.get("title", f"{asset.intent.replace('_', ' ').title()} — {asset.path.name}"),
             max_slices_per_axis=80,
         )
-        return VisualResult(
-            asset=asset, plan=plan, html=html,
-            warnings=list(asset.warnings),
-            provenance={"renderer": "VolumeViewer", "path": str(asset.path)},
-        )
+        return VisualResult(asset=asset, plan=plan, html=html,
+                            warnings=list(asset.warnings),
+                            provenance={"renderer": "VolumeViewer", "path": str(asset.path)})
     except Exception as exc:
         result = _render_summary_only(asset, plan, str(exc))
         result.warnings.append(VisualWarning(

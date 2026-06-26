@@ -82,6 +82,8 @@ def _check_geometry(
     base: np.ndarray, overlay: np.ndarray,
     base_affine: np.ndarray | None, overlay_affine: np.ndarray | None,
     resample: bool,
+    allow_affine_mismatch: bool = False,
+    interp_order: int = 0,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Verify / resample overlay to match base geometry."""
     if not _shapes_match_3d(base, overlay):
@@ -98,14 +100,21 @@ def _check_geometry(
             ov_aff = overlay_affine if overlay_affine is not None else np.eye(4)
             base_img = nib.Nifti1Image(base, aff)
             ov_img = nib.Nifti1Image(overlay.astype(np.float32), ov_aff)
-            resampled = nbp.resample_from_to(ov_img, base_img, order=0)
+            resampled = nbp.resample_from_to(ov_img, base_img, order=interp_order)
             overlay = np.asarray(resampled.dataobj)
             log.info("Resampled overlay from %s to %s", overlay.shape, base.shape[:3])
         except ImportError:
             raise ImportError("Resampling requires nibabel: pip install nibabel")
 
     if not _affines_close(base_affine, overlay_affine):
-        log.warning("Affine mismatch between base and overlay — verify alignment.")
+        if allow_affine_mismatch:
+            log.warning("Affine mismatch between base and overlay — alignment may be incorrect.")
+        else:
+            raise OverlayGeometryError(
+                "Affine mismatch: base and overlay have different world-space geometry. "
+                "Pass allow_affine_mismatch=True to override (may produce misaligned images), "
+                "or resample=True to resample overlay into base space."
+            )
 
     return base, overlay
 
@@ -255,6 +264,7 @@ def overlay_mask(
     alpha: float = 0.5,
     title: str = "Mask Overlay",
     resample: bool = False,
+    allow_affine_mismatch: bool = False,
 ) -> VisualResult:
     """Overlay a binary mask on an anatomical image.
 
@@ -266,10 +276,15 @@ def overlay_mask(
     title:  HTML title string.
     resample:
         If True, resample mask to base geometry when shapes differ.
+    allow_affine_mismatch:
+        If True, allow overlay when affines differ (may produce misaligned images).
     """
     base_vol, base_aff = _load_vol(base)
     mask_vol, mask_aff = _load_vol(mask)
-    base_vol, mask_vol = _check_geometry(base_vol, mask_vol, base_aff, mask_aff, resample)
+    base_vol, mask_vol = _check_geometry(
+        base_vol, mask_vol, base_aff, mask_aff, resample,
+        allow_affine_mismatch=allow_affine_mismatch, interp_order=0,
+    )
     vmin, vmax = auto_window(base_vol, "mri")
 
     asset = inspect_file(base if not isinstance(base, np.ndarray) else base)
@@ -290,6 +305,7 @@ def overlay_labelmap(
     alpha: float = 0.45,
     title: str = "Segmentation Overlay",
     resample: bool = False,
+    allow_affine_mismatch: bool = False,
 ) -> VisualResult:
     """Overlay a multi-label segmentation/atlas on an anatomical image.
 
@@ -297,7 +313,10 @@ def overlay_labelmap(
     """
     base_vol, base_aff = _load_vol(base)
     label_vol, label_aff = _load_vol(labels)
-    base_vol, label_vol = _check_geometry(base_vol, label_vol, base_aff, label_aff, resample)
+    base_vol, label_vol = _check_geometry(
+        base_vol, label_vol, base_aff, label_aff, resample,
+        allow_affine_mismatch=allow_affine_mismatch, interp_order=0,
+    )
     vmin, vmax = auto_window(base_vol, "mri")
 
     unique_labels = sorted(int(v) for v in np.unique(label_vol) if v != 0)
@@ -321,6 +340,7 @@ def overlay_stat(
     colormap: str = "RdBu_r",
     title: str = "Statistical Map",
     resample: bool = False,
+    allow_affine_mismatch: bool = False,
 ) -> VisualResult:
     """Overlay a thresholded z/t-map on an anatomical image.
 
@@ -334,7 +354,10 @@ def overlay_stat(
     """
     base_vol, base_aff = _load_vol(base)
     stat_vol, stat_aff = _load_vol(stat_map)
-    base_vol, stat_vol = _check_geometry(base_vol, stat_vol, base_aff, stat_aff, resample)
+    base_vol, stat_vol = _check_geometry(
+        base_vol, stat_vol, base_aff, stat_aff, resample,
+        allow_affine_mismatch=allow_affine_mismatch, interp_order=1,
+    )
     vmin, vmax = auto_window(base_vol, "mri")
 
     n_clusters = int((np.abs(stat_vol) >= threshold).sum())
@@ -359,6 +382,7 @@ def overlay_pet(
     threshold_pct: float = 10.0,
     title: str = "PET Overlay (SUVR)",
     resample: bool = False,
+    allow_affine_mismatch: bool = False,
 ) -> VisualResult:
     """Overlay a PET SUVR map on an anatomical background.
 
@@ -366,7 +390,10 @@ def overlay_pet(
     """
     base_vol, base_aff = _load_vol(base)
     pet_vol, pet_aff = _load_vol(pet)
-    base_vol, pet_vol = _check_geometry(base_vol, pet_vol, base_aff, pet_aff, resample)
+    base_vol, pet_vol = _check_geometry(
+        base_vol, pet_vol, base_aff, pet_aff, resample,
+        allow_affine_mismatch=allow_affine_mismatch, interp_order=1,
+    )
     vmin, vmax = auto_window(base_vol, "mri")
 
     threshold = float(np.percentile(pet_vol[pet_vol > 0], threshold_pct)) if (pet_vol > 0).any() else 0.0

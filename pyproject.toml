@@ -44,8 +44,14 @@ braindecode = ["braindecode>=0.8", "mne>=1.7"]
 sklearn = ["scikit-learn>=1.5"]
 validation = ["pybids>=0.22"]
 dashboard = ["fastapi>=0.111", "uvicorn>=0.30", "streamlit>=1.36", "plotly>=5.22"]
+visual    = ["nibabel>=5.2", "matplotlib>=3.8", "scipy>=1.13", "Pillow>=10.3"]
+dicom     = ["pydicom>=2.4", "nibabel>=5.2", "matplotlib>=3.8", "scipy>=1.13"]
+visual-export = ["plotly>=5.22", "kaleido>=0.2"]
+visual-all = [
+  "qortex[visual,dicom,visual-export]"
+]
 all = [
-  "qortex[eeg,mri,dwi,zarr,hdf5,torch,lightning,hf,ray,dask,braindecode,sklearn,validation,dashboard]"
+  "qortex[eeg,mri,dwi,zarr,hdf5,torch,lightning,hf,ray,dask,braindecode,sklearn,validation,dashboard,visual-all]"
 ]
 
 [project.scripts]

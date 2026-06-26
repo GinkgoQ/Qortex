@@ -90,9 +90,18 @@ class _SignalBundle:
         return np.arange(self.n_samples) / self.sfreq
 
 
-def _load_raw_mne(path: Path) -> _SignalBundle:
+def _load_raw_mne(path: Path, max_duration_s: float = 60.0) -> _SignalBundle:
     mne = _require_mne()
-    raw = mne.io.read_raw(str(path), preload=True, verbose=False)
+    raw = mne.io.read_raw(str(path), preload=False, verbose=False)
+    # Crop to preview window before loading to avoid pulling all data into RAM
+    t_max = min(max_duration_s, raw.times[-1])
+    raw.crop(tmax=t_max)
+    raw.load_data(verbose=False)
+    # Decimate to max 2048 samples per channel for display
+    n_samples = raw.get_data().shape[1]
+    if n_samples > 4096:
+        decim_factor = max(1, n_samples // 2048)
+        raw.resample(raw.info["sfreq"] / decim_factor, verbose=False)
     data = raw.get_data().astype(np.float32)
     return _SignalBundle(
         data=data,
@@ -118,32 +127,49 @@ def _from_ndarray(data: np.ndarray, sfreq: float) -> _SignalBundle:
 
 
 def _from_bold_nifti(path: Path) -> _SignalBundle:
-    """Extract mean BOLD signal from 4D NIfTI as a 1-channel signal."""
+    """Extract mean BOLD signal from 4D NIfTI as a 1-channel signal.
+
+    Uses nibabel ArrayProxy (lazy) — never loads the full 4D volume into RAM.
+    """
     try:
         import nibabel as nib
     except ImportError:
         raise ImportError("BOLD NIfTI requires nibabel: pip install nibabel")
 
     img = nib.load(str(path))
-    vol = img.get_fdata(dtype=np.float32)
-    if vol.ndim != 4:
-        raise ValueError(f"Expected 4D NIfTI, got shape {vol.shape}")
+    proxy = img.dataobj
+    shape = proxy.shape
+    if len(shape) != 4:
+        raise ValueError(f"Expected 4D NIfTI, got shape {shape}")
 
     hdr = img.header
     zooms = hdr.get_zooms()
     tr = float(zooms[3]) if len(zooms) > 3 and zooms[3] > 0 else 2.0
     sfreq = 1.0 / tr
+    n_t = shape[3]
 
-    # Global mean signal + a rough brain mask (voxels > 10% of max)
-    brain_mask = vol.mean(axis=3) > (vol.max() * 0.1)
-    mean_signal = vol[brain_mask, :].mean(axis=0)
+    # Compute brain mask from mean volume (lazy — one frame at a time)
+    step = max(1, n_t // 20)
+    mean_vol = np.zeros(shape[:3], dtype=np.float64)
+    count = 0
+    for t in range(0, n_t, step):
+        mean_vol += np.asarray(proxy[..., t]).astype(np.float64)
+        count += 1
+    mean_vol /= count
+    brain_mask = mean_vol > (mean_vol.max() * 0.1)
+
+    # Extract global mean signal lazily (one frame at a time)
+    signal = np.zeros(n_t, dtype=np.float32)
+    for t in range(n_t):
+        frame = np.asarray(proxy[..., t]).astype(np.float32)
+        signal[t] = float(frame[brain_mask].mean())
 
     return _SignalBundle(
-        data=mean_signal[np.newaxis, :],
+        data=signal[np.newaxis, :],
         sfreq=sfreq,
         ch_names=["BOLD global mean"],
         ch_types=["bold"],
-        info_extra={"tr": tr, "shape": vol.shape},
+        info_extra={"tr": tr, "shape": shape},
     )
 
 
@@ -156,11 +182,17 @@ def _welch_psd(
     noverlap: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Welch's method for power spectral density. Returns (freqs, psd)."""
+    n = len(signal)
+    # Auto-reduce nperseg for short signals
+    nperseg = min(nperseg, n)
+    if nperseg < 4:
+        freqs = np.fft.rfftfreq(4, 1.0 / sfreq)
+        return freqs, np.zeros_like(freqs)
+
     if noverlap is None:
         noverlap = nperseg // 2
 
     step = nperseg - noverlap
-    n = len(signal)
     window = np.hanning(nperseg)
     win_sum_sq = np.sum(window ** 2)
 
@@ -187,12 +219,20 @@ def _stft(
     noverlap: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Short-time Fourier transform. Returns (freqs, times, power_db)."""
+    n = len(signal)
+    # Auto-reduce nperseg for short signals
+    nperseg = min(nperseg, n)
+    if nperseg < 4:
+        freqs = np.fft.rfftfreq(4, 1.0 / sfreq)
+        t_arr = np.array([0.0])
+        power_db = np.full((len(freqs), 1), -60.0, dtype=np.float32)
+        return freqs, t_arr, power_db
+
     if noverlap is None:
         noverlap = nperseg * 3 // 4
 
     step = nperseg - noverlap
     window = np.hanning(nperseg)
-    n = len(signal)
 
     specs = []
     t_centers = []
@@ -234,7 +274,7 @@ class TimeSeriesViewer:
         modality: str | None = None,
     ) -> None:
         self._bundle = self._load(source, sfreq=sfreq)
-        self.modality = modality or self._bundle.ch_types[0] if self._bundle.ch_types else "signal"
+        self.modality = modality or (self._bundle.ch_types[0] if self._bundle.ch_types else "signal")
 
     def _load(self, source: Any, sfreq: float | None) -> _SignalBundle:
         mne = _try_mne()

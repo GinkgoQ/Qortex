@@ -39,7 +39,7 @@ from qortex.visualize._html import (
 
 log = logging.getLogger(__name__)
 
-_NIFTI_EXTS = frozenset({".nii", ".gz", ".mgz", ".mgh"})
+_NIFTI_EXTS = frozenset({".nii", ".mgz", ".mgh"})
 _DICOM_EXTS = frozenset({".dcm", ".dicom", ".ima", ".img"})
 
 
@@ -86,91 +86,79 @@ def _voxel_sizes_from_affine(affine: np.ndarray) -> tuple[float, float, float]:
     return tuple(float(v) for v in np.sqrt(np.sum(affine[:3, :3] ** 2, axis=0)))
 
 
-def _load_nifti(path: Path) -> tuple[np.ndarray, np.ndarray, dict]:
-    """Load NIfTI file; returns (data_proxy, affine, header_meta)."""
-    nib = _require_nibabel()
-    img = nib.load(str(path))
-    data = img.get_fdata(dtype=np.float32)
-    affine = img.affine
-    hdr = img.header
-    zooms = tuple(float(z) for z in hdr.get_zooms())
-    meta: dict = {
-        "shape": data.shape,
-        "zooms": zooms,
-        "dtype": str(img.get_data_dtype()),
-        "intent_code": int(hdr.get("intent_code", 0)) if hasattr(hdr, "get") else 0,
-    }
-    return data, affine, meta
+# ── Lazy NIfTI accessor ───────────────────────────────────────────────────────
 
+class _LazyNIfTI:
+    """Memory-mapped NIfTI accessor. Reads slices on demand, no full-volume load."""
 
-def _load_dicom_series(path: Path) -> tuple[np.ndarray, np.ndarray, dict]:
-    """Reconstruct a 3D volume from a DICOM series directory or single file."""
-    pydicom = _require_pydicom()
-
-    if path.is_file():
-        ds = pydicom.dcmfile(path)
-        pixel_array = ds.pixel_array.astype(np.float32)
-        if hasattr(ds, "RescaleSlope"):
-            pixel_array = pixel_array * float(ds.RescaleSlope) + float(ds.RescaleIntercept)
-        affine = np.eye(4)
-        if hasattr(ds, "PixelSpacing"):
-            ps = ds.PixelSpacing
-            affine[0, 0] = float(ps[1])
-            affine[1, 1] = float(ps[0])
-        if hasattr(ds, "SliceThickness"):
-            affine[2, 2] = float(ds.SliceThickness)
-        modality = str(getattr(ds, "Modality", "MR")).lower()
-        meta = {
-            "shape": pixel_array.shape,
-            "modality": modality,
-            "series_description": str(getattr(ds, "SeriesDescription", "")),
-            "window_center": float(getattr(ds, "WindowCenter", 40) or 40),
-            "window_width": float(getattr(ds, "WindowWidth", 400) or 400),
-        }
-        return pixel_array, affine, meta
-
-    # Directory: collect and sort DICOM files by InstanceNumber
-    dcm_files = sorted(
-        [f for f in path.iterdir() if f.suffix.lower() in {".dcm", ".dicom", ""}],
-        key=lambda f: f.name,
-    )
-    if not dcm_files:
-        raise FileNotFoundError(f"No DICOM files found in {path}")
-
-    slices = []
-    inst_nums = []
-    for f in dcm_files:
+    def __init__(self, path):
+        import nibabel as nib
+        self._img = nib.load(str(path))
+        self._proxy = self._img.dataobj  # nibabel ArrayProxy — zero RAM cost
+        self.shape = self._img.shape
+        self.affine = self._img.affine
+        self.dtype = str(self._img.get_data_dtype())
         try:
-            ds = pydicom.dcmread(str(f), stop_before_pixels=False, force=True)
-            inst_nums.append(int(getattr(ds, "InstanceNumber", len(slices))))
-            arr = ds.pixel_array.astype(np.float32)
-            if hasattr(ds, "RescaleSlope"):
-                arr = arr * float(ds.RescaleSlope) + float(getattr(ds, "RescaleIntercept", 0))
-            slices.append((inst_nums[-1], arr, ds))
-        except Exception as exc:
-            log.debug("Skip DICOM %s: %s", f, exc)
+            self.zooms = tuple(float(z) for z in self._img.header.get_zooms()[:3])
+        except Exception:
+            self.zooms = (1.0, 1.0, 1.0)
 
-    slices.sort(key=lambda x: x[0])
-    volume = np.stack([s[1] for s in slices], axis=-1)  # (rows, cols, slices)
+    def slice_along(self, axis: int, idx: int) -> np.ndarray:
+        """Read exactly one 2D slice from disk."""
+        return np.asarray(np.take(self._proxy, idx, axis=axis)).astype(np.float32)
 
-    first_ds = slices[0][2]
-    ps = getattr(first_ds, "PixelSpacing", [1.0, 1.0])
-    st = float(getattr(first_ds, "SliceThickness", 1.0) or 1.0)
-    affine = np.diag([float(ps[1]), float(ps[0]), st, 1.0])
+    def mean_volume(self, max_frames: int = 50) -> np.ndarray:
+        """Compute mean 3D volume from 4D data without loading all frames.
 
-    modality = str(getattr(first_ds, "Modality", "MR")).lower()
-    wc = getattr(first_ds, "WindowCenter", None)
-    ww = getattr(first_ds, "WindowWidth", None)
-    meta = {
-        "shape": volume.shape,
-        "modality": modality,
-        "series_description": str(getattr(first_ds, "SeriesDescription", "")),
-        "patient_id": str(getattr(first_ds, "PatientID", "ANON")),
-        "window_center": float(wc) if wc else None,
-        "window_width": float(ww) if ww else None,
-        "n_slices": len(slices),
-    }
-    return volume, affine, meta
+        Uses incremental accumulation — only one frame in memory at a time.
+        For 3D data, reads the full volume (unavoidable).
+        """
+        shape = self._proxy.shape
+        if len(shape) == 3:
+            return np.asarray(self._proxy).astype(np.float32)
+        n_t = shape[3]
+        step = max(1, n_t // max_frames)
+        frame_idxs = list(range(0, n_t, step))
+        acc = np.zeros(shape[:3], dtype=np.float64)
+        for t in frame_idxs:
+            acc += np.asarray(self._proxy[..., t]).astype(np.float64)
+        return (acc / len(frame_idxs)).astype(np.float32)
+
+    def frame(self, t: int) -> np.ndarray:
+        """Read one 3D frame from a 4D volume."""
+        if len(self._proxy.shape) == 3:
+            return np.asarray(self._proxy).astype(np.float32)
+        return np.asarray(self._proxy[..., t]).astype(np.float32)
+
+    def sample_window(self, modality: str = "mri") -> tuple[float, float]:
+        """Estimate intensity window from a spatial subsample (not full volume).
+
+        Samples ~10% of axial slices to compute robust percentiles.
+        Never loads the full volume.
+        """
+        shape = self._proxy.shape
+        n_z = shape[2]
+        sample_idxs = np.round(np.linspace(0, n_z - 1, max(5, n_z // 10))).astype(int)
+        samples = []
+        for idx in sample_idxs:
+            slc = np.asarray(self._proxy[:, :, int(idx)]).ravel().astype(np.float32)
+            samples.append(slc)
+        flat = np.concatenate(samples)
+        flat = flat[np.isfinite(flat)]
+        if flat.size == 0:
+            return 0.0, 1.0
+        if modality in {"mri", "fmri", "dwi"}:
+            threshold = float(np.percentile(flat, 2.0))
+            tissue = flat[flat > threshold]
+            if tissue.size > 100:
+                flat = tissue
+        pct_lo = 0.5 if modality == "ct" else 1.0
+        pct_hi = 99.5
+        vmin = float(np.percentile(flat, pct_lo))
+        vmax = float(np.percentile(flat, pct_hi))
+        if vmin == vmax:
+            vmax = vmin + 1.0
+        return vmin, vmax
 
 
 # ── VolumeViewer ──────────────────────────────────────────────────────────────
@@ -205,6 +193,7 @@ class VolumeViewer:
         colormap: str | None = None,
     ) -> None:
         self._vol: np.ndarray | None = None
+        self._lazy: _LazyNIfTI | None = None
         self._affine: np.ndarray = np.eye(4)
         self._meta: dict = {}
         self._overlay: np.ndarray | None = None
@@ -223,7 +212,6 @@ class VolumeViewer:
         try:
             from qortex.core.entities import ImageRecord
             if isinstance(source, ImageRecord):
-                nib = _require_nibabel()
                 img = source.img
                 self._vol = np.asarray(img.get_fdata(dtype=np.float32))
                 self._affine = img.affine
@@ -250,23 +238,46 @@ class VolumeViewer:
             raise FileNotFoundError(f"File not found: {path}")
 
         suffix = path.suffix.lower()
-        name = path.name.lower()
+        name_lower = path.name.lower()
 
         if suffix in {".dcm", ".dicom", ".ima"} or path.is_dir():
-            self._vol, self._affine, self._meta = _load_dicom_series(path)
-            # Extract modality from DICOM metadata
-            if "modality" not in self._meta:
-                self._meta["modality"] = "ct" if "ct" in name else "mri"
-        elif suffix in {".nii", ".gz", ".mgz", ".mgh"}:
-            self._vol, self._affine, self._meta = _load_nifti(path)
-            self._meta["modality"] = _detect_modality_from_path(path)
+            from qortex.visualize.dicom import load_dicom_series, list_dicom_series
+            if path.is_dir():
+                series_list = list_dicom_series(path)
+            else:
+                series_list = list_dicom_series(path.parent)
+            target = series_list[0] if series_list else None
+            if target:
+                volume, meta = load_dicom_series(target, apply_rescale=True)
+                self._vol = volume
+                self._affine = np.eye(4)
+                self._meta = meta
+                if "ct" in str(target.modality).lower():
+                    self._meta["modality"] = "ct"
+                else:
+                    self._meta["modality"] = "mri"
+            else:
+                raise FileNotFoundError(f"No DICOM series found in {path}")
+        elif suffix in _NIFTI_EXTS or name_lower.endswith(".nii.gz"):
+            try:
+                self._lazy = _LazyNIfTI(path)
+                self._vol = None  # not loaded yet
+                self._affine = self._lazy.affine
+                self._meta = {
+                    "shape": self._lazy.shape,
+                    "zooms": self._lazy.zooms,
+                    "modality": _detect_modality_from_path(path),
+                }
+                self.modality = self._meta["modality"]
+            except ImportError:
+                raise
+            except Exception as exc:
+                raise ValueError(f"Cannot load NIfTI {path}: {exc}") from exc
         else:
             raise ValueError(f"Unsupported format: {path.suffix}")
 
     def _resolve_window(self, window: str | tuple | None) -> None:
         """Set self._vmin, self._vmax from the window spec."""
-        vol3d = self._vol3d()
-
         if isinstance(window, (tuple, list)) and len(window) == 2:
             self._vmin, self._vmax = float(window[0]), float(window[1])
             return
@@ -284,19 +295,26 @@ class VolumeViewer:
         if self.modality == "ct" and wc is not None and ww is not None:
             self._vmin = wc - ww / 2
             self._vmax = wc + ww / 2
+        elif self._lazy is not None:
+            self._vmin, self._vmax = self._lazy.sample_window(self.modality)
         else:
+            vol3d = self._vol3d()
             self._vmin, self._vmax = auto_window(vol3d, self.modality)
 
     def _vol3d(self) -> np.ndarray:
         """Return the 3D view: for 4D data, use the temporal mean."""
-        if self._vol is None:
-            raise RuntimeError("Volume not loaded")
-        if self._vol.ndim == 4:
-            return self._vol.mean(axis=-1)
-        return self._vol
+        if self._lazy is not None:
+            return self._lazy.mean_volume()
+        if self._vol is not None:
+            if self._vol.ndim == 4:
+                return self._vol.mean(axis=-1)
+            return self._vol
+        raise RuntimeError("No volume data")
 
     @property
     def shape(self) -> tuple:
+        if self._lazy is not None:
+            return self._lazy.shape
         return self._vol.shape if self._vol is not None else ()
 
     @property
@@ -308,6 +326,9 @@ class VolumeViewer:
 
     @property
     def n_volumes(self) -> int:
+        if self._lazy is not None:
+            shape = self._lazy.shape
+            return shape[3] if len(shape) == 4 else 1
         if self._vol is not None and self._vol.ndim == 4:
             return self._vol.shape[3]
         return 1
@@ -326,24 +347,10 @@ class VolumeViewer:
         colormap: str = "hot",
         alpha: float = 0.6,
     ) -> "VolumeViewer":
-        """Add a statistical map overlay (z-map, t-map, or any volume).
-
-        The overlay is rendered on top of the background using alpha blending.
-
-        Parameters
-        ----------
-        stat_map:
-            Path (NIfTI) or numpy array of the same spatial shape as this volume.
-        threshold:
-            Voxels with absolute value below this threshold are transparent.
-        colormap:
-            Overlay colormap: ``"hot"``, ``"cool"``, ``"RdBu_r"``.
-        alpha:
-            Blend weight (0 = invisible, 1 = fully opaque).
-        """
+        """Add a statistical map overlay (z-map, t-map, or any volume)."""
         if isinstance(stat_map, (str, Path)):
-            arr, _, _ = _load_nifti(Path(stat_map))
-            stat_arr = arr if arr.ndim == 3 else arr.mean(axis=-1)
+            lazy = _LazyNIfTI(Path(stat_map))
+            stat_arr = lazy.mean_volume()
         elif isinstance(stat_map, np.ndarray):
             stat_arr = stat_map
         else:
@@ -363,6 +370,7 @@ class VolumeViewer:
         """Return a new VolumeViewer containing only the temporal mean (for 4D)."""
         new = VolumeViewer.__new__(VolumeViewer)
         new._vol = self._vol3d()
+        new._lazy = None
         new._affine = self._affine
         new._meta = {**self._meta, "n_volumes": 1}
         new.modality = self.modality
@@ -383,10 +391,7 @@ class VolumeViewer:
         *,
         title: str = "",
     ):
-        """Return a 3-panel plotly Figure showing orthogonal slices.
-
-        Requires plotly.
-        """
+        """Return a 3-panel plotly Figure showing orthogonal slices."""
         try:
             import plotly.graph_objects as go
             from plotly.subplots import make_subplots
@@ -443,10 +448,7 @@ class VolumeViewer:
         step: int | None = None,
         title: str = "",
     ):
-        """Return a plotly Figure with a grid of evenly spaced slices.
-
-        Requires plotly. Ideal for a quick overview of the full volume.
-        """
+        """Return a plotly Figure with a grid of evenly spaced slices."""
         try:
             import plotly.graph_objects as go
             from plotly.subplots import make_subplots
@@ -468,8 +470,6 @@ class VolumeViewer:
             subplot_titles=[f"{axis_labels[axis]}{i}" for i in indices],
             horizontal_spacing=0.01, vertical_spacing=0.04,
         )
-
-        lut = get_lut(self.colormap)
 
         for k, idx in enumerate(indices):
             row, col = divmod(k, n_cols)
@@ -506,28 +506,32 @@ class VolumeViewer:
         roi_radius: int = 0,
         title: str = "",
     ):
-        """Plot BOLD/fMRI signal at voxel (x,y,z) over time.
-
-        For 3D volumes returns a flat line (single value). Requires plotly.
-        """
+        """Plot BOLD/fMRI signal at voxel (x,y,z) over time."""
         try:
             import plotly.graph_objects as go
         except ImportError:
             raise ImportError("timeseries_at() requires plotly: pip install plotly")
 
-        if self._vol is None:
+        if self._vol is None and self._lazy is None:
             raise RuntimeError("Volume not loaded")
 
-        if self._vol.ndim == 4:
-            if roi_radius > 0:
-                xs = slice(max(0, x - roi_radius), min(self._vol.shape[0], x + roi_radius + 1))
-                ys = slice(max(0, y - roi_radius), min(self._vol.shape[1], y + roi_radius + 1))
-                zs = slice(max(0, z - roi_radius), min(self._vol.shape[2], z + roi_radius + 1))
-                signal = self._vol[xs, ys, zs, :].mean(axis=(0, 1, 2))
+        if self.n_volumes > 1:
+            if self._lazy is not None:
+                n_t = self._lazy.shape[3]
+                signal = np.array([
+                    float(self._lazy.frame(t)[x, y, z]) for t in range(n_t)
+                ], dtype=np.float32)
             else:
-                signal = self._vol[x, y, z, :]
+                if roi_radius > 0:
+                    xs = slice(max(0, x - roi_radius), min(self._vol.shape[0], x + roi_radius + 1))
+                    ys = slice(max(0, y - roi_radius), min(self._vol.shape[1], y + roi_radius + 1))
+                    zs = slice(max(0, z - roi_radius), min(self._vol.shape[2], z + roi_radius + 1))
+                    signal = self._vol[xs, ys, zs, :].mean(axis=(0, 1, 2))
+                else:
+                    signal = self._vol[x, y, z, :]
         else:
-            signal = np.array([float(self._vol[x, y, z])])
+            vol3d = self._vol3d()
+            signal = np.array([float(vol3d[x, y, z])])
 
         tr = self.tr or 1.0
         times = np.arange(len(signal)) * tr
@@ -550,6 +554,30 @@ class VolumeViewer:
         )
         return fig
 
+    # ── Lazy slice rendering ──────────────────────────────────────────────
+
+    def _render_lazy_axis(
+        self,
+        lazy: _LazyNIfTI,
+        axis: int,
+        max_slices: int,
+        vmin: float | None = None,
+        vmax: float | None = None,
+    ) -> tuple[list[str], list[int]]:
+        """Render slices along one axis from the lazy proxy."""
+        n = lazy.shape[axis]
+        if n > max_slices:
+            idxs = np.round(np.linspace(0, n - 1, max_slices)).astype(int).tolist()
+        else:
+            idxs = list(range(n))
+        _vmin = vmin if vmin is not None else self._vmin
+        _vmax = vmax if vmax is not None else self._vmax
+        b64s = []
+        for i in idxs:
+            slc = lazy.slice_along(axis, i)
+            b64s.append(array_to_b64png(slc.T, _vmin, _vmax, self.colormap))
+        return b64s, idxs
+
     # ── Interactive HTML ──────────────────────────────────────────────────
 
     def interactive_html(
@@ -561,58 +589,79 @@ class VolumeViewer:
         include_time_slider: bool = True,
         n_time_frames: int = 20,
     ) -> str:
-        """Build a fully interactive orthogonal viewer as a standalone HTML page.
-
-        All slices along all three axes are pre-rendered as base64 PNGs and
-        embedded in the HTML.  No server required.  The output is a single
-        self-contained file.
-
-        Parameters
-        ----------
-        output:
-            If provided, write HTML to this path and return it as a string.
-        max_slices_per_axis:
-            Maximum pre-rendered slices per axis.  Larger volumes are sub-sampled.
-        include_time_slider:
-            For 4D fMRI, add a TR slider showing the mean and individual volumes.
-        n_time_frames:
-            Number of time points to pre-render for the TR slider.
-        """
-        vol3d = self._vol3d()
-        nx, ny, nz = vol3d.shape
-        cx, cy, cz = nx // 2, ny // 2, nz // 2
+        """Build a fully interactive orthogonal viewer as a standalone HTML page."""
         vox = self.voxel_sizes
 
         # Pre-render slices for all three axes
-        def _render(axis: int) -> tuple[list[str], list[int]]:
-            n = vol3d.shape[axis]
-            if n > max_slices_per_axis:
-                idxs = np.round(np.linspace(0, n - 1, max_slices_per_axis)).astype(int).tolist()
-            else:
-                idxs = list(range(n))
-            slices_b64 = render_axis_slices(
-                vol3d, axis, self._vmin, self._vmax, self.colormap,
-                voxel_sizes=vox, max_slices=max_slices_per_axis,
-            )
-            return slices_b64, idxs
+        if self._lazy is not None:
+            slices_x, si_x = self._render_lazy_axis(self._lazy, 0, max_slices_per_axis)
+            slices_y, si_y = self._render_lazy_axis(self._lazy, 1, max_slices_per_axis)
+            slices_z, si_z = self._render_lazy_axis(self._lazy, 2, max_slices_per_axis)
+            vol3d_shape = self._lazy.shape[:3]
+        else:
+            vol3d = self._vol3d()
+            vol3d_shape = vol3d.shape
 
-        slices_x, si_x = _render(0)
-        slices_y, si_y = _render(1)
-        slices_z, si_z = _render(2)
+            def _render(axis: int) -> tuple[list[str], list[int]]:
+                n = vol3d.shape[axis]
+                if n > max_slices_per_axis:
+                    idxs = np.round(np.linspace(0, n - 1, max_slices_per_axis)).astype(int).tolist()
+                else:
+                    idxs = list(range(n))
+                slices_b64 = render_axis_slices(
+                    vol3d, axis, self._vmin, self._vmax, self.colormap,
+                    voxel_sizes=vox, max_slices=max_slices_per_axis,
+                )
+                return slices_b64, idxs
+
+            slices_x, si_x = _render(0)
+            slices_y, si_y = _render(1)
+            slices_z, si_z = _render(2)
+
+        nx, ny, nz = vol3d_shape
+        cx, cy, cz = nx // 2, ny // 2, nz // 2
 
         # Time slider pre-render (4D fMRI)
         slices_t: list[str] | None = None
-        if include_time_slider and self.n_volumes > 1 and self._vol is not None:
+        si_t: list[int] | None = None
+        if include_time_slider and self.n_volumes > 1:
             t_idxs = np.round(
                 np.linspace(0, self.n_volumes - 1, min(n_time_frames, self.n_volumes))
             ).astype(int).tolist()
-            slices_t = [
-                array_to_b64png(
-                    self._vol[:, :, cz, t].T,
-                    self._vmin, self._vmax, self.colormap,
-                )
-                for t in t_idxs
-            ]
+            si_t = t_idxs
+            if self._lazy is not None:
+                slices_t = []
+                for t in t_idxs:
+                    frame = self._lazy.frame(t)
+                    slices_t.append(
+                        array_to_b64png(frame[:, :, cz].T, self._vmin, self._vmax, self.colormap)
+                    )
+            elif self._vol is not None:
+                slices_t = [
+                    array_to_b64png(
+                        self._vol[:, :, cz, t].T,
+                        self._vmin, self._vmax, self.colormap,
+                    )
+                    for t in t_idxs
+                ]
+
+        # Pre-render CT window stacks for interactive CT windowing
+        ct_window_stacks: dict | None = None
+        if self.modality == "ct" and self._lazy is not None:
+            ct_window_stacks = {}
+            for preset_name in ("brain", "soft_tissue", "bone", "lung"):
+                preset = CT_PRESETS.get(preset_name)
+                if not preset or preset.vmin is None:
+                    continue
+                wmin, wmax = float(preset.vmin), float(preset.vmax)
+                sx, six = self._render_lazy_axis(self._lazy, 0, max_slices_per_axis, wmin, wmax)
+                sy, siy = self._render_lazy_axis(self._lazy, 1, max_slices_per_axis, wmin, wmax)
+                sz, siz = self._render_lazy_axis(self._lazy, 2, max_slices_per_axis, wmin, wmax)
+                ct_window_stacks[preset_name] = {
+                    "slices_x": sx, "si_x": six,
+                    "slices_y": sy, "si_y": siy,
+                    "slices_z": sz, "si_z": siz,
+                }
 
         vmin_str = f"{self._vmin:.0f}"
         vmax_str = f"{self._vmax:.0f}"
@@ -624,7 +673,7 @@ class VolumeViewer:
             title=title or f"{modality.upper()} Volume",
             dataset_info=dataset_info,
             modality=modality,
-            shape=vol3d.shape,
+            shape=vol3d_shape,
             voxel_sizes=vox,
             vmin=self._vmin, vmax=self._vmax,
             window_str=window_str,
@@ -634,6 +683,8 @@ class VolumeViewer:
             n_volumes=self.n_volumes,
             tr=self.tr,
             slices_t=slices_t,
+            si_t=si_t,
+            ct_window_stacks=ct_window_stacks,
         )
 
         if output is not None:
