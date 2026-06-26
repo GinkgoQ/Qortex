@@ -78,22 +78,22 @@ def _write_synthetic_nifti(
         r = min(shape[:3]) // 3
         xs, ys, zs = np.ogrid[:shape[0], :shape[1], :shape[2]]
         sphere = (xs - cx) ** 2 + (ys - cy) ** 2 + (zs - cz) ** 2 < r ** 2
-        if modality == "mri":
-            vol[sphere] = 900.0 + np.random.uniform(0, 100, sphere.sum()).astype(np.float32)
+        if modality == "mri" and vol.ndim == 3:
+            n_sphere = int(sphere.sum())
+            vol[sphere] = (900.0 + np.random.uniform(0, 100, n_sphere)).astype(np.float32)
         elif modality == "bold":
-            # 4D: add physiological drift + noise
+            # 4D: add physiological drift + noise per timepoint
             rng = np.random.RandomState(42)
+            vol = rng.randn(*shape).astype(np.float32) * 30 + 1000
             for t in range(shape[3]):
-                frame = rng.randn(*shape[:3]).astype(np.float32) * 30 + 1000
-                frame[sphere] += np.sin(t * 0.3) * 60
-                vol[sphere, t] = frame[sphere]  # type: ignore[index]
-            vol += rng.randn(*shape).astype(np.float32) * 15 + 1000
+                vol[sphere, t] += float(np.sin(t * 0.3) * 60)
         elif modality == "dwi":
             rng = np.random.RandomState(7)
             for t in range(shape[3]):
                 decay = float(np.exp(-t * 0.02))
-                vol[..., t] = rng.randn(*shape[:3]).astype(np.float32) * 20 + 800 * decay
-                vol[sphere, t] = 900 * decay + rng.randn(sphere.sum()).astype(np.float32) * 10
+                frame = rng.randn(*shape[:3]).astype(np.float32) * 20 + 800 * decay
+                frame[sphere] = 900 * decay + rng.randn(int(sphere.sum())).astype(np.float32) * 10
+                vol[..., t] = frame
 
     if affine is None:
         affine = np.diag([1.5, 1.5, 3.0, 1.0])
@@ -294,7 +294,8 @@ def test_06_visual_audit_report():
         (root / "sub-02" / "anat").mkdir(parents=True)
 
         _write_synthetic_nifti(root / "sub-01" / "anat" / "sub-01_T1w.nii.gz", (32, 32, 20))
-        _write_synthetic_nifti(root / "sub-01" / "func" / "sub-01_task-rest_bold.nii.gz", (20, 20, 12, 10))
+        _write_synthetic_nifti(root / "sub-01" / "func" / "sub-01_task-rest_bold.nii.gz",
+                               (20, 20, 12, 10), modality="bold")
         _write_synthetic_nifti(root / "sub-02" / "anat" / "sub-02_T1w.nii.gz", (32, 32, 20))
 
         class _FR:
@@ -642,7 +643,8 @@ def test_12_compare_masks_dice():
         nib_mod.save(nib_mod.Nifti1Image(vol_truth, aff), str(Path(tmp) / "truth2.nii.gz"))
 
         result_disjoint = compare_masks(
-            base, Path(tmp) / "pred2.nii.gz", Path(tmp) / "truth2.nii.gz"
+            base, Path(tmp) / "pred2.nii.gz", Path(tmp) / "truth2.nii.gz",
+            allow_affine_mismatch=True,
         )
         dice_disjoint = result_disjoint.provenance.get("dice_approx", 1.0)
         require(dice_disjoint < 0.05,
@@ -824,35 +826,41 @@ def test_15_dicom_phi_hidden():
 
 
 def test_16_eeg_thumbnail():
-    banner("16 — EEG thumbnail: _eeg_thumbnail returns non-empty base64 PNG")
+    banner("16 — EEG thumbnail: butterfly figure renders without error")
     plotly = _try_import("plotly")
     if plotly is None:
         print("  SKIP: plotly not installed")
         return
 
-    from qortex.visualize._audit import _eeg_thumbnail
-    from qortex.visualize._asset import VisualAsset
-
-    # Simulate an EEG TimeSeriesViewer from a numpy array
-    # TimeSeriesViewer supports numpy arrays directly
     from qortex.visualize.timeseries import TimeSeriesViewer
-    import io, base64
+    import base64
 
     rng = np.random.RandomState(99)
     eeg = rng.randn(8, 1024).astype(np.float32) * 1e-5
     viewer = TimeSeriesViewer(eeg, sfreq=256.0, modality="eeg")
-
-    import plotly.io as pio
     fig = viewer.butterfly(tmax=4.0, max_channels=8, show_envelope=False)
-    png_bytes = pio.to_image(fig, format="png", width=400, height=200)
-    b64 = base64.b64encode(png_bytes).decode()
 
-    require(isinstance(b64, str) and len(b64) > 200, "EEG thumbnail base64 too short")
-    png_raw = base64.b64decode(b64)
-    require(png_raw[:8] == b"\x89PNG\r\n\x1a\n", "EEG thumbnail not a valid PNG")
+    require(hasattr(fig, "data"), "butterfly() must return a plotly Figure")
+    require(len(fig.data) > 0, "butterfly figure has no traces")
 
-    print_kv("thumbnail_b64_len", len(b64))
-    print_kv("png_bytes", len(png_raw))
+    # Check HTML export (does not require kaleido)
+    import plotly.io as pio
+    html_str = pio.to_html(fig, include_plotlyjs="cdn", full_html=False)
+    require(len(html_str) > 500, "butterfly figure HTML too short")
+    print_kv("n_traces", len(fig.data))
+    print_kv("html_chars", len(html_str))
+
+    # PNG export only when kaleido is available
+    try:
+        import kaleido  # noqa: F401
+        png_bytes = pio.to_image(fig, format="png", width=400, height=200)
+        b64 = base64.b64encode(png_bytes).decode()
+        require(len(b64) > 200, "EEG thumbnail base64 too short")
+        png_raw = base64.b64decode(b64)
+        require(png_raw[:8] == b"\x89PNG\r\n\x1a\n", "EEG thumbnail not a valid PNG")
+        print_kv("png_bytes", len(png_raw))
+    except ImportError:
+        print("  PNG export: SKIP (kaleido not installed)")
 
 
 def test_17_coverage_matrix():
@@ -984,11 +992,10 @@ def test_19_artifact_compare_splits():
             "dataset_id": "ds-test",
             "snapshot": "1.0.0",
             "output_format": "parquet",
+            "output_path": str(root),
             "n_samples": 16,
             "n_subjects": 4,
             "splits": {"train": 8, "val": 8},
-            "label_column": "label",
-            "feature_columns": ["signal"],
             "source_files": [],
         }
         (root / "artifact_manifest.json").write_text(json.dumps(manifest))

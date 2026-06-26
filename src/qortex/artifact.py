@@ -255,6 +255,124 @@ class Artifact:
             entries=entries,
         )
 
+    def compare_splits(
+        self,
+        *,
+        n: int = 8,
+        splits: list[str] | None = None,
+    ):
+        """Render *n* random samples from each split side-by-side for comparison.
+
+        The returned :class:`~qortex.visualize._audit.VisualAuditReport` has one
+        entry per sample, with ``path_label`` encoded as
+        ``"{split}/sample_{i} label={lbl} sub={sub}"`` so the gallery is
+        self-explanatory without requiring the user to understand shard layout.
+
+        Uses the same lazy Parquet reading strategy as ``visual_audit()``: only
+        the minimum rows are scanned per shard.
+
+        Parameters
+        ----------
+        n:
+            Samples to render per split.
+        splits:
+            Which splits to compare.  Defaults to all available splits from the
+            manifest (``["train", "val", "test"]`` filtered by what exists on disk).
+        """
+        try:
+            import polars as pl
+            import plotly.io as pio
+        except ImportError:
+            raise ImportError("compare_splits() requires plotly and polars: pip install plotly polars")
+
+        from qortex.visualize._audit import VisualAuditReport, AuditEntry
+        from qortex.visualize._asset import VisualAsset
+
+        # Determine splits to compare
+        available_splits = splits or list(self.manifest.splits.keys() if self.manifest.splits else [])
+        if not available_splits:
+            # Discover by directory scanning
+            available_splits = [
+                d.name for d in sorted(self.path.iterdir())
+                if d.is_dir() and list(d.glob("*.parquet"))
+            ]
+        if not available_splits:
+            raise FileNotFoundError(f"No split directories with Parquet shards found in {self.path}")
+
+        all_entries: list[AuditEntry] = []
+        n_rendered = 0
+        n_failed = 0
+
+        for split_name in available_splits:
+            split_dir = self.path / split_name
+            shards = sorted(split_dir.glob("*.parquet")) if split_dir.exists() else []
+            if not shards:
+                continue
+
+            # Collect n samples across shards — minimal row reads
+            rows_needed = n
+            samples: list[dict] = []
+            for shard in shards:
+                if len(samples) >= rows_needed:
+                    break
+                df = pl.read_parquet(shard)
+                take = min(max(1, rows_needed // max(1, len(shards)) + 1), len(df))
+                samples.extend(df.head(take).to_dicts())
+            samples = samples[:rows_needed]
+
+            for i, row in enumerate(samples):
+                label = str(row.get("label", "?"))
+                sub = str(row.get("subject", ""))
+                path_label = (
+                    f"{split_name}/sample_{i}"
+                    f"  label={label}"
+                    + (f"  sub={sub}" if sub else "")
+                )
+                asset = VisualAsset(
+                    path=self.path / split_name / f"sample_{i}",
+                    family="array",
+                    intent="artifact_sample",
+                    modality="signal",
+                )
+                try:
+                    data_col = next(
+                        (k for k in row
+                         if k not in ("label", "subject", "session", "task", "split", "source_path")
+                         and isinstance(row[k], list)),
+                        None,
+                    )
+                    thumb_b64 = None
+                    if data_col and row[data_col]:
+                        arr = _pl_to_array(row[data_col])
+                        import plotly.graph_objects as go
+                        if arr.ndim >= 3:
+                            fig = _plot_volume_slice(arr, f"{split_name}/{i}")
+                        elif arr.ndim == 2 and arr.shape[0] < arr.shape[1]:
+                            fig = _plot_signal_2d(arr, f"{split_name}/{i}")
+                        else:
+                            fig = _plot_signal_1d(arr.ravel(), f"{split_name}/{i}")
+                        png_bytes = pio.to_image(fig, format="png", width=280, height=160)
+                        import base64
+                        thumb_b64 = base64.b64encode(png_bytes).decode()
+                    all_entries.append(AuditEntry(
+                        path_label=path_label, asset=asset, thumbnail_b64=thumb_b64,
+                    ))
+                    n_rendered += 1
+                except Exception as exc:
+                    all_entries.append(AuditEntry(
+                        path_label=path_label, asset=asset, error=str(exc),
+                    ))
+                    n_failed += 1
+
+        splits_label = "/".join(available_splits)
+        return VisualAuditReport(
+            dataset_id=f"{self.manifest.artifact_id} [{splits_label}]",
+            n_files_inspected=len(all_entries),
+            n_rendered=n_rendered,
+            n_failed=n_failed,
+            entries=all_entries,
+        )
+
 
 # ── Helpers for visualize_sample / visual_audit ───────────────────────────────
 

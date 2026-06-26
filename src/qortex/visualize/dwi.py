@@ -376,11 +376,12 @@ class DWIViewer:
         has_bvals = self._bvals is not None
         has_bvecs = self._bvecs is not None
 
-        # Build subplot grid
+        # Build subplot grid — all panels use xy axes; the gradient sphere panel
+        # uses a 2D azimuthal-equidistant projection (go.Scatter), NOT go.Scatter3d,
+        # so it does not need a "scene" subplot type.
         specs = [
             [{"type": "xy"}, {"type": "xy"}],
-            [{"type": "xy"} if has_bvals else {"type": "xy"},
-             {"type": "scene"} if has_bvecs else {"type": "xy"}],
+            [{"type": "xy"}, {"type": "xy"}],
         ]
         subtitles = (
             f"Mean b0 ({len(b0_idxs)} vol{'s' if len(b0_idxs)>1 else ''})",

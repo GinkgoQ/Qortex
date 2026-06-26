@@ -601,7 +601,35 @@ def _build_failed_html(failed: list[AuditEntry]) -> str:
 </div>"""
 
 
-def _build_html(report: VisualAuditReport) -> str:
+def _build_completeness_html(report: "VisualAuditReport") -> str:
+    """Render expected-vs-local completeness stats when manifest data is present."""
+    if report.n_expected is None:
+        return ""
+    n_exp = report.n_expected
+    n_pres = report.n_local_present or 0
+    n_miss = report.n_missing_local or 0
+    pct = int(100 * n_pres / max(1, n_exp))
+    bar_color = "#6f6" if pct >= 90 else "#fa8" if pct >= 50 else "#f64"
+    return f"""
+<div style="margin-bottom:20px;background:#1a1a1a;padding:14px 18px;border-radius:6px;
+            max-width:700px">
+  <div style="color:#888;font-size:0.78em;font-weight:500;letter-spacing:0.06em;
+              margin-bottom:8px">MANIFEST COMPLETENESS</div>
+  <div style="font-size:0.85em;color:#888;display:flex;gap:28px;flex-wrap:wrap">
+    <span>Expected &nbsp;<b style="color:#ccc">{n_exp}</b></span>
+    <span>Local &nbsp;<b style="color:{bar_color}">{n_pres}</b>
+      &nbsp;<span style="color:#555">({pct}%)</span></span>
+    <span>Missing &nbsp;<b style="color:#f64">{n_miss}</b></span>
+    <span>Rendered &nbsp;<b style="color:#6f6">{report.n_rendered}</b></span>
+    <span>Failed &nbsp;<b style="color:#f64">{report.n_failed}</b></span>
+  </div>
+  <div style="margin-top:8px;height:4px;background:#222;border-radius:2px;max-width:360px">
+    <div style="height:4px;background:{bar_color};width:{pct}%;border-radius:2px"></div>
+  </div>
+</div>"""
+
+
+def _build_html(report: "VisualAuditReport") -> str:
     cards = "\n".join(_build_card(e) for e in report.entries)
     n_ok = report.n_rendered
     n_fail = report.n_failed
@@ -610,6 +638,18 @@ def _build_html(report: VisualAuditReport) -> str:
     warning_html = _build_warning_html(report.warning_summary())
     breakdown_html = _build_breakdown_html(report)
     failed_html = _build_failed_html(report.failed_files)
+    completeness_html = _build_completeness_html(report)
+
+    # Simple stats line when no manifest data is available
+    if report.n_expected is None:
+        stats_line = (
+            f'  Inspected <b>{n_total}</b> &nbsp;·&nbsp;'
+            f'  Rendered <b style="color:#6f6">{n_ok}</b> &nbsp;·&nbsp;'
+            f'  Failed <b style="color:#f64">{n_fail}</b>'
+        )
+        stats_block = f'<div class="stats">{stats_line}</div>'
+    else:
+        stats_block = ""  # completeness_html already has all counts
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -628,11 +668,8 @@ def _build_html(report: VisualAuditReport) -> str:
 </head>
 <body>
 <h2>Visual Audit — {report.dataset_id}</h2>
-<div class="stats">
-  Inspected <b>{n_total}</b> &nbsp;·&nbsp;
-  Rendered <b style="color:#6f6">{n_ok}</b> &nbsp;·&nbsp;
-  Failed <b style="color:#f64">{n_fail}</b>
-</div>
+{stats_block}
+{completeness_html}
 {coverage_html}
 {warning_html}
 {breakdown_html}
@@ -759,3 +796,176 @@ def _eeg_thumbnail(asset: Any, local_path: Path) -> str | None:
     except Exception as exc:
         log.debug("eeg thumbnail failed: %s", exc)
         return None
+
+
+# ── File-selection helper ─────────────────────────────────────────────────────
+
+def select_visual_files(
+    manifest_files: list,
+    *,
+    subjects: list[str] | None = None,
+    suffixes: list[str] | None = None,
+    datatypes: list[str] | None = None,
+    max_size_mb: float | None = None,
+    n_per_suffix: int | None = None,
+) -> list:
+    """Filter a list of FileRecord-like objects for visual audit selection.
+
+    Applies structured field filters (subject, suffix, datatype, size) rather
+    than path-string matching so the logic is consistent between
+    ``Dataset.visualize()`` and ``visualize-openneuro``.
+
+    Parameters
+    ----------
+    manifest_files:
+        List of objects with at minimum a ``.path`` attribute and optionally
+        ``.subject``, ``.suffix``, ``.datatype``, ``.size`` attributes.
+        Bare strings are also accepted (path-label only).
+    subjects:
+        Keep only files belonging to these subject IDs (without 'sub-' prefix).
+        If None, all subjects are kept.
+    suffixes:
+        Keep only files with these BIDS suffixes (e.g. ``["T1w", "bold"]``).
+        If None, all suffixes are kept.
+    datatypes:
+        Keep only files inside these BIDS datatype folders
+        (e.g. ``["anat", "func"]``).  If None, all datatypes are kept.
+    max_size_mb:
+        Drop files whose ``.size`` attribute (bytes) exceeds this limit.
+        Files without a size attribute pass this filter.
+    n_per_suffix:
+        Retain at most this many files per unique suffix.  Applied after all
+        other filters so the cap never distorts subject coverage.
+
+    Returns
+    -------
+    list
+        Filtered subset of *manifest_files* preserving original order.
+    """
+    def _get(fr, attr: str, fallback_fn=None):
+        val = getattr(fr, attr, None)
+        if val is not None:
+            return val
+        if fallback_fn is not None:
+            return fallback_fn(getattr(fr, "path", str(fr)))
+        return None
+
+    out = []
+    for fr in manifest_files:
+        path_str = getattr(fr, "path", str(fr))
+
+        # Subject filter
+        if subjects is not None:
+            sub = _get(fr, "subject") or _label_subject(path_str)
+            if sub not in subjects:
+                continue
+
+        # Suffix filter
+        if suffixes is not None:
+            suf = _get(fr, "suffix") or _label_suffix(path_str)
+            if suf not in suffixes:
+                continue
+
+        # Datatype filter
+        if datatypes is not None:
+            dt = _get(fr, "datatype") or _label_datatype(path_str)
+            if dt not in datatypes:
+                continue
+
+        # Size filter
+        if max_size_mb is not None:
+            size_bytes = int(_get(fr, "size") or 0)
+            if size_bytes > max_size_mb * 1024 * 1024:
+                continue
+
+        out.append(fr)
+
+    # n_per_suffix cap — applied after all other filters
+    if n_per_suffix is not None and n_per_suffix > 0:
+        suffix_counts: dict[str, int] = {}
+        capped = []
+        for fr in out:
+            path_str = getattr(fr, "path", str(fr))
+            suf = getattr(fr, "suffix", None) or _label_suffix(path_str)
+            if suffix_counts.get(suf, 0) < n_per_suffix:
+                capped.append(fr)
+                suffix_counts[suf] = suffix_counts.get(suf, 0) + 1
+        return capped
+
+    return out
+
+
+# ── Manifest-aware audit runner ───────────────────────────────────────────────
+
+def run_visual_audit_with_manifest(
+    dataset_id: str,
+    manifest_files: list,
+    local_root: Path,
+    *,
+    max_files: int = 24,
+    subjects: list[str] | None = None,
+    suffixes: list[str] | None = None,
+    datatypes: list[str] | None = None,
+    max_size_mb: float | None = None,
+    n_per_suffix: int | None = None,
+) -> VisualAuditReport:
+    """Run a visual audit and automatically compute manifest-completeness stats.
+
+    Unlike ``run_visual_audit()`` which only inspects already-present files,
+    this function also counts how many manifest entries exist locally vs.
+    are missing — giving the curator a direct answer to "how complete is my
+    local copy?".
+
+    Completeness fields populated on the returned report:
+
+    * ``n_expected``      — total entries in *manifest_files* after filtering
+    * ``n_local_present`` — entries that exist on disk
+    * ``n_missing_local`` — entries absent from disk
+
+    Parameters
+    ----------
+    dataset_id:
+        Human-readable identifier shown in the HTML header and JSON.
+    manifest_files:
+        All FileRecord-like objects from the dataset manifest (unfiltered).
+        The helper applies ``select_visual_files`` internally.
+    local_root:
+        Root of the locally downloaded dataset.
+    max_files:
+        Cap on the number of files to render thumbnails for.
+    subjects, suffixes, datatypes, max_size_mb, n_per_suffix:
+        Forwarded to ``select_visual_files()`` for pre-filtering.
+    """
+    # Pre-filter with the shared helper
+    filtered = select_visual_files(
+        manifest_files,
+        subjects=subjects,
+        suffixes=suffixes,
+        datatypes=datatypes,
+        max_size_mb=max_size_mb,
+        n_per_suffix=n_per_suffix,
+    )
+
+    # Completeness accounting (fast: just stat() each path)
+    local_root = Path(local_root)
+    n_expected = len(filtered)
+    n_local_present = 0
+    n_missing_local = 0
+    local_files: list = []
+    for fr in filtered:
+        rel = getattr(fr, "path", str(fr))
+        if (local_root / rel).exists():
+            n_local_present += 1
+            local_files.append(fr)
+        else:
+            n_missing_local += 1
+
+    # Run the core audit on locally-present files only
+    report = run_visual_audit(dataset_id, local_files, local_root, max_files=max_files)
+
+    # Attach completeness metadata
+    report.n_expected = n_expected
+    report.n_local_present = n_local_present
+    report.n_missing_local = n_missing_local
+
+    return report
