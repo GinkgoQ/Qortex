@@ -87,6 +87,7 @@ __all__ = [
     "INTENT_ANATOMICAL", "INTENT_BOLD", "INTENT_CT", "INTENT_DWI",
     "INTENT_PET", "INTENT_STAT_MAP", "INTENT_MASK", "INTENT_LABELMAP",
     "INTENT_RAW_SIGNAL", "INTENT_SURFACE", "INTENT_SERIES_BROWSER",
+    "MODE_QC",
     # Universal API
     "inspect", "visualize", "browse_dicom",
     # Overlay API
@@ -95,6 +96,7 @@ __all__ = [
     "overlay_contour", "overlay_edges", "compare_masks",
     # fMRI / DWI
     "fmri_summary", "DWIViewer", "dwi_summary", "surface_summary",
+    "inspect_surface", "find_hemisphere_pair",
     # Explicit viewers
     "volume", "timeseries",
     # Viewer classes (lazy)
@@ -149,6 +151,7 @@ def __getattr__(name: str):
         "INTENT_ANATOMICAL", "INTENT_BOLD", "INTENT_CT", "INTENT_DWI",
         "INTENT_PET", "INTENT_STAT_MAP", "INTENT_MASK", "INTENT_LABELMAP",
         "INTENT_RAW_SIGNAL", "INTENT_SURFACE", "INTENT_SERIES_BROWSER",
+        "MODE_QC",
     }
     if name in _asset_names:
         from qortex.visualize import _asset as a
@@ -168,10 +171,16 @@ def __getattr__(name: str):
         return _ts_cls()
     if name == "DWIViewer":
         return _dwi_cls()
+    if name == "fmri_summary":
+        from qortex.visualize.fmri import fmri_summary
+        return fmri_summary
+    if name == "dwi_summary":
+        from qortex.visualize.dwi import dwi_summary
+        return dwi_summary
 
-    if name == "surface_summary":
-        from qortex.visualize.surface import surface_summary
-        return surface_summary
+    if name in {"surface_summary", "inspect_surface", "find_hemisphere_pair"}:
+        from qortex.visualize import surface as _surface
+        return getattr(_surface, name)
 
     # DICOM helpers
     if name in {"list_dicom_series", "load_dicom_series", "DicomSeriesBrowser"}:
@@ -237,7 +246,7 @@ def visualize(
         Path (str or Path), nibabel image, MNE Raw, or numpy array.
     mode:
         Rendering mode: ``"auto"`` (default), ``"interactive_html"``,
-        ``"static"``, ``"thumbnail"``, ``"summary"``.
+        ``"static"``, ``"thumbnail"``, ``"summary"``, or ``"qc"``.
     overlay:
         Optional path/array to overlay on the volume (stat map, mask, etc.).
         When given, routes to the appropriate overlay function.

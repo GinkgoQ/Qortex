@@ -9,9 +9,10 @@ Supported sources
 
 Design
 ------
-VolumeViewer is lazy: the image is memory-mapped by nibabel and slices are
-extracted on demand.  No full volume is ever loaded into RAM unless the caller
-explicitly calls ``.data()`` or ``.mean_volume()``.
+Path-backed NIfTI inputs are lazy: the image is memory-mapped by nibabel and
+slices are extracted on demand. NumPy arrays, Qortex ImageRecord objects, and
+already-open nibabel image objects are eager because the data is already being
+passed as an in-process object.
 
 The interactive HTML viewer pre-renders all slices along each axis as base64
 PNGs (pure Python, no Pillow/matplotlib required) and embeds them in a
@@ -94,6 +95,16 @@ def _source_path_from_lazy(lazy: "_LazyNIfTI") -> Path | None:
     except Exception:
         return None
     return Path(filename) if filename else None
+
+
+def _sample_frame_indices(n_t: int, max_frames: int | None) -> list[int]:
+    """Evenly sample at most *max_frames* unique frame indices."""
+    if n_t <= 0:
+        return []
+    if max_frames is None or max_frames >= n_t:
+        return list(range(n_t))
+    n = max(1, int(max_frames))
+    return np.unique(np.round(np.linspace(0, n_t - 1, n)).astype(int)).astype(int).tolist()
 
 
 def _find_bold_companion(lazy: "_LazyNIfTI", kind: str) -> Path | None:
@@ -221,8 +232,7 @@ class _LazyNIfTI:
         if len(shape) == 3:
             return np.asarray(self._proxy).astype(np.float32)
         n_t = shape[3]
-        step = max(1, n_t // max_frames)
-        frame_idxs = list(range(0, n_t, step))
+        frame_idxs = _sample_frame_indices(n_t, max_frames)
         acc = np.zeros(shape[:3], dtype=np.float64)
         for t in frame_idxs:
             acc += np.asarray(self._proxy[..., t]).astype(np.float64)
@@ -293,8 +303,7 @@ class _LazyNIfTI:
             return np.ones(shape[:3], dtype=np.float32)
 
         n_t = shape[3]
-        step = max(1, n_t // max_frames)
-        frame_idxs = list(range(0, n_t, step))
+        frame_idxs = _sample_frame_indices(n_t, max_frames)
 
         # Welford's one-pass online variance (numerically stable)
         mean = np.zeros(shape[:3], dtype=np.float64)
@@ -324,8 +333,7 @@ class _LazyNIfTI:
             return np.zeros(shape[:3], dtype=np.float32)
 
         n_t = shape[3]
-        step = max(1, n_t // max_frames)
-        frame_idxs = list(range(0, n_t, step))
+        frame_idxs = _sample_frame_indices(n_t, max_frames)
 
         mean = np.zeros(shape[:3], dtype=np.float64)
         M2 = np.zeros(shape[:3], dtype=np.float64)
@@ -366,9 +374,7 @@ class _LazyNIfTI:
             brain_mask = np.ones(shape[:3], dtype=bool)
 
         # Global signal for every (or sampled) timepoint
-        n_out = n_t if max_frames is None else min(n_t, max_frames)
-        step = max(1, n_t // n_out)
-        t_idxs = list(range(0, n_t, step))[:n_out]
+        t_idxs = _sample_frame_indices(n_t, max_frames)
         signal = np.zeros(len(t_idxs), dtype=np.float32)
         for i, t in enumerate(t_idxs):
             frame = np.asarray(self._proxy[..., t]).astype(np.float32)
@@ -400,10 +406,7 @@ class _LazyNIfTI:
         n_t = shape[3]
         n_z = shape[2]
         n_slices_out = n_slices or min(n_z, 32)
-        n_frames_out = min(n_t, n_frames)
-
-        step_t = max(1, n_t // n_frames_out)
-        t_idxs = list(range(0, n_t, step_t))[:n_frames_out]
+        t_idxs = _sample_frame_indices(n_t, n_frames)
 
         z_idxs = np.round(np.linspace(0, n_z - 1, n_slices_out)).astype(int).tolist()
 
@@ -528,6 +531,12 @@ class VolumeViewer:
                     "zooms": self._lazy.zooms,
                     "modality": _detect_modality_from_path(path),
                 }
+                try:
+                    zooms = self._lazy._img.header.get_zooms()
+                    if len(zooms) > 3:
+                        self._meta["tr"] = float(zooms[3])
+                except Exception:
+                    pass
                 self.modality = self._meta["modality"]
             except ImportError:
                 raise
@@ -1166,7 +1175,10 @@ class VolumeViewer:
 
         # Panel 5: global signal timeseries
         gsig = lazy.global_signal(max_frames=min(n_t, 200))
-        t_axis = np.arange(len(gsig)) * (tr * max(1, n_t // len(gsig)))
+        if len(gsig) == n_t:
+            t_axis = np.arange(len(gsig)) * tr
+        else:
+            t_axis = np.linspace(0, (n_t - 1) * tr, len(gsig))
 
         # Panel 6: framewise intensity map
         fw_matrix, fw_idxs = lazy.framewise_intensity_map(n_frames=50, n_slices=24)

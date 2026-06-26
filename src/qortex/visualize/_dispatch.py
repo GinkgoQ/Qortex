@@ -24,7 +24,7 @@ from qortex.visualize._asset import (
     INTENT_FIELDMAP, INTENT_LABELMAP, INTENT_MASK, INTENT_PET,
     INTENT_RAW_SIGNAL, INTENT_SERIES_BROWSER, INTENT_STAT_MAP,
     INTENT_SURFACE, INTENT_UNKNOWN,
-    MODE_INTERACTIVE, MODE_STATIC, MODE_SUMMARY, MODE_THUMBNAIL,
+    MODE_INTERACTIVE, MODE_QC, MODE_STATIC, MODE_SUMMARY, MODE_THUMBNAIL,
 )
 
 log = logging.getLogger(__name__)
@@ -138,6 +138,17 @@ def _inspect_nifti(path: Path) -> VisualAsset:
             companion = parent / f"{stem.rsplit('_', 1)[0]}{ext}"
         if companion.exists():
             asset.companion_paths.append(companion)
+    base_stem = stem.rsplit("_", 1)[0] if "_" in stem else stem
+    for pattern in (
+        f"{base_stem}_desc-confounds_timeseries.tsv",
+        f"{stem}_desc-confounds_timeseries.tsv",
+        f"{base_stem}_confounds_timeseries.tsv",
+        f"{stem}_confounds_timeseries.tsv",
+        f"{base_stem}*confounds*timeseries.tsv",
+    ):
+        for companion in sorted(parent.glob(pattern)):
+            if companion.exists() and companion not in asset.companion_paths:
+                asset.companion_paths.append(companion)
 
     if bids_suffix == "dwi":
         for ext in (".bvec", ".bval"):
@@ -520,7 +531,7 @@ def plan_from_asset(asset: VisualAsset, mode: str = "auto", **kwargs) -> VisualP
     """Derive a VisualPlan from a VisualAsset."""
     resolved_mode = _resolve_mode(asset, mode)
     backend = _choose_backend(asset, resolved_mode)
-    views = _choose_views(asset)
+    views = _choose_views(asset, resolved_mode)
     window = _choose_window(asset)
     colormap = _choose_colormap(asset)
     overlay = kwargs.get("overlay")
@@ -551,8 +562,8 @@ _MODE_ALIASES: dict[str, str] = {
     "png": MODE_THUMBNAIL,
     "thumb": MODE_THUMBNAIL,
     "static_png": MODE_STATIC,
-    "quality": "qc",
-    "quality_control": "qc",
+    "quality": MODE_QC,
+    "quality_control": MODE_QC,
 }
 
 
@@ -572,7 +583,15 @@ def _choose_backend(asset: VisualAsset, mode: str) -> str:
     return "pure_python+plotly"
 
 
-def _choose_views(asset: VisualAsset) -> list[str]:
+def _choose_views(asset: VisualAsset, mode: str = "auto") -> list[str]:
+    if mode == MODE_QC:
+        if asset.intent == INTENT_BOLD:
+            return ["mean_epi", "middle_frame", "temporal_std", "tsnr", "global_signal", "framewise_intensity"]
+        if asset.intent == INTENT_DWI:
+            return ["mean_b0", "high_b", "bval_histogram", "gradient_sphere"]
+        if asset.intent == INTENT_SURFACE:
+            return ["surface_mesh", "surface_scalars", "surface_metadata"]
+        return ["orthogonal_qc"]
     if asset.intent == INTENT_BOLD:
         views = ["mean_epi", "single_timepoint"]
         if asset.n_timepoints > 1:
@@ -609,6 +628,15 @@ def _choose_colormap(asset: VisualAsset) -> str:
     if asset.intent == INTENT_STAT_MAP:
         return "RdBu_r"
     return "gray"
+
+
+def _first_companion(asset: VisualAsset, suffix: str) -> Path | None:
+    """Return the first inspected companion path matching *suffix*."""
+    suffix_l = suffix.lower()
+    for path in asset.companion_paths:
+        if str(path).lower().endswith(suffix_l):
+            return path
+    return None
 
 
 # ── Rendering ─────────────────────────────────────────────────────────────────
@@ -664,9 +692,13 @@ def _render_volume(asset: VisualAsset, plan: VisualPlan, **kwargs) -> VisualResu
             colormap=plan.colormap,
         )
 
-        if plan.mode in {MODE_SUMMARY, "qc"}:
+        if plan.mode in {MODE_SUMMARY, MODE_QC}:
             if asset.intent == INTENT_BOLD and viewer._lazy is not None and len(viewer._lazy.shape) == 4:
-                fig = viewer.fmri_summary(title=kwargs.get("title", ""))
+                fig = viewer.fmri_summary(
+                    title=kwargs.get("title", ""),
+                    events_path=kwargs.get("events_path") or _first_companion(asset, "_events.tsv"),
+                    confounds_path=kwargs.get("confounds_path") or _first_companion(asset, "confounds_timeseries.tsv"),
+                )
                 return VisualResult(
                     asset=asset,
                     plan=plan,
@@ -678,8 +710,8 @@ def _render_volume(asset: VisualAsset, plan: VisualPlan, **kwargs) -> VisualResu
                 from qortex.visualize.dwi import DWIViewer
                 fig = DWIViewer(
                     asset.path,
-                    bval_path=kwargs.get("bval_path"),
-                    bvec_path=kwargs.get("bvec_path"),
+                    bval_path=kwargs.get("bval_path") or _first_companion(asset, ".bval"),
+                    bvec_path=kwargs.get("bvec_path") or _first_companion(asset, ".bvec"),
                 ).dwi_summary(title=kwargs.get("title", ""))
                 return VisualResult(
                     asset=asset,
@@ -688,14 +720,14 @@ def _render_volume(asset: VisualAsset, plan: VisualPlan, **kwargs) -> VisualResu
                     warnings=list(asset.warnings),
                     provenance={"renderer": "DWIViewer.dwi_summary", "path": str(asset.path)},
                 )
-            if plan.mode == "qc":
+            if plan.mode == MODE_QC:
                 fig = viewer.ortho(title=kwargs.get("title", f"QC — {asset.path.name}"))
                 return VisualResult(
                     asset=asset,
                     plan=plan,
                     figures=[fig],
                     warnings=list(asset.warnings),
-                    provenance={"renderer": "VolumeViewer.ortho", "mode": "qc", "path": str(asset.path)},
+                    provenance={"renderer": "VolumeViewer.ortho", "mode": MODE_QC, "path": str(asset.path)},
                 )
             return _render_summary_only(asset, plan)
 
@@ -733,8 +765,8 @@ def _render_volume(asset: VisualAsset, plan: VisualPlan, **kwargs) -> VisualResu
                 from qortex.visualize.dwi import DWIViewer
                 fig = DWIViewer(
                     asset.path,
-                    bval_path=kwargs.get("bval_path"),
-                    bvec_path=kwargs.get("bvec_path"),
+                    bval_path=kwargs.get("bval_path") or _first_companion(asset, ".bval"),
+                    bvec_path=kwargs.get("bvec_path") or _first_companion(asset, ".bvec"),
                 ).dwi_summary(title=kwargs.get("title", ""))
                 return VisualResult(
                     asset=asset,

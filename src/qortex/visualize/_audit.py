@@ -16,6 +16,12 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
+_VISUAL_EXTS = (
+    ".nii.gz", ".nii", ".mgz", ".mgh", ".mnc", ".gii",
+    ".edf", ".fif", ".bdf", ".set", ".vhdr", ".gdf",
+    ".dcm", ".dicom", ".ima",
+)
+
 
 # ── Path-label helpers ────────────────────────────────────────────────────────
 
@@ -48,6 +54,11 @@ def _label_datatype(path_label: str) -> str | None:
         if part in _BIDS_DATATYPES:
             return part
     return None
+
+
+def _is_visualizable_path(path_label: str) -> bool:
+    label = path_label.lower()
+    return any(label.endswith(ext) for ext in _VISUAL_EXTS)
 
 
 # ── Data model ────────────────────────────────────────────────────────────────
@@ -1091,6 +1102,8 @@ def select_visual_files(
     out = []
     for fr in manifest_files:
         path_str = getattr(fr, "path", str(fr))
+        if not _is_visualizable_path(path_str):
+            continue
 
         # Subject filter
         if subjects is not None:
@@ -1201,23 +1214,23 @@ def run_visual_audit_with_manifest(
         Forwarded to ``select_visual_files()`` for pre-filtering.
     """
     # Pre-filter with the shared helper
-    filtered = select_visual_file_records(
+    filtered_all = select_visual_file_records(
         manifest_files,
         subjects=subjects,
         suffixes=suffixes,
         datatypes=datatypes,
         max_size_mb=max_size_mb,
-        n_per_suffix=n_per_suffix,
+        n_per_suffix=None,
     )
 
     # Completeness accounting (fast: just stat() each path)
     local_root = Path(local_root)
-    n_expected = len(filtered)
+    n_expected = len(filtered_all)
     n_local_present = 0
     n_missing_local = 0
     local_files: list = []
     missing_local_files: list[dict[str, Any]] = []
-    for fr in filtered:
+    for fr in filtered_all:
         rel = getattr(fr, "path", str(fr))
         if (local_root / rel).exists():
             n_local_present += 1
@@ -1232,8 +1245,13 @@ def run_visual_audit_with_manifest(
                 "size_bytes": int(getattr(fr, "size", 0) or 0),
             })
 
-    # Run the core audit on locally-present files only
-    report = run_visual_audit(dataset_id, local_files, local_root, max_files=max_files)
+    render_files = select_visual_file_records(
+        local_files,
+        n_per_suffix=n_per_suffix,
+    )
+
+    # Run the core audit on locally-present render sample only
+    report = run_visual_audit(dataset_id, render_files, local_root, max_files=max_files)
 
     # Attach completeness metadata
     report.n_expected = n_expected

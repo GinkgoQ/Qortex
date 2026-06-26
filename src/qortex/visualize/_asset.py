@@ -58,6 +58,7 @@ MODE_STATIC = "static"
 MODE_INTERACTIVE = "interactive_html"
 MODE_DESKTOP = "desktop"
 MODE_SUMMARY = "summary"
+MODE_QC = "qc"
 
 
 # ── VisualWarning ─────────────────────────────────────────────────────────────
@@ -318,10 +319,12 @@ class VisualResult:
     def to_html(self, path: Path | str, *, write_sidecar: bool = True) -> Path:
         """Write HTML to file and optionally write a JSON sidecar."""
         out = Path(path)
+        out.parent.mkdir(parents=True, exist_ok=True)
         content = self.html or self._figures_to_html()
         out.write_text(content, encoding="utf-8")
         if write_sidecar:
             sidecar = out.with_suffix(".json")
+            sidecar.parent.mkdir(parents=True, exist_ok=True)
             sidecar.write_text(
                 json.dumps(self.to_provenance_dict(), indent=2),
                 encoding="utf-8",
@@ -331,16 +334,18 @@ class VisualResult:
     def to_png(self, path: Path | str) -> Path:
         """Write PNG to file (if available)."""
         out = Path(path)
+        out.parent.mkdir(parents=True, exist_ok=True)
         if self.png_bytes:
             out.write_bytes(self.png_bytes)
             return out
+        figure_export_error: Exception | None = None
         if self.figures:
             try:
                 import plotly.io as pio
                 pio.write_image(self.figures[0], str(out))
                 return out
-            except Exception:
-                pass
+            except Exception as exc:
+                figure_export_error = exc
         # Last resort: render center-slice PNG from the asset
         if self.asset.family == "nifti" and str(self.asset.path).startswith("<"):
             raise ValueError(
@@ -364,7 +369,12 @@ class VisualResult:
                 out.write_bytes(base64.b64decode(b64))
                 return out
             except Exception as exc:
-                raise RuntimeError(f"Cannot export PNG: {exc}")
+                raise RuntimeError(f"Cannot export PNG: {exc}") from exc
+        if figure_export_error is not None:
+            raise RuntimeError(
+                "Plotly figure PNG export failed. Install a static image backend "
+                "such as kaleido, or export HTML instead."
+            ) from figure_export_error
         raise RuntimeError("No renderable output available for PNG export")
 
     def to_provenance_dict(self) -> dict:

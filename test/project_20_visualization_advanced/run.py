@@ -42,6 +42,8 @@ Test catalogue
 35.  Shared selector alias — select_visual_file_records accepts manifest object
 36.  Segmentation CLI — compare-masks writes a TP/FP/FN HTML report
 37.  Surface summary — GIFTI mesh renders as a real Plotly surface figure
+38.  Review hardening — QC constants/views, TR, sampling, contour, affine resample
+39.  Surface inspection — typed GIFTI roles, bounds, hemisphere companion
 
 All tests use synthetic in-memory or temp-file data.
 nibabel, plotly, and MNE are each skipped gracefully when absent.
@@ -1611,6 +1613,102 @@ def test_37_surface_summary_gifti():
     print_kv("surface_renderer", result.provenance.get("renderer"))
 
 
+def test_38_review_hardening_regressions():
+    banner("38 — Review hardening: exports, QC planning, TR, sampling, contours, resample")
+    nib = _try_import("nibabel")
+    plotly = _try_import("plotly")
+    if nib is None or plotly is None:
+        print("  SKIP: nibabel or plotly not installed")
+        return
+
+    from types import SimpleNamespace
+    from qortex.visualize import MODE_QC, dwi_summary, fmri_summary
+    from qortex.visualize._audit import select_visual_file_records
+    from qortex.visualize._dispatch import inspect_file
+    from qortex.visualize.overlay import _binary_contour_2d, overlay_mask
+    from qortex.visualize.volume import VolumeViewer, _sample_frame_indices
+
+    require(MODE_QC == "qc", f"MODE_QC wrong: {MODE_QC}")
+    require(callable(fmri_summary), "fmri_summary root import failed")
+    require(callable(dwi_summary), "dwi_summary root import failed")
+    require(len(_sample_frame_indices(120, 50)) <= 50, "frame sampling exceeds max_frames")
+
+    border = np.zeros((6, 6), dtype=bool)
+    border[0, :] = True
+    contour = _binary_contour_2d(border)
+    require(contour[0, 2], "Border contour should remain true")
+    require(not contour[-1, 2], "Contour must not wrap from top edge to bottom edge")
+
+    manifest = SimpleNamespace(files=[
+        SimpleNamespace(path="dataset_description.json", suffix="json", datatype=None, subject=None, size=100),
+        SimpleNamespace(path="sub-01/anat/sub-01_T1w.nii.gz", suffix="T1w", datatype="anat", subject="01", size=100),
+    ])
+    selected = select_visual_file_records(manifest)
+    require([fr.path for fr in selected] == ["sub-01/anat/sub-01_T1w.nii.gz"], f"Nonvisual files leaked: {selected}")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        data = np.zeros((8, 8, 4, 6), dtype=np.float32)
+        img = nib.Nifti1Image(data, np.eye(4))
+        img.header.set_zooms((2.0, 2.0, 3.0, 1.25))
+        bold = root / "sub-01_task-rest_bold.nii.gz"
+        nib.save(img, str(bold))
+        viewer = VolumeViewer(bold)
+        asset = inspect_file(bold)
+
+        base = _write_synthetic_nifti(root / "base_T1w.nii.gz", (12, 12, 6), affine=np.eye(4))
+        shifted = np.eye(4)
+        shifted[0, 3] = 2.0
+        mask = _write_synthetic_nifti(root / "mask.nii.gz", (12, 12, 6), affine=shifted)
+        result = overlay_mask(base, mask, resample=True)
+
+    plan = asset.plan(mode="qc")
+    require(abs((viewer.tr or 0) - 1.25) < 1e-6, f"TR not extracted from header: {viewer.tr}")
+    require("tsnr" in plan.views and "global_signal" in plan.views, f"QC plan views incomplete: {plan.views}")
+    require(result.html and "Mask Overlay" in result.html, "Affine-only resample did not render")
+    print_kv("qc_views", plan.views)
+    print_kv("tr", viewer.tr)
+    print_kv("selected_visual_paths", [fr.path for fr in selected])
+
+
+def test_39_surface_inspection_roles_and_pairing():
+    banner("39 — Surface inspection: GIFTI roles, bounds, hemisphere companion")
+    nib = _try_import("nibabel")
+    plotly = _try_import("plotly")
+    if nib is None or plotly is None:
+        print("  SKIP: nibabel or plotly not installed")
+        return
+
+    import nibabel as nib
+    from nibabel.gifti import GiftiDataArray, GiftiImage
+    from qortex.visualize import find_hemisphere_pair, inspect_surface, surface_summary
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        left = root / "sub-01_hemi-L_pial.surf.gii"
+        right = root / "sub-01_hemi-R_pial.surf.gii"
+        coords = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=np.float32)
+        faces = np.array([[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]], dtype=np.int32)
+        scalar = np.array([0.1, 0.4, 0.8, 1.0], dtype=np.float32)
+        img = GiftiImage(darrays=[GiftiDataArray(coords), GiftiDataArray(faces), GiftiDataArray(scalar)])
+        nib.save(img, str(left))
+        nib.save(img, str(right))
+
+        info = inspect_surface(left)
+        pair = find_hemisphere_pair(left)
+        fig = surface_summary(left)
+
+    roles = [arr.role for arr in info.arrays]
+    require(info.hemisphere == "L", f"Expected left hemisphere, got {info.hemisphere}")
+    require(pair == right, f"Expected right pair, got {pair}")
+    require("coordinates" in roles and "triangles" in roles and "scalars" in roles, f"Roles incomplete: {roles}")
+    require(info.bounds and "x" in info.bounds, "Surface bounds missing")
+    require(len(fig.data) >= 2, "Surface summary should include mesh and metadata table")
+    print_kv("surface_roles", roles)
+    print_kv("surface_bounds", info.bounds)
+    print_kv("pair", pair.name if pair else None)
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -1651,6 +1749,8 @@ def main() -> None:
     test_35_select_visual_file_records_manifest_alias()
     test_36_compare_masks_cli_output()
     test_37_surface_summary_gifti()
+    test_38_review_hardening_regressions()
+    test_39_surface_inspection_roles_and_pairing()
     passed("project_20_visualization_advanced")
 
 

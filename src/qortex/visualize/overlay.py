@@ -92,7 +92,10 @@ def _check_geometry(
     base_shape   = _get_shape3(base)
     overlay_shape = _get_shape3(overlay)
 
-    if base_shape != overlay_shape[:3]:
+    shape_mismatch = base_shape != overlay_shape[:3]
+    affine_mismatch = not _affines_close(base_affine, overlay_affine)
+
+    if shape_mismatch or (resample and affine_mismatch):
         if not resample:
             raise OverlayGeometryError(
                 f"Shape mismatch: base {base_shape} vs overlay {overlay_shape[:3]}. "
@@ -111,6 +114,7 @@ def _check_geometry(
             resampled = nbp.resample_from_to(ov_img, base_img, order=interp_order)
             overlay = np.asarray(resampled.dataobj, dtype=np.float32)
             log.info("Resampled overlay → %s", overlay.shape[:3])
+            overlay_affine = base_affine
         except ImportError:
             raise ImportError("Resampling requires nibabel: pip install nibabel")
 
@@ -538,12 +542,13 @@ def _binary_contour_2d(mask_2d: np.ndarray) -> np.ndarray:
     crisp, unambiguous boundary pixels.
     """
     m = mask_2d.astype(bool)
+    p = np.pad(m, 1, mode="constant", constant_values=False)
     eroded = (
         m
-        & np.roll(m,  1, axis=0)
-        & np.roll(m, -1, axis=0)
-        & np.roll(m,  1, axis=1)
-        & np.roll(m, -1, axis=1)
+        & p[:-2, 1:-1]
+        & p[2:, 1:-1]
+        & p[1:-1, :-2]
+        & p[1:-1, 2:]
     )
     return m & ~eroded
 
@@ -832,10 +837,11 @@ def compare_masks(
     dice_for_label = dice_exact if dice_exact is not None else dice_approx
     dice_label = "Dice" if dice_exact is not None else "Dice ≈"
     dice_str = f"{dice_for_label:.3f}" if not (dice_for_label != dice_for_label) else "N/A"
+    source_label = "full volume" if dice_exact is not None else f"sampled from {n_z_sample} slices"
     legend = (
         "🟢 TP (correct) &nbsp;🔴 FP (over-seg) &nbsp;🔵 FN (under-seg)"
         f" &nbsp;·&nbsp; {dice_label} {dice_str}"
-        f" &nbsp;(sampled from {n_z_sample} slices)"
+        f" &nbsp;({source_label})"
     )
 
     html = build_interactive_html(

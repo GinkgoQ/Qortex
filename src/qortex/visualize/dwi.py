@@ -36,6 +36,10 @@ def _load_bvecs(path: Path) -> np.ndarray:
     lines = path.read_text().strip().splitlines()
     rows = [[float(v) for v in line.split()] for line in lines if line.strip()]
     arr = np.array(rows, dtype=np.float32)
+    if arr.ndim != 2 or 0 in arr.shape:
+        raise ValueError(
+            f"Malformed bvec file {path}: expected a 2D 3×N or N×3 numeric table, got shape {arr.shape}"
+        )
     if arr.shape[0] == 3:
         return arr          # (3, n_vols)
     if arr.shape[1] == 3:
@@ -355,22 +359,22 @@ class DWIViewer:
 
         # b0 slice
         b0_idxs = self.b0_indices
-        b0_vol = np.zeros(shape3, dtype=np.float64)
+        b0_acc = np.zeros(shape3[:2], dtype=np.float64)
         for t in b0_idxs:
-            b0_vol += np.asarray(self._lazy._proxy[..., t]).astype(np.float64)
-        b0_vol /= max(1, len(b0_idxs))
-        b0_slc = b0_vol[:, :, cz].T[::-1, :].astype(np.float32)
+            b0_acc += np.asarray(self._lazy._proxy[:, :, cz, t]).astype(np.float64)
+        b0_acc /= max(1, len(b0_idxs))
+        b0_slc = b0_acc.T[::-1, :].astype(np.float32)
         pos_b0 = b0_slc[b0_slc > 0]
         b0_vmin = float(np.percentile(pos_b0, 1.0)) if pos_b0.size else 0.0
         b0_vmax = float(np.percentile(pos_b0, 99.0)) if pos_b0.size else 1.0
 
         # High-b slice
         hb_idxs = self.high_b_indices
-        dwi_vol = np.zeros(shape3, dtype=np.float64)
+        dwi_acc = np.zeros(shape3[:2], dtype=np.float64)
         for t in hb_idxs[:3]:
-            dwi_vol += np.asarray(self._lazy._proxy[..., t]).astype(np.float64)
-        dwi_vol /= max(1, min(len(hb_idxs), 3))
-        dwi_slc = dwi_vol[:, :, cz].T[::-1, :].astype(np.float32)
+            dwi_acc += np.asarray(self._lazy._proxy[:, :, cz, t]).astype(np.float64)
+        dwi_acc /= max(1, min(len(hb_idxs), 3))
+        dwi_slc = dwi_acc.T[::-1, :].astype(np.float32)
         pos_dwi = dwi_slc[dwi_slc > 0]
         dwi_vmax = float(np.percentile(pos_dwi, 99.0)) if pos_dwi.size else 1.0
 

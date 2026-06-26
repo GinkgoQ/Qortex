@@ -189,9 +189,7 @@ class Artifact:
         n_failed = 0
 
         for i, row in enumerate(samples):
-            label = str(row.get("label", "?"))
-            sub = str(row.get("subject", ""))
-            path_label = f"sample_{i}  label={label}" + (f"  sub={sub}" if sub else "")
+            path_label = _artifact_path_label(row, split=split, row_index=i)
             asset = VisualAsset(path=self.path / f"sample_{i}", family="array",
                                 intent="artifact_sample", modality="signal")
             try:
@@ -199,6 +197,9 @@ class Artifact:
                 thumb_b64 = None
                 if data_col and row[data_col]:
                     arr = _pl_to_array(row[data_col])
+                    asset.shape = tuple(int(s) for s in arr.shape)
+                    asset.dtype = str(arr.dtype)
+                    asset.metadata.update(_artifact_row_metadata(row, data_col=data_col, shape=arr.shape))
                     if arr.ndim >= 2:
                         fig = _plot_volume_slice(arr, f"Sample {i}") if arr.ndim >= 3 else _plot_signal_2d(arr, f"Sample {i}")
                         thumb_b64 = _figure_to_png_b64(fig, pio, width=300, height=180)
@@ -277,13 +278,7 @@ class Artifact:
             samples = _sample_artifact_rows(shards, n=n, seed=None if seed is None else seed + len(all_entries))
 
             for i, row in enumerate(samples):
-                label = str(row.get("label", "?"))
-                sub = str(row.get("subject", ""))
-                path_label = (
-                    f"{split_name}/sample_{i}"
-                    f"  label={label}"
-                    + (f"  sub={sub}" if sub else "")
-                )
+                path_label = _artifact_path_label(row, split=split_name, row_index=i)
                 asset = VisualAsset(
                     path=self.path / split_name / f"sample_{i}",
                     family="array",
@@ -295,6 +290,9 @@ class Artifact:
                     thumb_b64 = None
                     if data_col and row[data_col]:
                         arr = _pl_to_array(row[data_col])
+                        asset.shape = tuple(int(s) for s in arr.shape)
+                        asset.dtype = str(arr.dtype)
+                        asset.metadata.update(_artifact_row_metadata(row, data_col=data_col, shape=arr.shape))
                         if arr.ndim >= 3:
                             fig = _plot_volume_slice(arr, f"{split_name}/{i}")
                         elif arr.ndim == 2 and arr.shape[0] < arr.shape[1]:
@@ -326,7 +324,8 @@ class Artifact:
 
 _META_COLUMNS = {
     "label", "subject", "session", "task", "split", "source_path",
-    "dataset_id", "snapshot", "trial_type", "onset", "duration",
+    "source_file", "dataset_id", "snapshot", "trial_type", "onset", "duration",
+    "run", "row_index", "sample_index",
 }
 
 
@@ -393,15 +392,57 @@ def _artifact_data_column(row: dict[str, Any], manifest: ArtifactManifest) -> st
             if isinstance(spec, dict) and spec.get("role") in {"data", "signal", "image", "features"}:
                 candidates.append(str(name))
     for col in candidates:
-        if col in row and isinstance(row[col], (list, bytes)):
+        if col in row and _is_array_like_value(row[col]):
             return col
     return next(
         (
             k for k, value in row.items()
-            if k not in _META_COLUMNS and isinstance(value, (list, bytes))
+            if k not in _META_COLUMNS and _is_array_like_value(value)
         ),
         None,
     )
+
+
+def _is_array_like_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, (list, tuple, bytes, bytearray, memoryview, np.ndarray)):
+        return True
+    return hasattr(value, "to_numpy") or hasattr(value, "to_list")
+
+
+def _artifact_path_label(row: dict[str, Any], *, split: str | None, row_index: int) -> str:
+    parts = [f"{split or 'all'}/row_{row_index}"]
+    for key, prefix in (
+        ("label", "label"),
+        ("subject", "sub"),
+        ("session", "ses"),
+        ("task", "task"),
+        ("run", "run"),
+    ):
+        value = row.get(key)
+        if value not in (None, ""):
+            parts.append(f"{prefix}={value}")
+    source = row.get("source_path") or row.get("source_file")
+    if source:
+        parts.append(f"src={Path(str(source)).name}")
+    return "  ".join(parts)
+
+
+def _artifact_row_metadata(
+    row: dict[str, Any],
+    *,
+    data_col: str | None,
+    shape: tuple[int, ...],
+) -> dict[str, Any]:
+    keys = (
+        "split", "label", "subject", "session", "task", "run",
+        "source_path", "source_file", "trial_type", "onset", "duration",
+    )
+    meta = {key: row[key] for key in keys if key in row and row[key] not in (None, "")}
+    meta["data_column"] = data_col or ""
+    meta["shape"] = "x".join(str(s) for s in shape)
+    return meta
 
 
 def _figure_to_png_b64(fig: Any, pio: Any, *, width: int, height: int, timeout_s: int = 5) -> str | None:
@@ -430,8 +471,18 @@ def _figure_to_png_b64(fig: Any, pio: Any, *, width: int, height: int, timeout_s
 
 def _pl_to_array(value) -> "np.ndarray":
     import numpy as np
+    if isinstance(value, np.ndarray):
+        return value.astype(np.float32, copy=False)
     if isinstance(value, list):
         return np.array(value, dtype=np.float32)
+    if isinstance(value, tuple):
+        return np.array(value, dtype=np.float32)
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return np.frombuffer(value, dtype=np.float32)
+    if hasattr(value, "to_numpy"):
+        return np.asarray(value.to_numpy(), dtype=np.float32)
+    if hasattr(value, "to_list"):
+        return np.asarray(value.to_list(), dtype=np.float32)
     return np.asarray(value, dtype=np.float32)
 
 

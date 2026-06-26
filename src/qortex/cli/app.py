@@ -1145,6 +1145,9 @@ def visual_audit_cmd(
                                                help="Root of the locally downloaded dataset"),
     output_dir: Path = typer.Option(Path("visual_audit"), "--output-dir", "-o",
                                     help="Directory for the HTML report"),
+    json_output: bool = typer.Option(False, "--json", help="Also write visual_audit.json"),
+    markdown_output: bool = typer.Option(False, "--markdown", help="Also write visual_audit.md"),
+    manifest_json: bool = typer.Option(False, "--manifest-json", help="Also write visual_manifest.json"),
     subjects: Optional[str] = typer.Option(None, "--subjects", "-s",
                                            help="Comma-separated subject IDs (e.g. 01,02,04)"),
     suffixes: Optional[str] = typer.Option(None, "--suffixes",
@@ -1189,6 +1192,18 @@ def visual_audit_cmd(
     out_html = Path(output_dir) / "visual_audit.html"
     typer.echo(report.summary())
     typer.echo(f"\nReport written to {out_html}")
+    if json_output:
+        out_json = Path(output_dir) / "visual_audit.json"
+        out_json.write_text(report.to_json(), encoding="utf-8")
+        typer.echo(f"JSON written to {out_json}")
+    if markdown_output:
+        out_md = Path(output_dir) / "visual_audit.md"
+        report.to_markdown(out_md)
+        typer.echo(f"Markdown written to {out_md}")
+    if manifest_json:
+        out_manifest = Path(output_dir) / "visual_manifest.json"
+        report.visual_manifest_json(out_manifest)
+        typer.echo(f"Visual manifest written to {out_manifest}")
     if not open_browser:
         typer.echo("Run with --open to view in your browser.")
 
@@ -1209,7 +1224,7 @@ def visualize_openneuro_cmd(
     output_dir: Optional[Path] = typer.Option(None, "--output-dir",
                                               help="Download destination (defaults to cache)"),
     mode: str = typer.Option("auto", "--mode", "-m",
-                             help="Rendering mode: auto|thumbnail|interactive|static"),
+                             help="Rendering mode: auto|qc|thumbnail|interactive|static"),
     open_browser: bool = typer.Option(False, "--open", is_flag=True),
     max_size_mb: float = typer.Option(500.0, "--max-size-mb",
                                       help="Skip files larger than this (MB)"),
