@@ -368,7 +368,7 @@ def plan(
     )
 
     target = output_dir or (Path.home() / ".cache" / "qortex" / "datasets" / dataset_id)
-    planner = DownloadPlanner()
+    planner = DownloadPlanner(check_disk_space=False)
     download_plan = planner.plan(manifest, spec, target)
 
     typer.echo(f"\nDownload plan for {dataset_id}")

@@ -50,6 +50,8 @@ from qortex.decision import (
 )
 from qortex.inspect.dataset import DatasetInspector, DatasetProfile
 from qortex.inspect.selector import DatasetFitness, DatasetSelector, ResearchGoal
+from qortex.visualize import open as visualize_open, volume as visualize_volume, timeseries as visualize_timeseries
+from qortex import visualize
 
 
 class Dataset:

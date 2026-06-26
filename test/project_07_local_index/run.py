@@ -59,7 +59,7 @@ def main() -> None:
         print_kv("summary", summary_text)
 
         # at least some indexed files must have BIDS entities
-        with_subject = [r for r in report.indexed_files if r.subject]
+        with_subject = [r for r in report.indexed_files if r.entities and r.entities.get("subject")]
         print_kv("files with subject entity", len(with_subject))
 
         # verify size info where available

@@ -16,8 +16,6 @@ from project_support import (  # noqa: E402
 )
 
 from qortex.parse.behavior import BehaviorLoader
-from qortex.manifest.builder import ManifestBuilder
-from qortex.client.graphql import OpenNeuroClient
 
 
 def main() -> None:
@@ -48,15 +46,15 @@ def main() -> None:
             except Exception as exc:
                 skipped += 1
                 continue
-            for row in record.events:
+            for row in record.data.to_dicts():
                 all_rows.append({
                     "subject": fr.subject,
                     "session": fr.session,
                     "task": fr.task,
                     "run": fr.run,
-                    "onset": row.onset,
-                    "duration": row.duration,
-                    "trial_type": row.trial_type,
+                    "onset": row.get("onset"),
+                    "duration": row.get("duration"),
+                    "trial_type": row.get("trial_type"),
                     "source_file": fr.path,
                 })
 

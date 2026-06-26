@@ -44,7 +44,8 @@ def main() -> None:
     print_kv("metadata table", meta_file.path)
 
     if meta_file.urls:
-        results = gateway.batch_fetch_tsv([meta_file], max_bytes_per_file=512_000)
+        url_map = {meta_file.path: meta_file.urls[0]}
+        results = gateway.batch_fetch_tsv(url_map, max_bytes_per_file=512_000)
         table = results.get(meta_file.path)
         require(table is not None, f"batch_fetch_tsv returned None for {meta_file.path!r}")
         require(len(table) > 0, "metadata table is empty")
@@ -54,7 +55,8 @@ def main() -> None:
     # ── JSON sidecar batch fetch ──────────────────────────────────────────────
     json_files = [f for f in manifest.files if f.extension == ".json" and f.urls and not f.is_dir][:3]
     if json_files:
-        json_results = gateway.batch_fetch_json(json_files, max_bytes_per_file=262_144)
+        json_url_map = {f.path: f.urls[0] for f in json_files}
+        json_results = gateway.batch_fetch_json(json_url_map, max_bytes_per_file=262_144)
         fetched = {k: v for k, v in json_results.items() if v is not None}
         print_kv("JSON files fetched", len(fetched))
         for path, content in list(fetched.items())[:2]:

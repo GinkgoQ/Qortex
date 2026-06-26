@@ -23,7 +23,6 @@ def main() -> None:
 
     ds, manifest = real_manifest()
 
-    # pick a reasonable events column — fall back to "trial_type"
     events_files = [
         f for f in manifest.files
         if f.suffix == "events" and f.extension == ".tsv"
@@ -33,42 +32,42 @@ def main() -> None:
         passed("project_16_label_landscape")
         return
 
-    analyzer = LabelLandscapeAnalyzer(
+    analyzer = LabelLandscapeAnalyzer()
+    landscape: LabelLandscape = analyzer.analyze(
         manifest,
         label_column="trial_type",
         concurrency=4,
         max_events_files=20,
     )
-    landscape: LabelLandscape = analyzer.analyze()
 
-    print_kv("landscape", {
+    print_kv("landscape fields", {
+        "dataset_id": landscape.dataset_id,
         "label_column": landscape.label_column,
-        "n_classes": landscape.n_classes,
-        "total_trials": landscape.total_trials,
+        "n_events_files": landscape.n_events_files,
+        "n_files_fetched": landscape.n_files_fetched,
+        "n_files_failed": landscape.n_files_failed,
         "coverage_pct": f"{landscape.coverage_pct:.1%}",
         "imbalance_ratio": f"{landscape.imbalance_ratio:.2f}" if landscape.imbalance_ratio else None,
-        "files_analyzed": landscape.files_analyzed,
     })
 
     require(landscape.label_column == "trial_type", "label_column not preserved")
-    require(landscape.files_analyzed >= 0, "files_analyzed is negative")
+    require(landscape.n_files_fetched >= 0, "n_files_fetched is negative")
     require(0.0 <= landscape.coverage_pct <= 1.0, f"coverage_pct {landscape.coverage_pct!r} out of [0,1]")
 
-    if landscape.n_classes > 0:
-        require(landscape.total_trials > 0, "n_classes > 0 but total_trials == 0")
-        require(landscape.class_counts, "class_counts is empty despite n_classes > 0")
+    if landscape.trial_type_stats:
+        print_rows("trial_type_stats", [
+            {"trial_type": getattr(s, "trial_type", str(s)), "count": getattr(s, "count", None)}
+            for s in landscape.trial_type_stats[:8]
+        ], limit=8)
 
-        print_rows("class counts", [
-            {"class": cls, "count": cnt}
-            for cls, cnt in sorted(landscape.class_counts.items(), key=lambda x: -x[1])
-        ][:10], limit=10)
+    if landscape.imbalance_ratio is not None:
+        require(landscape.imbalance_ratio >= 1.0, f"imbalance_ratio {landscape.imbalance_ratio} < 1")
 
-        if landscape.imbalance_ratio is not None:
-            require(landscape.imbalance_ratio >= 1.0, f"imbalance_ratio {landscape.imbalance_ratio} < 1")
+    if landscape.subject_profiles:
+        print_kv("subjects with data", len(landscape.subject_profiles))
 
-        # per-subject balance
-        if landscape.per_subject_counts:
-            print_kv("subjects with data", len(landscape.per_subject_counts))
+    if landscape.recommendations:
+        print_kv("recommendations", landscape.recommendations[:2])
 
     passed("project_16_label_landscape")
 

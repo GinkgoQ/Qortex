@@ -79,7 +79,7 @@ def main() -> None:
     require(isinstance(ct_text, str) and ct_text.strip(), "can_train to_text() returned empty")
 
     # ── first_batch (from manifest — no local data) ───────────────────────────
-    fb = first_batch(manifest)
+    fb = first_batch(manifest=manifest)
     print_kv("first_batch", {
         "status": fb.status,
         "source": fb.source,
