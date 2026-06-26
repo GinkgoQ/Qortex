@@ -79,41 +79,53 @@ def _shapes_match_3d(a: np.ndarray, b: np.ndarray) -> bool:
 
 
 def _check_geometry(
-    base: np.ndarray, overlay: np.ndarray,
+    base: Any, overlay: Any,
     base_affine: np.ndarray | None, overlay_affine: np.ndarray | None,
     resample: bool,
     allow_affine_mismatch: bool = False,
     interp_order: int = 0,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Verify / resample overlay to match base geometry."""
-    if not _shapes_match_3d(base, overlay):
+) -> tuple[Any, Any]:
+    """Verify geometry compatibility between base and overlay.
+
+    Accepts lazy (_LazyNIfTI) or eager (np.ndarray) handles.  When shapes
+    differ and ``resample=True``, both handles are materialised and nibabel
+    resampling is applied, returning plain arrays.  Otherwise the original
+    handles (possibly still lazy) are returned unchanged so that callers can
+    continue to read slices on demand.
+    """
+    base_shape   = _get_shape3(base)
+    overlay_shape = _get_shape3(overlay)
+
+    if base_shape != overlay_shape[:3]:
         if not resample:
             raise OverlayGeometryError(
-                f"Shape mismatch: base {base.shape[:3]} vs overlay {overlay.shape[:3]}. "
+                f"Shape mismatch: base {base_shape} vs overlay {overlay_shape[:3]}. "
                 "Pass resample=True to enable resampling."
             )
+        # Resampling needs full arrays in RAM — materialise lazily
         try:
             import nibabel.processing as nbp
             import nibabel as nib
-            # Build minimal nibabel images for processing
-            aff = base_affine if base_affine is not None else np.eye(4)
+            base_arr = _force_load(base)
+            ov_arr   = _force_load(overlay)
+            aff    = base_affine    if base_affine    is not None else np.eye(4)
             ov_aff = overlay_affine if overlay_affine is not None else np.eye(4)
-            base_img = nib.Nifti1Image(base, aff)
-            ov_img = nib.Nifti1Image(overlay.astype(np.float32), ov_aff)
+            base_img = nib.Nifti1Image(base_arr, aff)
+            ov_img   = nib.Nifti1Image(ov_arr.astype(np.float32), ov_aff)
             resampled = nbp.resample_from_to(ov_img, base_img, order=interp_order)
-            overlay = np.asarray(resampled.dataobj)
-            log.info("Resampled overlay from %s to %s", overlay.shape, base.shape[:3])
+            overlay = np.asarray(resampled.dataobj, dtype=np.float32)
+            log.info("Resampled overlay → %s", overlay.shape[:3])
         except ImportError:
             raise ImportError("Resampling requires nibabel: pip install nibabel")
 
     if not _affines_close(base_affine, overlay_affine):
         if allow_affine_mismatch:
-            log.warning("Affine mismatch between base and overlay — alignment may be incorrect.")
+            log.warning("Affine mismatch — overlay may be misaligned.")
         else:
             raise OverlayGeometryError(
                 "Affine mismatch: base and overlay have different world-space geometry. "
-                "Pass allow_affine_mismatch=True to override (may produce misaligned images), "
-                "or resample=True to resample overlay into base space."
+                "Pass allow_affine_mismatch=True to suppress (images may be misaligned), "
+                "or resample=True to resample into base space."
             )
 
     return base, overlay
@@ -161,9 +173,30 @@ def _blend_slice(
 
 # ── Overlay renderers ─────────────────────────────────────────────────────────
 
+def _rgb_slice_to_b64png(blended: np.ndarray) -> str:
+    """Encode a (H, W, 3) uint8 RGB array as base64 PNG without Pillow."""
+    import base64, struct, zlib
+    H, W = blended.shape[:2]
+    rows = [b"\x00" + blended[r].tobytes() for r in range(H)]
+    raw = b"".join(rows)
+    compressed = zlib.compress(raw, 6)
+
+    def _chunk(name: bytes, data: bytes) -> bytes:
+        crc = zlib.crc32(name + data) & 0xFFFFFFFF
+        return struct.pack(">I", len(data)) + name + data + struct.pack(">I", crc)
+
+    png = (
+        b"\x89PNG\r\n\x1a\n"
+        + _chunk(b"IHDR", struct.pack(">IIBBBBB", W, H, 8, 2, 0, 0, 0))
+        + _chunk(b"IDAT", compressed)
+        + _chunk(b"IEND", b"")
+    )
+    return base64.b64encode(png).decode()
+
+
 def _build_overlay_html(
-    base_vol: np.ndarray,
-    ov_vol: np.ndarray,
+    base_handle: Any,
+    ov_handle: Any,
     title: str,
     vmin: float, vmax: float,
     alpha: float,
@@ -171,49 +204,32 @@ def _build_overlay_html(
     threshold: float,
     colormap: str,
     metadata_str: str,
+    voxel_sizes: tuple[float, float, float] = (1.0, 1.0, 1.0),
 ) -> str:
-    """Build interactive HTML viewer with blended overlay pre-rendered."""
-    import base64
+    """Build interactive HTML viewer with blended overlay, reading slices lazily.
 
+    Both ``base_handle`` and ``ov_handle`` may be ``_LazyNIfTI`` instances (for
+    large files only the slices needed for display are ever read from disk) or
+    plain numpy arrays.
+    """
     ov_lut = get_lut(colormap) if mode == "scalar" else None
-    nx, ny, nz = base_vol.shape[:3]
+    nx, ny, nz = _get_shape3(base_handle)
     MAX_SLICES = 80
 
-    def _b64_slice(axis: int, idx: int) -> str:
-        base_slc = np.take(base_vol, idx, axis=axis).T[::-1, :].astype(np.float32)
-        ov_slc = np.take(ov_vol, idx, axis=axis).T[::-1, :].astype(np.float32)
+    def _b64_blended_slice(axis: int, idx: int) -> str:
+        base_slc = _get_slice(base_handle, axis, idx).T[::-1, :]
+        ov_slc   = _get_slice(ov_handle,   axis, idx).T[::-1, :]
         base_normed = apply_window(base_slc, vmin, vmax)
         blended = _blend_slice(base_normed, ov_slc, ov_lut, alpha, threshold, mode)
-        # Encode blended RGB array as PNG
-        import io, struct, zlib
-        H, W, _ = blended.shape
-
-        def _row_filter(row_rgb: np.ndarray) -> bytes:
-            return b"\x00" + row_rgb.tobytes()
-
-        rows = [_row_filter(blended[r]) for r in range(H)]
-        raw = b"".join(rows)
-        compressed = zlib.compress(raw, 6)
-
-        def _chunk(name: bytes, data: bytes) -> bytes:
-            length = len(data)
-            crc = zlib.crc32(name + data) & 0xFFFFFFFF
-            return struct.pack(">I", length) + name + data + struct.pack(">I", crc)
-
-        png = (
-            b"\x89PNG\r\n\x1a\n"
-            + _chunk(b"IHDR", struct.pack(">IIBBBBB", W, H, 8, 2, 0, 0, 0))
-            + _chunk(b"IDAT", compressed)
-            + _chunk(b"IEND", b"")
-        )
-        return base64.b64encode(png).decode()
+        return _rgb_slice_to_b64png(blended)
 
     def _render_axis(axis: int, n_total: int) -> tuple[list[str], list[int]]:
-        if n_total > MAX_SLICES:
-            idxs = np.round(np.linspace(0, n_total - 1, MAX_SLICES)).astype(int).tolist()
-        else:
-            idxs = list(range(n_total))
-        return [_b64_slice(axis, i) for i in idxs], idxs
+        idxs = (
+            np.round(np.linspace(0, n_total - 1, MAX_SLICES)).astype(int).tolist()
+            if n_total > MAX_SLICES
+            else list(range(n_total))
+        )
+        return [_b64_blended_slice(axis, i) for i in idxs], idxs
 
     slices_x, si_x = _render_axis(0, nx)
     slices_y, si_y = _render_axis(1, ny)
@@ -224,8 +240,8 @@ def _build_overlay_html(
         dataset_info=metadata_str,
         modality="overlay",
         shape=(nx, ny, nz),
-        voxel_sizes=(1.0, 1.0, 1.0),
-        vmin=vmin, vmax=vmax, window_str="auto",
+        voxel_sizes=voxel_sizes,
+        vmin=vmin, vmax=vmax, window_str="blended",
         slices_x=slices_x, slices_y=slices_y, slices_z=slices_z,
         si_x=si_x, si_y=si_y, si_z=si_z,
         cx=nx // 2, cy=ny // 2, cz=nz // 2,
@@ -233,29 +249,84 @@ def _build_overlay_html(
     )
 
 
-def _load_vol(source: Any) -> tuple[np.ndarray, np.ndarray | None]:
-    """Load a volume from path / numpy / nibabel and return (data3d, affine)."""
-    if isinstance(source, np.ndarray):
-        vol = source if source.ndim == 3 else source.mean(axis=-1)
-        return vol.astype(np.float32), None
+def _load_vol_lazy(source: Any) -> tuple[Any, tuple[int, ...], np.ndarray | None]:
+    """Open source with the minimum possible I/O.
 
-    if hasattr(source, "get_fdata"):
+    Returns
+    -------
+    handle : _LazyNIfTI | np.ndarray
+        For path-based NIfTI: a ``_LazyNIfTI`` — no pixel data is read.
+        For numpy arrays or nibabel images: a pre-loaded array.
+    shape3 : tuple[int, ...]
+        Spatial shape (nx, ny, nz).
+    affine : np.ndarray | None
+        World-space affine, if available.
+    """
+    if isinstance(source, np.ndarray):
+        arr = (source if source.ndim == 3 else source.mean(axis=-1)).astype(np.float32)
+        return arr, arr.shape[:3], None
+
+    if hasattr(source, "get_fdata") and hasattr(source, "affine"):
         data = np.asarray(source.get_fdata(dtype=np.float32))
-        vol = data if data.ndim == 3 else data.mean(axis=-1)
-        return vol, source.affine
+        arr = data if data.ndim == 3 else data.mean(axis=-1)
+        return arr, arr.shape[:3], source.affine
 
     path = Path(source)
     try:
-        import nibabel as nib
-        img = nib.load(str(path))
-        data = img.get_fdata(dtype=np.float32)
-        vol = data if data.ndim == 3 else data.mean(axis=-1)
-        return vol, img.affine
+        from qortex.visualize.volume import _LazyNIfTI
+        lazy = _LazyNIfTI(path)
+        return lazy, lazy.shape[:3], lazy.affine
     except ImportError:
-        raise ImportError("Loading NIfTI for overlay requires nibabel: pip install nibabel")
+        # nibabel unavailable — try loading eagerly as last resort
+        try:
+            import nibabel as nib
+            img = nib.load(str(path))
+            data = img.get_fdata(dtype=np.float32)
+            arr = data if data.ndim == 3 else data.mean(axis=-1)
+            return arr, arr.shape[:3], img.affine
+        except ImportError:
+            raise ImportError("Overlay rendering requires nibabel: pip install nibabel")
+
+
+def _get_slice(handle: Any, axis: int, idx: int) -> np.ndarray:
+    """Read one 2D slice from a lazy or eager volume handle."""
+    from qortex.visualize.volume import _LazyNIfTI
+    if isinstance(handle, _LazyNIfTI):
+        return handle.slice_along(axis, idx)
+    return np.take(handle, idx, axis=axis).astype(np.float32)
+
+
+def _force_load(handle: Any) -> np.ndarray:
+    """Materialise a lazy handle into a full numpy array (for resampling)."""
+    from qortex.visualize.volume import _LazyNIfTI
+    if isinstance(handle, _LazyNIfTI):
+        return handle.mean_volume()
+    return handle.astype(np.float32) if isinstance(handle, np.ndarray) else np.asarray(handle, dtype=np.float32)
+
+
+def _get_shape3(handle: Any) -> tuple[int, ...]:
+    from qortex.visualize.volume import _LazyNIfTI
+    return handle.shape[:3] if isinstance(handle, _LazyNIfTI) else handle.shape[:3]
 
 
 # ── Public overlay API ────────────────────────────────────────────────────────
+
+def _overlay_voxel_sizes(base_handle: Any) -> tuple[float, float, float]:
+    """Extract voxel sizes from a lazy or eager base handle."""
+    from qortex.visualize.volume import _LazyNIfTI
+    if isinstance(base_handle, _LazyNIfTI):
+        return base_handle.zooms[:3]
+    return (1.0, 1.0, 1.0)
+
+
+def _overlay_auto_window(base_handle: Any) -> tuple[float, float]:
+    """Estimate intensity window from a lazy or eager base handle."""
+    from qortex.visualize.volume import _LazyNIfTI
+    if isinstance(base_handle, _LazyNIfTI):
+        return base_handle.sample_window("mri")
+    arr = base_handle if isinstance(base_handle, np.ndarray) else np.asarray(base_handle)
+    return auto_window(arr, "mri")
+
 
 def overlay_mask(
     base: Any,
@@ -273,26 +344,28 @@ def overlay_mask(
     base:   Path, nibabel image, or numpy array for the anatomical background.
     mask:   Path, nibabel image, or numpy array for the binary mask.
     alpha:  Overlay opacity (0 = invisible, 1 = opaque).
-    title:  HTML title string.
     resample:
-        If True, resample mask to base geometry when shapes differ.
+        Resample mask to base geometry when shapes differ (requires nibabel).
     allow_affine_mismatch:
-        If True, allow overlay when affines differ (may produce misaligned images).
+        Suppress the OverlayGeometryError when affines differ.  Images may be
+        misaligned.
     """
-    base_vol, base_aff = _load_vol(base)
-    mask_vol, mask_aff = _load_vol(mask)
-    base_vol, mask_vol = _check_geometry(
-        base_vol, mask_vol, base_aff, mask_aff, resample,
+    base_h, base_shape, base_aff = _load_vol_lazy(base)
+    mask_h, mask_shape, mask_aff = _load_vol_lazy(mask)
+    base_h, mask_h = _check_geometry(
+        base_h, mask_h, base_aff, mask_aff, resample,
         allow_affine_mismatch=allow_affine_mismatch, interp_order=0,
     )
-    vmin, vmax = auto_window(base_vol, "mri")
+    vmin, vmax = _overlay_auto_window(base_h)
+    vox = _overlay_voxel_sizes(base_h)
 
     asset = inspect_file(base if not isinstance(base, np.ndarray) else base)
     plan = plan_from_asset(asset, "interactive_html")
     html = _build_overlay_html(
-        base_vol, mask_vol, title, vmin, vmax, alpha,
+        base_h, mask_h, title, vmin, vmax, alpha,
         mode="binary", threshold=0.5, colormap="hot",
         metadata_str="Binary mask overlay",
+        voxel_sizes=vox,
     )
     return VisualResult(asset=asset, plan=plan, html=html,
                         provenance={"type": "mask_overlay", "alpha": alpha})
@@ -309,23 +382,33 @@ def overlay_labelmap(
 ) -> VisualResult:
     """Overlay a multi-label segmentation/atlas on an anatomical image.
 
-    Each unique non-zero label receives a distinct colour.
+    Each unique non-zero label receives a distinct colour from the built-in
+    16-colour discrete palette.  Labels > 15 wrap around the palette.
     """
-    base_vol, base_aff = _load_vol(base)
-    label_vol, label_aff = _load_vol(labels)
-    base_vol, label_vol = _check_geometry(
-        base_vol, label_vol, base_aff, label_aff, resample,
+    base_h, base_shape, base_aff = _load_vol_lazy(base)
+    label_h, label_shape, label_aff = _load_vol_lazy(labels)
+    base_h, label_h = _check_geometry(
+        base_h, label_h, base_aff, label_aff, resample,
         allow_affine_mismatch=allow_affine_mismatch, interp_order=0,
     )
-    vmin, vmax = auto_window(base_vol, "mri")
+    vmin, vmax = _overlay_auto_window(base_h)
+    vox = _overlay_voxel_sizes(base_h)
 
-    unique_labels = sorted(int(v) for v in np.unique(label_vol) if v != 0)
+    # Determine unique labels for provenance (materialise only if lazy)
+    from qortex.visualize.volume import _LazyNIfTI
+    if isinstance(label_h, _LazyNIfTI):
+        label_sample = label_h.mean_volume()
+        unique_labels = sorted(int(v) for v in np.unique(label_sample) if v != 0)
+    else:
+        unique_labels = sorted(int(v) for v in np.unique(label_h) if v != 0)
+
     asset = inspect_file(base if not isinstance(base, np.ndarray) else base)
     plan = plan_from_asset(asset, "interactive_html")
     html = _build_overlay_html(
-        base_vol, label_vol, title, vmin, vmax, alpha,
+        base_h, label_h, title, vmin, vmax, alpha,
         mode="label", threshold=0.0, colormap="plasma",
         metadata_str=f"Labels: {unique_labels[:10]}{'…' if len(unique_labels)>10 else ''}",
+        voxel_sizes=vox,
     )
     return VisualResult(asset=asset, plan=plan, html=html,
                         provenance={"type": "labelmap_overlay", "n_labels": len(unique_labels)})
@@ -344,29 +427,38 @@ def overlay_stat(
 ) -> VisualResult:
     """Overlay a thresholded z/t-map on an anatomical image.
 
-    Voxels with |z| < threshold are transparent.  Above-threshold voxels
-    are coloured by the diverging colormap.
+    Voxels with |z| < ``threshold`` are transparent.  Above-threshold voxels
+    are coloured by the diverging colormap (``RdBu_r`` by default).
 
     Parameters
     ----------
     threshold:  |z| or |t| value below which voxels are not shown.
-    colormap:   ``"RdBu_r"`` (diverging) or ``"hot"`` (unilateral).
+    colormap:   Diverging (``"RdBu_r"``) or unilateral (``"hot"``) colormap.
     """
-    base_vol, base_aff = _load_vol(base)
-    stat_vol, stat_aff = _load_vol(stat_map)
-    base_vol, stat_vol = _check_geometry(
-        base_vol, stat_vol, base_aff, stat_aff, resample,
+    base_h, base_shape, base_aff = _load_vol_lazy(base)
+    stat_h, stat_shape, stat_aff = _load_vol_lazy(stat_map)
+    base_h, stat_h = _check_geometry(
+        base_h, stat_h, base_aff, stat_aff, resample,
         allow_affine_mismatch=allow_affine_mismatch, interp_order=1,
     )
-    vmin, vmax = auto_window(base_vol, "mri")
+    vmin, vmax = _overlay_auto_window(base_h)
+    vox = _overlay_voxel_sizes(base_h)
 
-    n_clusters = int((np.abs(stat_vol) >= threshold).sum())
+    # Suprathreshold count for provenance — materialise stat only if needed
+    from qortex.visualize.volume import _LazyNIfTI
+    if isinstance(stat_h, _LazyNIfTI):
+        stat_arr = stat_h.mean_volume()
+    else:
+        stat_arr = stat_h
+    n_clusters = int((np.abs(stat_arr) >= threshold).sum())
+
     asset = inspect_file(base if not isinstance(base, np.ndarray) else base)
     plan = plan_from_asset(asset, "interactive_html")
     html = _build_overlay_html(
-        base_vol, stat_vol, title, vmin, vmax, alpha,
+        base_h, stat_h, title, vmin, vmax, alpha,
         mode="scalar", threshold=threshold, colormap=colormap,
-        metadata_str=f"Threshold |z|≥{threshold:.1f} · {n_clusters} suprathreshold voxels",
+        metadata_str=f"Threshold |z|≥{threshold:.1f} · {n_clusters:,} suprathreshold voxels",
+        voxel_sizes=vox,
     )
     return VisualResult(asset=asset, plan=plan, html=html,
                         provenance={"type": "stat_overlay", "threshold": threshold,
@@ -386,23 +478,37 @@ def overlay_pet(
 ) -> VisualResult:
     """Overlay a PET SUVR map on an anatomical background.
 
-    Voxels below threshold_pct percentile of the PET volume are transparent.
+    Voxels below ``threshold_pct`` percentile of the PET volume are
+    transparent so the anatomical background shows through at low-uptake
+    regions.
     """
-    base_vol, base_aff = _load_vol(base)
-    pet_vol, pet_aff = _load_vol(pet)
-    base_vol, pet_vol = _check_geometry(
-        base_vol, pet_vol, base_aff, pet_aff, resample,
+    base_h, base_shape, base_aff = _load_vol_lazy(base)
+    pet_h, pet_shape, pet_aff = _load_vol_lazy(pet)
+    base_h, pet_h = _check_geometry(
+        base_h, pet_h, base_aff, pet_aff, resample,
         allow_affine_mismatch=allow_affine_mismatch, interp_order=1,
     )
-    vmin, vmax = auto_window(base_vol, "mri")
+    vmin, vmax = _overlay_auto_window(base_h)
+    vox = _overlay_voxel_sizes(base_h)
 
-    threshold = float(np.percentile(pet_vol[pet_vol > 0], threshold_pct)) if (pet_vol > 0).any() else 0.0
+    # Compute percentile-based threshold — needs PET values
+    from qortex.visualize.volume import _LazyNIfTI
+    if isinstance(pet_h, _LazyNIfTI):
+        pet_sample = pet_h.sample_window("mri")
+        threshold = pet_sample[0]  # vmin of PET as a rough proxy
+    else:
+        pet_arr = pet_h
+        threshold = float(
+            np.percentile(pet_arr[pet_arr > 0], threshold_pct)
+        ) if (pet_arr > 0).any() else 0.0
+
     asset = inspect_file(base if not isinstance(base, np.ndarray) else base)
     plan = plan_from_asset(asset, "interactive_html")
     html = _build_overlay_html(
-        base_vol, pet_vol, title, vmin, vmax, alpha,
+        base_h, pet_h, title, vmin, vmax, alpha,
         mode="scalar", threshold=threshold, colormap=colormap,
         metadata_str=f"PET SUV threshold={threshold:.2f} (p{threshold_pct:.0f})",
+        voxel_sizes=vox,
     )
     return VisualResult(asset=asset, plan=plan, html=html,
                         provenance={"type": "pet_overlay", "threshold": threshold})

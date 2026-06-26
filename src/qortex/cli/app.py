@@ -854,6 +854,114 @@ def dicom_browser_cmd(
         typer.echo(f"HTML generated ({len(html)} chars). Use --output or --open to save/view.")
 
 
+# ── visualize-overlay ─────────────────────────────────────────────────────────
+
+@app.command("visualize-overlay")
+def visualize_overlay_cmd(
+    base: Path = typer.Argument(..., help="Base anatomical image (NIfTI path)"),
+    overlay_path: Path = typer.Argument(..., help="Overlay volume (mask, stat map, segmentation, PET)"),
+    overlay_type: str = typer.Option(
+        "auto", "--type", "-t",
+        help="Overlay type: auto|mask|stat|labelmap|pet",
+    ),
+    threshold: float = typer.Option(2.3, "--threshold", help="Z/T threshold for stat map (|z| < threshold → transparent)"),
+    alpha: float = typer.Option(0.65, "--alpha", help="Overlay opacity 0–1"),
+    colormap: Optional[str] = typer.Option(None, "--colormap", help="Colormap override (e.g. RdBu_r, hot, plasma)"),
+    resample: bool = typer.Option(False, "--resample", help="Resample overlay to base geometry if shapes differ"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Write HTML to this path"),
+    open_browser: bool = typer.Option(False, "--open", help="Open result in default browser"),
+) -> None:
+    """Overlay a mask, stat map, segmentation, or PET volume on an anatomical image.
+
+    Examples:
+
+        qortex visualize-overlay T1w.nii.gz brain_mask.nii.gz --type mask
+
+        qortex visualize-overlay T1w.nii.gz zmap.nii.gz --type stat --threshold 2.3
+
+        qortex visualize-overlay T1w.nii.gz aparc+aseg.nii.gz --type labelmap -o seg.html
+
+        qortex visualize-overlay T1w.nii.gz pet_suv.nii.gz --type pet --colormap hot
+    """
+    try:
+        from qortex.visualize import overlay_mask, overlay_labelmap, overlay_stat, overlay_pet
+        from qortex.visualize._dispatch import inspect_file
+    except ImportError as exc:
+        typer.echo(f"Visualization dependencies not installed: {exc}\nInstall: pip install qortex[visual]", err=True)
+        raise typer.Exit(1)
+
+    for p in (base, overlay_path):
+        if not p.exists():
+            typer.echo(f"File not found: {p}", err=True)
+            raise typer.Exit(1)
+
+    # Auto-detect overlay type from filename when type="auto"
+    if overlay_type == "auto":
+        name = overlay_path.name.lower()
+        if any(k in name for k in ("mask",)):
+            overlay_type = "mask"
+        elif any(k in name for k in ("zmap", "tmap", "stat", "contrast", "t-map", "z-map")):
+            overlay_type = "stat"
+        elif any(k in name for k in ("seg", "dseg", "label", "aparc", "aseg", "atlas", "parc")):
+            overlay_type = "labelmap"
+        elif any(k in name for k in ("pet", "suv", "fdg")):
+            overlay_type = "pet"
+        else:
+            # Fall back to inspecting via qortex.visualize.inspect
+            try:
+                ov_asset = inspect_file(overlay_path)
+                intent = ov_asset.intent
+                if "mask" in intent:
+                    overlay_type = "mask"
+                elif "label" in intent or "seg" in intent:
+                    overlay_type = "labelmap"
+                elif "stat" in intent:
+                    overlay_type = "stat"
+                elif "pet" in intent:
+                    overlay_type = "pet"
+                else:
+                    overlay_type = "mask"  # safe default
+            except Exception:
+                overlay_type = "mask"
+
+    typer.echo(f"Overlay type: {overlay_type}")
+    typer.echo(f"Base:    {base}")
+    typer.echo(f"Overlay: {overlay_path}")
+
+    kwargs: dict = {"resample": resample}
+    try:
+        if overlay_type == "mask":
+            result = overlay_mask(base, overlay_path, alpha=alpha, **kwargs)
+        elif overlay_type == "labelmap":
+            result = overlay_labelmap(base, overlay_path, alpha=alpha, **kwargs)
+        elif overlay_type == "stat":
+            kw = {**kwargs, "threshold": threshold, "alpha": alpha}
+            if colormap:
+                kw["colormap"] = colormap
+            result = overlay_stat(base, overlay_path, **kw)
+        elif overlay_type == "pet":
+            kw = {**kwargs, "alpha": alpha}
+            if colormap:
+                kw["colormap"] = colormap
+            result = overlay_pet(base, overlay_path, **kw)
+        else:
+            typer.echo(f"Unknown overlay type: {overlay_type!r}. Choose: mask|stat|labelmap|pet", err=True)
+            raise typer.Exit(1)
+    except Exception as exc:
+        typer.echo(f"Overlay rendering failed: {exc}", err=True)
+        raise typer.Exit(1)
+
+    if output:
+        result.to_html(output)
+        typer.echo(f"Overlay HTML saved to {output}")
+    elif open_browser:
+        result.show()
+        typer.echo("Opened in browser.")
+    else:
+        n = len(result.html) if result.html else 0
+        typer.echo(f"Overlay rendered ({n:,} chars). Use --output FILE.html or --open to view.")
+
+
 # ── dashboard ─────────────────────────────────────────────────────────────────
 
 @app.command()

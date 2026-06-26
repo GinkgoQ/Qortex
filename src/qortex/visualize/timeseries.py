@@ -299,10 +299,13 @@ class TimeSeriesViewer:
             raise FileNotFoundError(f"Not found: {path}")
 
         suffix = path.suffix.lower()
-        nifti_exts = {".nii", ".gz", ".mgz"}
         eeg_exts = {".fif", ".edf", ".bdf", ".set", ".cnt", ".vhdr", ".gdf", ".egi", ".mff"}
 
-        if suffix in nifti_exts or (suffix == ".gz" and ".nii" in path.name):
+        # Compound extension check: .nii.gz must be detected as a unit,
+        # not by suffix alone (.gz alone would match any archive).
+        is_nifti = suffix in {".nii", ".mgz"} or path.name.lower().endswith(".nii.gz")
+
+        if is_nifti:
             return _from_bold_nifti(path)
         elif suffix in eeg_exts:
             return _load_raw_mne(path)

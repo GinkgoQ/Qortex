@@ -389,54 +389,128 @@ class VolumeViewer:
         y: int | None = None,
         z: int | None = None,
         *,
+        t: int | None = None,
         title: str = "",
     ):
-        """Return a 3-panel plotly Figure showing orthogonal slices."""
+        """Return a 3-panel plotly Figure showing orthogonal slices.
+
+        For nibabel-backed sources reads exactly 3 slices from disk — the full
+        volume is never loaded into RAM.  For 4D data the display timepoint
+        defaults to the midpoint and can be overridden with ``t``.
+        Voxel-size-aware aspect ratios are applied automatically.
+
+        Parameters
+        ----------
+        x, y, z : int, optional
+            Slice indices along each axis.  Defaults to the volume centre.
+        t : int, optional
+            Timepoint index for 4D data.  Defaults to n_volumes // 2.
+        title : str, optional
+            Override the auto-generated title.
+        """
         try:
             import plotly.graph_objects as go
             from plotly.subplots import make_subplots
         except ImportError:
             raise ImportError("ortho() requires plotly: pip install plotly")
 
-        vol3d = self._vol3d()
-        nx, ny, nz = vol3d.shape
+        # ── Shape (no data load for lazy sources) ─────────────────────────
+        if self._lazy is not None:
+            shape3 = self._lazy.shape[:3]
+        elif self._vol is not None:
+            shape3 = self._vol.shape[:3]
+        else:
+            raise RuntimeError("No volume data loaded")
+
+        nx, ny, nz = shape3
         cx = x if x is not None else nx // 2
         cy = y if y is not None else ny // 2
         cz = z if z is not None else nz // 2
 
-        def _slice(axis: int, idx: int) -> np.ndarray:
-            arr = np.take(vol3d, idx, axis=axis).T[::-1, :]
-            return np.clip((arr - self._vmin) / max(self._vmax - self._vmin, 1), 0, 1)
+        # ── Read exactly 3 slices ─────────────────────────────────────────
+        if self._lazy is not None:
+            proxy = self._lazy._proxy
+            n_vols = self.n_volumes
+            if n_vols > 1:
+                t_idx = int(t) if t is not None else n_vols // 2
+                t_idx = max(0, min(t_idx, n_vols - 1))
+                # Direct 4D proxy indexing — each reads one frame slice
+                slc_ax  = np.asarray(proxy[:, :, cz, t_idx]).astype(np.float32)
+                slc_cor = np.asarray(proxy[:, cy, :, t_idx]).astype(np.float32)
+                slc_sag = np.asarray(proxy[cx, :, :, t_idx]).astype(np.float32)
+            else:
+                slc_ax  = self._lazy.slice_along(2, cz)   # (nx, ny)
+                slc_cor = self._lazy.slice_along(1, cy)   # (nx, nz)
+                slc_sag = self._lazy.slice_along(0, cx)   # (ny, nz)
+        else:
+            vol3d   = self._vol3d()
+            slc_ax  = vol3d[:, :, cz]
+            slc_cor = vol3d[:, cy, :]
+            slc_sag = vol3d[cx, :, :]
 
-        vmin, vmax = 0.0, 1.0
-        cs = "gray"
+        def _norm(arr: np.ndarray) -> np.ndarray:
+            """Normalise to [0,1], transpose for display (row = y or z, col = x or y)."""
+            disp = arr.T[::-1, :]
+            return np.clip(
+                (disp - self._vmin) / max(self._vmax - self._vmin, 1e-8), 0.0, 1.0
+            )
+
+        # ── Subplot labels ────────────────────────────────────────────────
+        ax_label  = f"Axial   z={cz}"
+        cor_label = f"Coronal  y={cy}"
+        sag_label = f"Sagittal  x={cx}"
 
         fig = make_subplots(
             rows=1, cols=3,
-            subplot_titles=(
-                f"Axial  z={cz}",
-                f"Coronal  y={cy}",
-                f"Sagittal  x={cx}",
-            ),
-            horizontal_spacing=0.03,
+            subplot_titles=(ax_label, cor_label, sag_label),
+            horizontal_spacing=0.04,
         )
 
-        common = dict(colorscale=cs, zmin=vmin, zmax=vmax, showscale=False)
-        fig.add_trace(go.Heatmap(z=_slice(2, cz), **common, name="axial"),    row=1, col=1)
-        fig.add_trace(go.Heatmap(z=_slice(1, cy), **common, name="coronal"),  row=1, col=2)
-        fig.add_trace(go.Heatmap(z=_slice(0, cx), colorscale=cs, zmin=vmin, zmax=vmax,
-                                 showscale=True,
-                                 colorbar=dict(len=0.6, thickness=14), name="sagittal"),
-                      row=1, col=3)
+        common = dict(colorscale="gray", zmin=0, zmax=1, showscale=False,
+                      hovertemplate="%{z:.3f}<extra></extra>")
+        fig.add_trace(go.Heatmap(z=_norm(slc_ax),  **common, name="axial"),   row=1, col=1)
+        fig.add_trace(go.Heatmap(z=_norm(slc_cor), **common, name="coronal"), row=1, col=2)
+        fig.add_trace(
+            go.Heatmap(z=_norm(slc_sag), colorscale="gray", zmin=0, zmax=1,
+                       showscale=True, hovertemplate="%{z:.3f}<extra></extra>",
+                       colorbar=dict(len=0.7, thickness=12, x=1.01,
+                                     title=dict(text="Norm.", side="right")),
+                       name="sagittal"),
+            row=1, col=3,
+        )
 
-        fig.update_yaxes(scaleanchor="x", scaleratio=1, showticklabels=False)
-        fig.update_xaxes(showticklabels=False)
+        # ── Physical aspect-ratio correction ──────────────────────────────
+        # Each subplot's y-axis is anchored to its x-axis with scaleratio = dy/dx
+        # so that one screen pixel represents the same physical distance in both dims.
+        # Axial  (xy-plane): x-cols=x (dx), y-rows=y (dy)  → scaleratio = dy/dx
+        # Coronal (xz-plane): x-cols=x (dx), y-rows=z (dz)  → scaleratio = dz/dx
+        # Sagittal(yz-plane): x-cols=y (dy), y-rows=z (dz)  → scaleratio = dz/dy
+        dx, dy, dz = self.voxel_sizes[:3]
+        fig.update_yaxes(scaleanchor="x",  scaleratio=dy/dx, row=1, col=1)
+        fig.update_yaxes(scaleanchor="x2", scaleratio=dz/dx, row=1, col=2)
+        fig.update_yaxes(scaleanchor="x3", scaleratio=dz/dy, row=1, col=3)
+        fig.update_xaxes(showticklabels=False, showgrid=False, zeroline=False)
+        fig.update_yaxes(showticklabels=False, showgrid=False, zeroline=False)
+
+        # ── Informative auto-title ─────────────────────────────────────────
+        if not title:
+            fname = ""
+            if self._lazy is not None:
+                try:
+                    fname = " — " + Path(str(self._lazy._img.get_filename())).name
+                except Exception:
+                    pass
+            shape_str = "×".join(str(s) for s in shape3)
+            vox_str   = "×".join(f"{v:.2f}" for v in (dx, dy, dz))
+            vol_hint  = f" · t={t_idx}" if (self.n_volumes > 1 and t is not None) else ""
+            title = f"{self.modality.upper()}{fname}  [{shape_str}]  {vox_str} mm{vol_hint}"
+
         fig.update_layout(
-            title=title or f"{self.modality.upper()} — orthogonal view",
+            title=dict(text=title, font=dict(size=12, color="#ccc")),
             paper_bgcolor="#111", plot_bgcolor="#111",
-            font_color="#ccc",
-            margin=dict(l=10, r=10, t=40, b=10),
-            height=400,
+            font_color="#aaa",
+            margin=dict(l=5, r=45, t=65, b=5),
+            height=430,
         )
         return fig
 
@@ -449,15 +523,26 @@ class VolumeViewer:
         step: int | None = None,
         title: str = "",
     ):
-        """Return a plotly Figure with a grid of evenly spaced slices."""
+        """Return a plotly Figure with a grid of evenly spaced slices.
+
+        Reads each slice directly from the nibabel ArrayProxy when available —
+        never materialises the full volume.  Aspect ratios are corrected per
+        panel using the image voxel sizes.
+        """
         try:
             import plotly.graph_objects as go
             from plotly.subplots import make_subplots
         except ImportError:
             raise ImportError("lightbox() requires plotly: pip install plotly")
 
-        vol3d = self._vol3d()
-        n_total = vol3d.shape[axis]
+        # Determine n_total without loading data
+        if self._lazy is not None:
+            n_total = self._lazy.shape[axis]
+        elif self._vol is not None:
+            n_total = self._vol.shape[axis]
+        else:
+            raise RuntimeError("No volume data loaded")
+
         if step is not None:
             indices = list(range(0, n_total, step))[:n_slices]
         else:
@@ -472,29 +557,53 @@ class VolumeViewer:
             horizontal_spacing=0.01, vertical_spacing=0.04,
         )
 
+        # Aspect ratio per panel
+        dx, dy, dz = self.voxel_sizes[:3]
+        ar = {0: dz / dy, 1: dz / dx, 2: dy / dx}.get(axis, 1.0)
+
         for k, idx in enumerate(indices):
             row, col = divmod(k, n_cols)
-            slc = np.take(vol3d, int(idx), axis=axis).T[::-1, :]
-            normed = apply_window(slc, self._vmin, self._vmax)
+
+            # Read one slice lazily from disk when possible
+            if self._lazy is not None:
+                slc = self._lazy.slice_along(axis, int(idx))
+            else:
+                vol3d = self._vol3d()
+                slc = np.take(vol3d, int(idx), axis=axis)
+
+            normed = apply_window(slc.T[::-1, :], self._vmin, self._vmax)
             fig.add_trace(
                 go.Heatmap(
-                    z=normed,
-                    colorscale="gray", zmin=0, zmax=1,
-                    showscale=False,
-                    name=f"slice{idx}",
+                    z=normed, colorscale="gray", zmin=0, zmax=1,
+                    showscale=False, hoverinfo="skip", name=f"s{idx}",
                 ),
                 row=row + 1, col=col + 1,
             )
 
-        fig.update_yaxes(scaleanchor="x", scaleratio=1, showticklabels=False)
-        fig.update_xaxes(showticklabels=False)
+        fig.update_xaxes(showticklabels=False, showgrid=False, zeroline=False)
+        fig.update_yaxes(showticklabels=False, showgrid=False, zeroline=False)
+
+        # Apply aspect correction to every panel (same ratio for all since same axis)
+        for r in range(1, n_rows + 1):
+            for c in range(1, n_cols + 1):
+                try:
+                    fig.update_yaxes(scaleratio=ar, row=r, col=c)
+                except Exception:
+                    pass
+
         axis_name = ("Sagittal", "Coronal", "Axial")[axis]
+        if self._lazy is not None:
+            shape3 = self._lazy.shape[:3]
+        else:
+            shape3 = (self._vol.shape[:3] if self._vol is not None else (0, 0, 0))
+        shape_str = "×".join(str(s) for s in shape3)
+
         fig.update_layout(
-            title=title or f"{self.modality.upper()} — {axis_name} lightbox",
+            title=title or f"{self.modality.upper()} — {axis_name} lightbox  [{shape_str}]",
             paper_bgcolor="#111", plot_bgcolor="#111",
-            font_color="#ccc",
-            margin=dict(l=5, r=5, t=40, b=5),
-            height=max(200, n_rows * 160),
+            font_color="#aaa",
+            margin=dict(l=5, r=5, t=45, b=5),
+            height=max(200, n_rows * 170),
         )
         return fig
 

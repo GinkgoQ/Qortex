@@ -334,33 +334,52 @@ class DicomSeriesBrowser:
         except Exception as exc:
             return self._error_html(str(exc))
 
-        # Determine PHI visibility: method param overrides constructor default
+        # Method-level param overrides constructor default
         _show_phi = show_phi if show_phi is not None else self.show_phi
 
         def _e(v: str) -> str:
-            """Escape and truncate for safe HTML injection."""
+            """Escape and truncate — never inject raw DICOM strings into HTML."""
             return _html_lib.escape(str(v)[:200])
 
-        study = self._study_meta
-        study_desc = _e(study.get("study_description", str(self.directory.name)))
-        patient_id = _e(study.get("patient_id", "ANON")) if _show_phi else "ANON"
-        sex = _e(study.get("patient_sex", "")) if _show_phi else ""
-        study_date = _e(study.get("study_date", ""))
-        # Only show DOB when PHI is enabled
-        dob = _e(study.get("patient_dob", "")) if _show_phi else ""
+        def _fmt_date(raw: str, *, full: bool = True) -> str:
+            """Format DICOM date string YYYYMMDD.  When not full, show year only."""
+            raw = raw.strip()
+            if len(raw) == 8 and raw.isdigit():
+                return f"{raw[:4]}-{raw[4:6]}-{raw[6:]}" if full else raw[:4]
+            return raw
 
-        # Format date
-        if len(study_date) == 8:
-            study_date = f"{study_date[:4]}-{study_date[4:6]}-{study_date[6:]}"
-        if dob and len(dob) == 8:
-            dob = f"{dob[:4]}-{dob[4:6]}-{dob[6:]}"
+        study = self._study_meta
+        # Study description — kept even in anon mode (clinically needed for navigation)
+        study_desc = _e(study.get("study_description", str(self.directory.name)))
+
+        if _show_phi:
+            patient_id  = _e(study.get("patient_id", "ANON"))
+            sex         = _e(study.get("patient_sex", ""))
+            study_date  = _e(_fmt_date(study.get("study_date", ""), full=True))
+            dob         = _e(_fmt_date(study.get("patient_dob", ""), full=True))
+            institution = _e(study.get("institution", ""))
+        else:
+            # PHI-safe defaults:
+            # • Patient ID/DOB/sex → anonymized
+            # • Dates → year only (audit trail without identifying date-of-service)
+            # • Institution → hidden (can identify site/patient indirectly)
+            patient_id  = "ANON"
+            sex         = ""
+            study_date  = _e(_fmt_date(study.get("study_date", ""), full=False))
+            dob         = ""
+            institution = ""
 
         rows_html = ""
         for i, s in enumerate(series_list):
             icon = self._modality_icon(s.modality)
             selected = ' style="background:#1a2a3a;border-left:3px solid #6af"' if i == 0 else ""
-            date_str = f"{s.date[:4]}-{s.date[4:6]}-{s.date[6:]}" if len(s.date) == 8 else s.date
-            time_str = f"{s.time[:2]}:{s.time[2:4]}" if len(s.time) >= 4 else s.time
+            # Show full date in table when PHI enabled, year only when anonymous
+            if _show_phi:
+                date_str = _fmt_date(s.date, full=True)
+                time_str = f"{s.time[:2]}:{s.time[2:4]}" if len(s.time) >= 4 else s.time
+            else:
+                date_str = _fmt_date(s.date, full=False)
+                time_str = ""
             desc_html = _e(s.description or "—")
             thumb = self._render_series_thumbnail(s)
             thumb_html = (
@@ -385,6 +404,8 @@ class DicomSeriesBrowser:
         for i, s in enumerate(series_list):
             display = "block" if i == 0 else "none"
             wc_str = f"WC {s.window_center:.0f} / WW {s.window_width:.0f}" if s.window_center else "auto"
+            # Manufacturer is device info, not patient PHI — keep it
+            mfr_html = _e(s.manufacturer) if _show_phi else _e(s.manufacturer.split()[0] if s.manufacturer else "")
             detail_items += f"""
 <div id="detail_{i}" style="display:{display};padding:12px 0">
   <table style="border-collapse:collapse;font-size:0.85em">
@@ -393,12 +414,13 @@ class DicomSeriesBrowser:
     <tr><td style="color:#888;padding:3px 16px 3px 0">Shape</td><td style="color:#ccc">{s.rows} × {s.cols} × {s.n_images}</td></tr>
     <tr><td style="color:#888;padding:3px 16px 3px 0">Spacing</td><td style="color:#ccc">{_e(s.spacing_str)}</td></tr>
     <tr><td style="color:#888;padding:3px 16px 3px 0">Window</td><td style="color:#ccc">{_e(wc_str)}</td></tr>
-    <tr><td style="color:#888;padding:3px 16px 3px 0">Manufacturer</td><td style="color:#888">{_e(s.manufacturer)}</td></tr>
+    <tr><td style="color:#888;padding:3px 16px 3px 0">Manufacturer</td><td style="color:#888">{mfr_html}</td></tr>
     <tr><td style="color:#888;padding:3px 16px 3px 0">Series UID</td><td style="color:#555;font-size:0.75em;word-break:break-all">{_e(s.series_uid[:40])}…</td></tr>
   </table>
 </div>"""
 
-        dob_row = f'<span>DOB: {dob}</span>' if dob else ""
+        dob_row = f'<span>DOB: {dob}</span>' if (dob and _show_phi) else ""
+        inst_row = f'<span>Institution: {_e(institution)}</span>' if (institution and _show_phi) else ""
         js = f"""
 function selectSeries(idx) {{
   var n = {len(series_list)};
@@ -437,10 +459,11 @@ function selectSeries(idx) {{
 <h2>DICOM Study Browser <span class="tag">Study</span></h2>
 <div class="study-header">
   <span>Study: <b>{study_desc}</b></span>
-  <span>Patient ID: <b>{patient_id}</b></span>
+  <span>Patient: <b>{patient_id}</b></span>
   {dob_row}
-  <span>Sex: {sex}</span>
+  {'<span>Sex: ' + sex + '</span>' if sex else ''}
   <span>Date: {study_date}</span>
+  {inst_row}
 </div>
 <div class="layout">
   <div class="series-table">
