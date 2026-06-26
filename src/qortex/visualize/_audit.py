@@ -69,12 +69,23 @@ class VisualAuditReport:
     Use ``.to_html()`` to write a self-contained HTML gallery,
     ``.show()`` to open it in a browser, or ``.summary()`` for a text digest.
     ``.to_json()`` / ``.visual_manifest_json()`` export machine-readable records.
+
+    Optional manifest-completeness fields (populated by
+    ``run_visual_audit_with_manifest()``):
+
+    n_expected:       Total files listed in the dataset manifest.
+    n_local_present:  Files that exist on local disk.
+    n_missing_local:  Files expected but absent from disk.
     """
     dataset_id: str
     n_files_inspected: int
     n_rendered: int
     n_failed: int
     entries: list[AuditEntry] = field(default_factory=list)
+    # Manifest-completeness metadata (None when not computed)
+    n_expected: int | None = None
+    n_local_present: int | None = None
+    n_missing_local: int | None = None
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -287,11 +298,17 @@ class VisualAuditReport:
         return "\n".join(lines)
 
     def _to_dict(self) -> dict:
-        return {
+        d: dict = {
             "dataset_id": self.dataset_id,
             "n_files_inspected": self.n_files_inspected,
             "n_rendered": self.n_rendered,
             "n_failed": self.n_failed,
+        }
+        if self.n_expected is not None:
+            d["n_expected"] = self.n_expected
+            d["n_local_present"] = self.n_local_present
+            d["n_missing_local"] = self.n_missing_local
+        d.update({
             "coverage_matrix": self.coverage_matrix(),
             "per_suffix_counts": self.per_suffix_counts,
             "per_subject_counts": self.per_subject_counts,
@@ -319,7 +336,8 @@ class VisualAuditReport:
                 }
                 for e in self.entries
             ],
-        }
+        })
+        return d
 
 
 # ── HTML builder helpers ──────────────────────────────────────────────────────
