@@ -1,0 +1,48 @@
+qortex_version: 0.1.0
+dataset_id: ds000001
+snapshot: 1.0.0
+doi:
+created_at: '2026-06-26T05:12:35.936250+00:00'
+selection:
+  subjects:
+  sessions:
+  tasks:
+  modalities:
+  datatypes:
+  include:
+  - sub-04/anat/sub-04_T1w.nii.gz
+  exclude:
+  include_derivatives: false
+  metadata_only: false
+  with_companions: true
+  event_complete: false
+  label_ready: false
+  loadable_only: false
+  max_size_gb: 0.5
+  conversion_target:
+files:
+  CHANGES:
+    size: 286
+    checksum:
+    status: present
+    downloaded_at: '2026-06-26T05:12:36.599041+00:00'
+  README:
+    size: 1175
+    checksum:
+    status: present
+    downloaded_at: '2026-06-26T05:12:36.629224+00:00'
+  dataset_description.json:
+    size: 615
+    checksum:
+    status: present
+    downloaded_at: '2026-06-26T05:12:36.620471+00:00'
+  participants.tsv:
+    size: 216
+    checksum:
+    status: present
+    downloaded_at: '2026-06-26T05:12:36.612166+00:00'
+  sub-04/anat/sub-04_T1w.nii.gz:
+    size: 1159984
+    checksum:
+    status: present
+    downloaded_at: '2026-06-26T05:12:40.580603+00:00'

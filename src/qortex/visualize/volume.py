@@ -424,7 +424,8 @@ class VolumeViewer:
         common = dict(colorscale=cs, zmin=vmin, zmax=vmax, showscale=False)
         fig.add_trace(go.Heatmap(z=_slice(2, cz), **common, name="axial"),    row=1, col=1)
         fig.add_trace(go.Heatmap(z=_slice(1, cy), **common, name="coronal"),  row=1, col=2)
-        fig.add_trace(go.Heatmap(z=_slice(0, cx), **common, showscale=True,
+        fig.add_trace(go.Heatmap(z=_slice(0, cx), colorscale=cs, zmin=vmin, zmax=vmax,
+                                 showscale=True,
                                  colorbar=dict(len=0.6, thickness=14), name="sagittal"),
                       row=1, col=3)
 
