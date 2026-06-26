@@ -99,6 +99,30 @@ qortex local-index data/ds000001-metadata
 qortex validate data/ds000001-metadata --markdown-output validation.md
 ```
 
+## End-to-End Workflow
+
+Qortex is designed around a practical research loop rather than one-off file
+downloads.
+
+1. **Discover and triage remotely.** Use `Dataset.info()`,
+   `Dataset.participants()`, `Dataset.label_landscape()`, `Dataset.sidecar()`,
+   and `Dataset.nifti_info()` before downloading large files.
+2. **Plan before transfer.** Use `Dataset.plan(...)` or
+   `Dataset.minimum(...)` to see the exact files, companions, size, and
+   reasoning.
+3. **Download the smallest useful subset.** Start with metadata/events, then
+   download exact subjects, modalities, or paths needed for the analysis.
+4. **Reconcile and validate local state.** Use `content_status`,
+   `index_local`, and `validate` to distinguish missing files, extra files,
+   official BIDS issues, and local cache problems.
+5. **Run visual QC.** Use `Dataset.visualize(...)`, modality-specific
+   summaries, and overlay tools before conversion or model training.
+6. **Convert and verify artifacts.** Use `Dataset.convert(...)`, reopen with
+   `Artifact.open(...)`, inspect samples/splits visually, then hand off to ML
+   adapters.
+7. **Export review evidence.** HTML, JSON, Markdown, recipes, manifests, and
+   provenance records are written as durable artifacts for collaborators.
+
 ## Core Capabilities
 
 | Area | What Qortex Provides |
@@ -120,6 +144,7 @@ qortex validate data/ds000001-metadata --markdown-output validation.md
 | Loaders | Lazy plugin registry and modality-aware loaders for behavior, EEG, MEG, iEEG, fNIRS, MRI, fMRI, DWI, and PET |
 | Conversion | Loader resolution, optional windowing, split assignment, writer dispatch, provenance, artifact manifests |
 | Artifacts | Reopen converted artifacts, inspect sample/split/source metadata, hand off to adapters |
+| Visual QC | Manifest-aware visual audit, accessible HTML reports, fMRI QC, DWI QC, DICOM browser, overlays, mask comparison, and artifact sample review |
 | ML adapters | Basic artifact bridges for Torch, Lightning, sklearn, TensorFlow, HuggingFace, Ray, Dask, and Braindecode; maturity varies by framework |
 | Catalog | Normalized OpenNeuro catalog ingestion, deep file-summary digestion, structured facets, and weighted local search backed by DuckDB or SQLite fallback |
 | Remote inspection | Demographics from API (no TSV download), NIfTI header extraction via 352-byte Range request, concurrent remote events fetch, label landscape with imbalance and ISI jitter, signal budget estimation from sidecars |
@@ -153,6 +178,7 @@ integration path. This avoids treating module existence as production maturity.
 | TensorFlow/HuggingFace/Ray/Dask/Braindecode adapters | Basic integration paths | Modules exist, but should not be treated as production-grade adapters yet |
 | Validation wrapper | Useful | Runs official `bids-validator` when installed; exports typed reports; does not fabricate results |
 | Dashboard | Experimental | Entrypoint exists; full dashboard product is future work |
+| Visual QC workflow | Useful | Manifest-aware reports, accessible HTML/Markdown/JSON export, fMRI/DWI summaries, overlays, mask comparison, DICOM browsing, and artifact sample review are scenario-tested |
 | Real scenario suite | Useful integration coverage | Uses real OpenNeuro data and shared metadata download; not a substitute for unit/contract tests |
 
 ## Compatibility Matrix
@@ -164,6 +190,7 @@ integration path. This avoids treating module existence as production maturity.
 | Label status | Candidate only | Confirmed for downloaded event tables | Confirmed when local events are present | Confirmed from artifact metadata/rows |
 | Companion planning | Yes | Yes | Yes | No |
 | EDA | Manifest-level | Metadata/event-level | Best available local EDA | Artifact-level adapters only |
+| Visual QC | Manifest-level planning | Local thumbnails for downloaded metadata-supported files | Full image/signal visual audit and modality QC | Sample and split visual audit |
 | BIDS validation | No | Possible but will report missing raw files | Yes, with official CLI | No |
 | Conversion | No | Event/table conversion | Loader-dependent full conversion | No |
 | First ML batch | No | Possible for table artifacts | Possible when loaders/adapters support modality | Possible for compatible artifacts |
@@ -205,6 +232,7 @@ integration path. This avoids treating module existence as production maturity.
 | `label_landscape(...)` | Concurrently fetch all events files and analyze class balance, ISI jitter, and cross-subject consistency |
 | `signal_budget(...)` | Estimate total signal hours and achievable windows from remote sidecars and NIfTI headers |
 | `convert(...)` | Convert downloaded local data into an ML artifact |
+| `visualize(...)` | Render a manifest-aware local visual audit with completeness, action items, HTML/JSON/Markdown export |
 | `torch_dataset(...)` | Open a converted Parquet artifact as a Torch dataset |
 | `lightning_datamodule(...)` | Open a converted artifact as a Lightning DataModule |
 | `sklearn_arrays(...)` | Open a converted artifact as `(X, y)` arrays |
@@ -220,6 +248,9 @@ integration path. This avoids treating module existence as production maturity.
 | `qortex.refresh_catalog_dataset(...)` | Ingest and return one dataset profile, optionally with recursive file-summary digestion |
 | `qortex.Artifact.open(path)` | Open a converted Qortex artifact |
 | `Artifact.summary()` | Return artifact ID, dataset, snapshot, format, samples, subjects, and split counts |
+| `Artifact.visualize_sample(index, split=...)` | Render one schema-aware sample from a Parquet artifact |
+| `Artifact.visual_audit(split=..., n=...)` | Review deterministic random samples from a split |
+| `Artifact.compare_splits(n=...)` | Compare train/val/test samples visually |
 | `Artifact.torch(...)` | Open a Parquet artifact for Torch |
 | `Artifact.sklearn(...)` | Open a Parquet artifact for sklearn |
 | `qortex.content_status(path, manifest=None)` | Inspect local content independently of a `Dataset` object |
@@ -386,6 +417,97 @@ report = ds.eda(
 )
 print(report.quality.ml_readiness_score)
 ```
+
+## Visual QC and Review Workflow
+
+Visual QC is where Qortex helps users decide whether local data is trustworthy
+enough to convert, model, or share with collaborators.
+
+Install the visualization extras:
+
+```bash
+python -m pip install -e ".[visual-all]"
+```
+
+Run a manifest-aware visual audit on a local subset:
+
+```python
+from qortex import Dataset
+
+ds = Dataset("ds000001", data_dir="data/ds000001")
+report = ds.visualize(
+    subjects=["01", "02"],
+    suffixes=["T1w", "bold", "dwi"],
+    n_per_suffix=2,
+    max_files=24,
+)
+
+report.to_html("reports/ds000001-visual.html")
+report.visual_manifest_json("reports/ds000001-visual.json")
+report.to_markdown("reports/ds000001-visual.md")
+
+print(report.summary())
+print(report.action_items())
+```
+
+The HTML report is self-contained and designed for review:
+
+- manifest completeness: expected, present, missing, rendered, failed
+- searchable and filterable file cards
+- subject-by-suffix coverage matrix
+- warning and failure summaries
+- prioritized action items
+- keyboard-focusable cards, alt text, table captions, and ARIA metadata
+- JSON and Markdown exports for downstream tools and lab notes
+
+Run modality-specific QC when one file needs deeper inspection:
+
+```python
+from qortex import visualize
+
+fmri_fig = visualize.fmri_summary("sub-01/func/sub-01_task-rest_bold.nii.gz")
+dwi_fig = visualize.dwi_summary("sub-01/dwi/sub-01_dwi.nii.gz")
+dicom_report = visualize.browse_dicom("dicom/study")
+
+fmri_fig.write_html("reports/sub-01-bold-qc.html")
+dwi_fig.write_html("reports/sub-01-dwi-qc.html")
+dicom_report.to_html("reports/dicom-study.html")
+```
+
+Use overlays and exact mask metrics for segmentation/model review:
+
+```python
+from qortex import visualize
+
+visualize.overlay_mask("T1w.nii.gz", "brain_mask.nii.gz").to_html("mask.html")
+comparison = visualize.compare_masks(
+    "T1w.nii.gz",
+    "pred_mask.nii.gz",
+    "truth_mask.nii.gz",
+    exact=True,
+    per_slice=True,
+)
+print(comparison.provenance["dice_exact"])
+print(comparison.provenance["per_slice_dice"][:5])
+comparison.to_html("mask-comparison.html")
+```
+
+Verify converted artifacts before training:
+
+```python
+from qortex import Artifact
+
+artifact = Artifact.open("artifacts/ds000001")
+fig = artifact.visualize_sample(index=0, split="train")
+fig.write_html("reports/first-artifact-sample.html")
+
+artifact.visual_audit(split="train", n=12).to_html("reports/train-samples.html")
+artifact.compare_splits(n=6).to_html("reports/split-comparison.html")
+```
+
+Static PNG thumbnails that depend on Plotly/Kaleido are opt-in for artifact
+reports because some headless systems hang in browser export. Set
+`QORTEX_ENABLE_STATIC_THUMBNAILS=1` only when the export backend is stable.
 
 ## Validation and Local Indexing
 

@@ -36,6 +36,7 @@ Test catalogue
 29.  DWI companion warnings — bval/bvec mismatch and abnormal norms
 30.  compare_masks exact/per-slice metrics — evaluation-grade provenance
 31.  Artifact visualization — schema-aware lazy Parquet sample reads
+32.  VisualAuditReport UX — action items, Markdown, filters, ARIA labels
 
 All tests use synthetic in-memory or temp-file data.
 nibabel, plotly, and MNE are each skipped gracefully when absent.
@@ -47,13 +48,12 @@ import json
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from project_support import (  # noqa: E402
-    banner, print_kv, require, require_gt, require_in, require_type, passed,
+    banner, print_kv, require, require_type, passed,
 )
 
 
@@ -356,8 +356,9 @@ def test_06_visual_audit_report():
     # HTML output
     html = report.to_html()
     require(len(html) > 2000, "HTML too short")
-    require("COVERAGE MATRIX" in html, "HTML missing coverage matrix section")
+    require("Coverage Matrix" in html, "HTML missing coverage matrix section")
     require("BY SUFFIX" in html, "HTML missing BY SUFFIX section")
+    require('aria-label="Filter visual audit entries"' in html, "HTML missing filter controls")
     require("test-dataset" in html, "HTML missing dataset ID")
 
     # JSON export
@@ -554,8 +555,8 @@ def test_10_dwi_bval_bvec_parsing():
     # _find_companions auto-detection
     with tempfile.TemporaryDirectory() as tmp2:
         stem = "sub-01_dwi"
-        bval_auto = _write_bval(Path(tmp2) / f"{stem}.bval", [0, 1000])
-        bvec_auto = _write_bvec(Path(tmp2) / f"{stem}.bvec", 2)
+        _write_bval(Path(tmp2) / f"{stem}.bval", [0, 1000])
+        _write_bvec(Path(tmp2) / f"{stem}.bvec", 2)
         fake_nii = Path(tmp2) / f"{stem}.nii.gz"
         fake_nii.write_bytes(b"")  # placeholder
 
@@ -671,8 +672,6 @@ def test_12_compare_masks_dice():
 def test_13_overlay_edges():
     banner("13 — overlay_edges: gradient-magnitude edges on synthetic mask")
 
-    from qortex.visualize.overlay import _binary_contour_2d
-
     # Gradient edges on a smooth circular mask
     r = 15
     cx, cy = 30, 30
@@ -774,8 +773,8 @@ def test_15_dicom_phi_hidden():
 
     # Write a minimal DICOM file with identifiable patient data
     import tempfile
-    from pydicom.dataset import Dataset, FileDataset, FileMetaDataset
-    from pydicom.uid import ExplicitVRLittleEndian, UID
+    from pydicom.dataset import Dataset, FileMetaDataset
+    from pydicom.uid import ExplicitVRLittleEndian
     import pydicom.uid as dcm_uid
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -844,7 +843,6 @@ def test_16_eeg_thumbnail():
         return
 
     from qortex.visualize.timeseries import TimeSeriesViewer
-    import base64
 
     rng = np.random.RandomState(99)
     eeg = rng.randn(8, 1024).astype(np.float32) * 1e-5
@@ -898,7 +896,7 @@ def test_17_coverage_matrix():
     require(cm["cells"]["01"]["T1w"] == "ok", f"sub-01 T1w: {cm['cells']['01']['T1w']}")
     # sub-02 bold should be 'missing' (no bold for sub-02)
     require(cm["cells"]["02"].get("bold", "missing") == "missing",
-            f"sub-02 bold should be missing")
+            "sub-02 bold should be missing")
     # sub-03 T1w should be 'error'
     require(cm["cells"]["03"]["T1w"] == "error", f"sub-03 T1w: {cm['cells']['03']['T1w']}")
 
@@ -1399,6 +1397,60 @@ def test_31_artifact_lazy_schema_visualization():
     print_kv("audit_entries", report.n_files_inspected)
 
 
+def test_32_visual_audit_accessibility_workflow():
+    banner("32 — VisualAuditReport UX: accessible HTML, actions, Markdown")
+    from qortex.visualize._asset import VisualAsset, VisualWarning
+    from qortex.visualize._audit import AuditEntry, VisualAuditReport
+
+    asset_ok = VisualAsset(
+        path=Path("sub-01/anat/sub-01_T1w.nii.gz"),
+        family="nifti",
+        intent="anatomical_volume",
+        modality="mri",
+        shape=(32, 32, 16),
+        spacing=(1.0, 1.0, 3.0),
+    )
+    asset_ok.warnings.append(
+        VisualWarning(code="anisotropic", message="Voxel spacing is strongly anisotropic.", severity="warning")
+    )
+    asset_fail = VisualAsset(
+        path=Path("sub-02/func/sub-02_task-rest_bold.nii.gz"),
+        family="nifti",
+        intent="bold_fmri",
+        modality="fmri",
+        shape=(32, 32, 16, 20),
+    )
+    report = VisualAuditReport(
+        dataset_id="ds-ux-test",
+        n_files_inspected=2,
+        n_rendered=1,
+        n_failed=1,
+        entries=[
+            AuditEntry("sub-01/anat/sub-01_T1w.nii.gz", asset_ok, thumbnail_b64=None),
+            AuditEntry("sub-02/func/sub-02_task-rest_bold.nii.gz", asset_fail, error="missing optional renderer"),
+        ],
+        n_expected=3,
+        n_local_present=2,
+        n_missing_local=1,
+    )
+
+    html = report.to_html()
+    markdown = report.to_markdown()
+    data = json.loads(report.to_json())
+
+    require('aria-label="Filter visual audit entries"' in html, "Filter controls missing ARIA label")
+    require('role="progressbar"' in html, "Completeness progressbar missing")
+    require('<caption>' in html, "Accessible table captions missing")
+    require('class="audit-card"' in html, "Audit cards missing class hook")
+    require('id="audit-search"' in html, "Search input missing")
+    require("Action Items" in html, "Action item section missing")
+    require("missing_local_files" in markdown, "Markdown action item missing")
+    require(data["action_items"], "JSON action items missing")
+    print_kv("html_chars", len(html))
+    print_kv("action_items", [item["code"] for item in data["action_items"]])
+    print_kv("markdown_lines", len(markdown.splitlines()))
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -1433,6 +1485,7 @@ def main() -> None:
     test_29_dwi_companion_warnings()
     test_30_compare_masks_exact_metrics()
     test_31_artifact_lazy_schema_visualization()
+    test_32_visual_audit_accessibility_workflow()
     passed("project_20_visualization_advanced")
 
 

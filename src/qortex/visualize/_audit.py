@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import logging
 from dataclasses import dataclass, field
+from html import escape
 from pathlib import Path
 from typing import Any
 
@@ -281,6 +282,92 @@ class VisualAuditReport:
         out.write_text(self.to_json(), encoding="utf-8")
         return out
 
+    def action_items(self) -> list[dict[str, Any]]:
+        """Return prioritized next actions for a curator or ML user."""
+        actions: list[dict[str, Any]] = []
+        if self.n_missing_local:
+            actions.append(
+                {
+                    "severity": "error",
+                    "code": "missing_local_files",
+                    "message": f"{self.n_missing_local} expected manifest file(s) are absent locally.",
+                    "recommendation": "Download the missing files or narrow the visual audit filters before trusting coverage.",
+                }
+            )
+        if self.n_failed:
+            actions.append(
+                {
+                    "severity": "error",
+                    "code": "render_failures",
+                    "message": f"{self.n_failed} inspected file(s) failed visual rendering.",
+                    "recommendation": "Inspect failed file paths and optional dependencies before conversion or model training.",
+                }
+            )
+        ws = self.warning_summary()
+        if ws.get("anisotropic"):
+            actions.append(
+                {
+                    "severity": "warning",
+                    "code": "anisotropic_voxels",
+                    "message": f"{len(ws['anisotropic'])} image file(s) have anisotropic voxel spacing.",
+                    "recommendation": "Review slice direction and resampling policy before quantitative modeling.",
+                }
+            )
+        if ws.get("unusual_orientations"):
+            actions.append(
+                {
+                    "severity": "warning",
+                    "code": "unusual_orientation",
+                    "message": f"{len(ws['unusual_orientations'])} image file(s) use non-standard orientation.",
+                    "recommendation": "Confirm orientation handling before overlays, registration checks, or ML preprocessing.",
+                }
+            )
+        if not actions:
+            actions.append(
+                {
+                    "severity": "info",
+                    "code": "no_blocking_visual_issues",
+                    "message": "No blocking visual audit issues were detected in the rendered sample.",
+                    "recommendation": "Proceed to modality-specific QC or artifact verification for the intended analysis.",
+                }
+            )
+        return actions
+
+    def to_markdown(self, path: Path | str | None = None) -> str:
+        """Build a concise Markdown report for lab notes or pull requests."""
+        lines = [
+            f"# Visual Audit: {self.dataset_id}",
+            "",
+            f"- Files inspected: {self.n_files_inspected}",
+            f"- Rendered OK: {self.n_rendered}",
+            f"- Failed: {self.n_failed}",
+        ]
+        if self.n_expected is not None:
+            lines.extend(
+                [
+                    f"- Expected from manifest: {self.n_expected}",
+                    f"- Present locally: {self.n_local_present}",
+                    f"- Missing locally: {self.n_missing_local}",
+                ]
+            )
+        lines.extend(["", "## Action Items", ""])
+        for item in self.action_items():
+            lines.append(f"- **{item['severity']} / {item['code']}**: {item['message']} {item['recommendation']}")
+        if self.per_suffix_counts:
+            lines.extend(["", "## Suffix Counts", ""])
+            for suffix, count in self.per_suffix_counts.items():
+                lines.append(f"- `{suffix}`: {count}")
+        if self.failed_files:
+            lines.extend(["", "## Failed Files", ""])
+            for entry in self.failed_files:
+                lines.append(f"- `{entry.path_label}`: {entry.error}")
+        text = "\n".join(lines) + "\n"
+        if path is not None:
+            out = Path(path)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(text, encoding="utf-8")
+        return text
+
     def summary(self) -> str:
         """Return a short text summary of the audit."""
         lines = [
@@ -312,6 +399,7 @@ class VisualAuditReport:
             "per_subject_counts": self.per_subject_counts,
             "per_datatype_counts": self.per_datatype_counts,
             "warning_summary": self.warning_summary(),
+            "action_items": self.action_items(),
             "entries": [
                 {
                     "path": e.path_label,
@@ -359,59 +447,61 @@ def _shorten(label: str, max_parts: int = 3) -> str:
     return "…/" + "/".join(parts[-2:])
 
 
-def _build_card(e: AuditEntry) -> str:
-    if e.thumbnail_b64:
-        img = (
-            f'<img src="data:image/png;base64,{e.thumbnail_b64}" '
-            f'style="width:100%;max-width:200px;image-rendering:pixelated;'
-            f'background:#000;border-radius:3px;">'
-        )
-    elif e.error:
-        msg = e.error[:80].replace("<", "&lt;").replace(">", "&gt;")
-        img = (
-            f'<div style="width:200px;height:140px;background:#2a1a1a;'
-            f'display:flex;align-items:center;justify-content:center;'
-            f'color:#f64;font-size:0.75em;border-radius:4px;padding:8px;'
-            f'text-align:center">{msg}</div>'
-        )
-    else:
-        img = '<div style="width:200px;height:140px;background:#1a1a1a;border-radius:4px;"></div>'
+def _esc(value: Any) -> str:
+    return escape(str(value), quote=True)
 
+
+def _build_card(e: AuditEntry) -> str:
     asset = e.asset
     intent = getattr(asset, "intent", "unknown")
     modality = getattr(asset, "modality", "")
     shape = getattr(asset, "shape", None)
     spacing = getattr(asset, "spacing", None)
     warnings = getattr(asset, "warnings", [])
+    status = "error" if e.error else "ok"
+    label_short = _shorten(e.path_label)
+    label_full = e.path_label
+
+    if e.thumbnail_b64:
+        alt = f"Thumbnail preview for {label_short}, {intent.replace('_', ' ')}"
+        img = (
+            f'<img src="data:image/png;base64,{e.thumbnail_b64}" '
+            f'alt="{_esc(alt)}" loading="lazy">'
+        )
+    elif e.error:
+        msg = _esc(e.error[:120])
+        img = (
+            f'<div class="thumb thumb-error" role="img" aria-label="Render failed: {msg}">'
+            f'{msg}</div>'
+        )
+    else:
+        img = '<div class="thumb thumb-empty" role="img" aria-label="No thumbnail available"></div>'
 
     shape_str = " × ".join(str(s) for s in shape) if shape else "?"
     vox_str = " × ".join(f"{v:.2f}" for v in spacing[:3]) if spacing else ""
     color = _INTENT_COLOR.get(intent, "#888")
 
     warn_html = "".join(
-        f'<div style="color:#fa8;font-size:0.7em;margin-top:2px;'
-        f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'
-        f'⚠ {w.message[:55]}</div>'
+        f'<li>{_esc(getattr(w, "message", "")[:90])}</li>'
         for w in list(warnings)[:2]
     )
-
-    label_short = _shorten(e.path_label)
-    label_full = e.path_label.replace('"', "&quot;")
+    warn_block = f'<ul class="warnings" aria-label="Warnings">{warn_html}</ul>' if warn_html else ""
 
     return f"""
-<div style="background:#1a1a1a;border-radius:8px;padding:12px;
-            width:224px;flex-shrink:0;box-sizing:border-box">
-  <div style="text-align:center;margin-bottom:8px">{img}</div>
-  <div style="font-size:0.72em;color:#666;word-break:break-all;margin-bottom:4px"
-       title="{label_full}">{label_short}</div>
-  <div style="font-size:0.8em;margin-bottom:2px">
-    <span style="color:{color};font-weight:500">{intent.replace("_", " ")}</span>
-    <span style="color:#555;margin-left:6px">{modality}</span>
+<article class="audit-card" tabindex="0"
+         data-status="{status}" data-intent="{_esc(intent)}" data-modality="{_esc(modality)}"
+         data-path="{_esc(label_full).lower()}"
+         aria-label="{_esc(label_full)}; status {status}; intent {intent.replace('_', ' ')}">
+  <div class="thumb-wrap">{img}</div>
+  <div class="path" title="{_esc(label_full)}">{_esc(label_short)}</div>
+  <div class="intent">
+    <span style="color:{color}">{_esc(intent.replace("_", " "))}</span>
+    <span class="modality">{_esc(modality)}</span>
   </div>
-  <div style="font-size:0.72em;color:#666">{shape_str}</div>
-  {"" if not vox_str else f'<div style="font-size:0.7em;color:#555">{vox_str} mm</div>'}
-  {warn_html}
-</div>"""
+  <div class="shape">{_esc(shape_str)}</div>
+  {"" if not vox_str else f'<div class="spacing">{_esc(vox_str)} mm</div>'}
+  {warn_block}
+</article>"""
 
 
 def _build_coverage_html(matrix: dict) -> str:
@@ -429,28 +519,30 @@ def _build_coverage_html(matrix: dict) -> str:
     }
 
     th_cells = "".join(
-        f'<th style="padding:3px 8px;color:#888;font-weight:400">{s}</th>'
+        f'<th scope="col">{_esc(s)}</th>'
         for s in suffixes
     )
     rows = ""
     for sub in subjects:
         row_cells = "".join(
-            f'<td style="text-align:center;{_STATUS_STYLE.get(cells.get(sub,{}).get(suf,"missing"),("color:#333","·"))[0]}">'
+            f'<td class="coverage-{_esc(cells.get(sub,{}).get(suf,"missing"))}" '
+            f'aria-label="sub-{_esc(sub)} {_esc(suf)} {cells.get(sub,{}).get(suf,"missing")}">'
             f'{_STATUS_STYLE.get(cells.get(sub,{}).get(suf,"missing"),("color:#333","·"))[1]}</td>'
             for suf in suffixes
         )
-        rows += f'<tr><td style="color:#aaa;padding:3px 8px;white-space:nowrap">sub-{sub}</td>{row_cells}</tr>\n'
+        rows += f'<tr><th scope="row">sub-{_esc(sub)}</th>{row_cells}</tr>\n'
 
     return f"""
-<h3 style="color:#888;font-size:0.82em;margin-bottom:8px;font-weight:500;letter-spacing:0.04em">
-  COVERAGE MATRIX &nbsp;<span style="color:#555;font-weight:400">✓ present &nbsp;⚠ error &nbsp;· missing</span>
-</h3>
-<div style="overflow-x:auto;margin-bottom:28px">
-<table style="border-collapse:collapse;font-size:0.75em">
-  <thead><tr><th style="padding:3px 8px;color:#666;font-weight:400;text-align:left">Subject</th>{th_cells}</tr></thead>
+<section class="panel" aria-labelledby="coverage-title">
+<h3 id="coverage-title">Coverage Matrix <span>present / error / missing by subject and suffix</span></h3>
+<div class="table-scroll">
+<table class="coverage-table">
+  <caption>Subject by suffix visual coverage status</caption>
+  <thead><tr><th scope="col">Subject</th>{th_cells}</tr></thead>
   <tbody>{rows}</tbody>
 </table>
-</div>"""
+</div>
+</section>"""
 
 
 def _build_warning_html(ws: dict) -> str:
@@ -471,28 +563,28 @@ def _build_warning_html(ws: dict) -> str:
     if ws.get("unusual_orientations"):
         files = ws["unusual_orientations"]
         rows += (
-            f'<tr><td style="color:#fa8;padding:3px 16px 3px 0">Unusual orientation</td>'
-            f'<td style="color:#888;padding:3px 16px 3px 0">{len(files)}</td>'
-            f'<td style="color:#666;font-size:0.85em">'
-            f'{", ".join(_shorten(f) for f in files[:3])}'
+            f'<tr><td>Unusual orientation</td>'
+            f'<td>{len(files)}</td>'
+            f'<td>'
+            f'{_esc(", ".join(_shorten(f) for f in files[:3]))}'
             f'{"…" if len(files) > 3 else ""}</td></tr>\n'
         )
     if ws.get("anisotropic"):
         files = ws["anisotropic"]
         rows += (
-            f'<tr><td style="color:#fa8;padding:3px 16px 3px 0">Anisotropic voxels</td>'
-            f'<td style="color:#888;padding:3px 16px 3px 0">{len(files)}</td>'
-            f'<td style="color:#666;font-size:0.85em">'
-            f'{", ".join(_shorten(f) for f in files[:3])}'
+            f'<tr><td>Anisotropic voxels</td>'
+            f'<td>{len(files)}</td>'
+            f'<td>'
+            f'{_esc(", ".join(_shorten(f) for f in files[:3]))}'
             f'{"…" if len(files) > 3 else ""}</td></tr>\n'
         )
     if ws.get("large_files"):
         files = ws["large_files"]
         rows += (
-            f'<tr><td style="color:#fa8;padding:3px 16px 3px 0">Large files (&gt;4 GB)</td>'
-            f'<td style="color:#888;padding:3px 16px 3px 0">{len(files)}</td>'
-            f'<td style="color:#666;font-size:0.85em">'
-            f'{", ".join(_shorten(f) for f in files[:3])}'
+            f'<tr><td>Large files (&gt;4 GB)</td>'
+            f'<td>{len(files)}</td>'
+            f'<td>'
+            f'{_esc(", ".join(_shorten(f) for f in files[:3]))}'
             f'{"…" if len(files) > 3 else ""}</td></tr>\n'
         )
 
@@ -500,10 +592,10 @@ def _build_warning_html(ws: dict) -> str:
         if code in skip_codes:
             continue
         rows += (
-            f'<tr><td style="color:#aaa;padding:3px 16px 3px 0">{code.replace("_", " ")}</td>'
-            f'<td style="color:#888;padding:3px 16px 3px 0">{len(paths)}</td>'
-            f'<td style="color:#666;font-size:0.85em">'
-            f'{", ".join(_shorten(p) for p in paths[:2])}'
+            f'<tr><td>{_esc(code.replace("_", " "))}</td>'
+            f'<td>{len(paths)}</td>'
+            f'<td>'
+            f'{_esc(", ".join(_shorten(p) for p in paths[:2]))}'
             f'{"…" if len(paths) > 2 else ""}</td></tr>\n'
         )
 
@@ -520,21 +612,20 @@ def _build_warning_html(ws: dict) -> str:
 
     badge_str = " &nbsp;".join(sev_badges)
     return f"""
-<div style="margin-bottom:28px">
-<h3 style="color:#888;font-size:0.82em;margin-bottom:8px;font-weight:500;letter-spacing:0.04em">
-  WARNING SUMMARY &nbsp;<span style="color:#555;font-weight:400">{badge_str}</span>
-</h3>
-<table style="border-collapse:collapse;font-size:0.78em;width:100%;max-width:900px">
+<section class="panel" aria-labelledby="warnings-title">
+<h3 id="warnings-title">Warning Summary <span>{badge_str}</span></h3>
+<table>
+  <caption>Visual audit warning categories and example files</caption>
   <thead>
     <tr>
-      <th style="text-align:left;padding:3px 16px 3px 0;color:#555;font-weight:400">Issue</th>
-      <th style="text-align:left;padding:3px 16px 3px 0;color:#555;font-weight:400">Count</th>
-      <th style="text-align:left;padding:3px 0;color:#555;font-weight:400">Files</th>
+      <th scope="col">Issue</th>
+      <th scope="col">Count</th>
+      <th scope="col">Files</th>
     </tr>
   </thead>
   <tbody>{rows}</tbody>
 </table>
-</div>"""
+</section>"""
 
 
 def _build_breakdown_html(report: VisualAuditReport) -> str:
@@ -549,23 +640,22 @@ def _build_breakdown_html(report: VisualAuditReport) -> str:
             return ""
         rows = "".join(
             f'<tr>'
-            f'<td style="padding:2px 20px 2px 0;color:#aaa;white-space:nowrap">{k}</td>'
-            f'<td style="color:#6af;text-align:right">{v}</td>'
+            f'<td>{_esc(k)}</td>'
+            f'<td class="num">{v}</td>'
             f'</tr>'
             for k, v in counts.items()
         )
         return (
-            f'<div style="margin-right:48px;display:inline-block;vertical-align:top">'
-            f'<div style="color:#555;font-size:0.72em;margin-bottom:6px;font-weight:500;'
-            f'letter-spacing:0.06em">{title}</div>'
-            f'<table style="border-collapse:collapse;font-size:0.78em">{rows}</table>'
+            f'<div class="mini-table">'
+            f'<div class="mini-title">{_esc(title)}</div>'
+            f'<table><tbody>{rows}</tbody></table>'
             f'</div>'
         )
 
     inner = _table("BY SUFFIX", suf_counts) + _table("BY DATATYPE", dt_counts)
     if not inner.strip():
         return ""
-    return f'<div style="margin-bottom:28px">{inner}</div>'
+    return f'<section class="panel breakdown" aria-label="Audit breakdown counts">{inner}</section>'
 
 
 def _build_failed_html(failed: list[AuditEntry]) -> str:
@@ -574,29 +664,42 @@ def _build_failed_html(failed: list[AuditEntry]) -> str:
         return ""
     rows = "".join(
         f'<tr>'
-        f'<td style="padding:3px 16px 3px 0;color:#f64;font-size:0.78em;white-space:nowrap">'
-        f'{_shorten(e.path_label)}</td>'
-        f'<td style="color:#888;font-size:0.75em">'
-        f'{(e.error or "")[:100].replace("<", "&lt;").replace(">", "&gt;")}</td>'
+        f'<td>{_esc(_shorten(e.path_label))}</td>'
+        f'<td>{_esc((e.error or "")[:140])}</td>'
         f'</tr>'
         for e in failed
     )
     n = len(failed)
     return f"""
-<div style="margin-bottom:28px">
-<h3 style="color:#f64;font-size:0.82em;margin-bottom:8px;font-weight:500;letter-spacing:0.04em">
-  FAILED RENDERS &nbsp;<span style="color:#555;font-weight:400">({n} file{"s" if n != 1 else ""})</span>
-</h3>
-<table style="border-collapse:collapse;font-size:0.78em;width:100%;max-width:900px">
+<section class="panel failed" aria-labelledby="failed-title">
+<h3 id="failed-title">Failed Renders <span>({n} file{"s" if n != 1 else ""})</span></h3>
+<table>
+  <caption>Files that could not be rendered</caption>
   <thead>
     <tr>
-      <th style="text-align:left;padding:3px 16px 3px 0;color:#555;font-weight:400">File</th>
-      <th style="text-align:left;padding:3px 0;color:#555;font-weight:400">Error</th>
+      <th scope="col">File</th>
+      <th scope="col">Error</th>
     </tr>
   </thead>
   <tbody>{rows}</tbody>
 </table>
-</div>"""
+</section>"""
+
+
+def _build_action_html(report: "VisualAuditReport") -> str:
+    items = report.action_items()
+    rows = "".join(
+        f'<li class="action-{_esc(item["severity"])}">'
+        f'<strong>{_esc(item["code"].replace("_", " "))}</strong>'
+        f'<span>{_esc(item["message"])} {_esc(item["recommendation"])}</span>'
+        f'</li>'
+        for item in items
+    )
+    return f"""
+<section class="panel actions" aria-labelledby="actions-title">
+  <h3 id="actions-title">Action Items <span>prioritized next steps</span></h3>
+  <ol>{rows}</ol>
+</section>"""
 
 
 def _build_completeness_html(report: "VisualAuditReport") -> str:
@@ -609,22 +712,49 @@ def _build_completeness_html(report: "VisualAuditReport") -> str:
     pct = int(100 * n_pres / max(1, n_exp))
     bar_color = "#6f6" if pct >= 90 else "#fa8" if pct >= 50 else "#f64"
     return f"""
-<div style="margin-bottom:20px;background:#1a1a1a;padding:14px 18px;border-radius:6px;
-            max-width:700px">
-  <div style="color:#888;font-size:0.78em;font-weight:500;letter-spacing:0.06em;
-              margin-bottom:8px">MANIFEST COMPLETENESS</div>
-  <div style="font-size:0.85em;color:#888;display:flex;gap:28px;flex-wrap:wrap">
-    <span>Expected &nbsp;<b style="color:#ccc">{n_exp}</b></span>
-    <span>Local &nbsp;<b style="color:{bar_color}">{n_pres}</b>
-      &nbsp;<span style="color:#555">({pct}%)</span></span>
-    <span>Missing &nbsp;<b style="color:#f64">{n_miss}</b></span>
-    <span>Rendered &nbsp;<b style="color:#6f6">{report.n_rendered}</b></span>
-    <span>Failed &nbsp;<b style="color:#f64">{report.n_failed}</b></span>
+<section class="completeness" aria-labelledby="completeness-title">
+  <h3 id="completeness-title">Manifest Completeness</h3>
+  <div class="metric-row">
+    <span>Expected <b>{n_exp}</b></span>
+    <span>Local <b style="color:{bar_color}">{n_pres}</b> <em>({pct}%)</em></span>
+    <span>Missing <b class="bad">{n_miss}</b></span>
+    <span>Rendered <b class="good">{report.n_rendered}</b></span>
+    <span>Failed <b class="bad">{report.n_failed}</b></span>
   </div>
-  <div style="margin-top:8px;height:4px;background:#222;border-radius:2px;max-width:360px">
-    <div style="height:4px;background:{bar_color};width:{pct}%;border-radius:2px"></div>
+  <div class="progress" role="progressbar" aria-label="Local manifest completeness"
+       aria-valuemin="0" aria-valuemax="100" aria-valuenow="{pct}">
+    <div style="background:{bar_color};width:{pct}%"></div>
   </div>
-</div>"""
+</section>"""
+
+
+def _build_filter_html(report: "VisualAuditReport") -> str:
+    intents = sorted({getattr(e.asset, "intent", "unknown") for e in report.entries})
+    options = "".join(f'<option value="{_esc(intent)}">{_esc(intent.replace("_", " "))}</option>' for intent in intents)
+    return f"""
+<section class="filters" aria-label="Filter visual audit entries">
+  <label>
+    <span>Search files</span>
+    <input id="audit-search" type="search" placeholder="subject, suffix, modality, path"
+           aria-controls="audit-grid">
+  </label>
+  <label>
+    <span>Status</span>
+    <select id="audit-status" aria-controls="audit-grid">
+      <option value="">All</option>
+      <option value="ok">Rendered</option>
+      <option value="error">Failed</option>
+    </select>
+  </label>
+  <label>
+    <span>Intent</span>
+    <select id="audit-intent" aria-controls="audit-grid">
+      <option value="">All</option>
+      {options}
+    </select>
+  </label>
+  <div id="audit-count" class="filter-count" aria-live="polite"></div>
+</section>"""
 
 
 def _build_html(report: "VisualAuditReport") -> str:
@@ -637,6 +767,8 @@ def _build_html(report: "VisualAuditReport") -> str:
     breakdown_html = _build_breakdown_html(report)
     failed_html = _build_failed_html(report.failed_files)
     completeness_html = _build_completeness_html(report)
+    action_html = _build_action_html(report)
+    filter_html = _build_filter_html(report)
 
     # Simple stats line when no manifest data is available
     if report.n_expected is None:
@@ -656,25 +788,98 @@ def _build_html(report: "VisualAuditReport") -> str:
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Visual Audit — {report.dataset_id}</title>
 <style>
-  body      {{ background:#111; color:#ccc; font-family:system-ui,sans-serif;
-               margin:24px; }}
-  h2        {{ color:#6af; margin:0 0 6px }}
-  .stats    {{ color:#888; font-size:0.85em; margin-bottom:20px; }}
-  .stats b  {{ color:#ccc; }}
-  .grid     {{ display:flex; flex-wrap:wrap; gap:16px; }}
+  :root {{ color-scheme: dark; --bg:#111; --panel:#1a1a1a; --text:#d8d8d8; --muted:#8d8d8d; --line:#303030; --blue:#7db7ff; --good:#8af58a; --bad:#ff7a7a; --warn:#ffbf80; }}
+  * {{ box-sizing:border-box; }}
+  body {{ background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,Segoe UI,sans-serif; margin:24px; line-height:1.45; }}
+  a.skip {{ position:absolute; left:-999px; top:8px; background:#fff; color:#000; padding:8px 10px; border-radius:4px; }}
+  a.skip:focus {{ left:8px; z-index:10; }}
+  h1 {{ color:var(--blue); margin:0 0 6px; font-size:1.35rem; letter-spacing:0; }}
+  h3 {{ color:var(--muted); font-size:0.84rem; margin:0 0 10px; font-weight:650; letter-spacing:0; }}
+  h3 span {{ color:#666; font-weight:400; margin-left:6px; }}
+  caption {{ position:absolute; left:-10000px; }}
+  table {{ border-collapse:collapse; font-size:0.8rem; width:100%; max-width:920px; }}
+  th, td {{ padding:4px 12px 4px 0; text-align:left; border-bottom:1px solid #222; color:#aaa; }}
+  th {{ color:#c6c6c6; font-weight:550; }}
+  .stats {{ color:var(--muted); font-size:0.88rem; margin-bottom:20px; }}
+  .stats b {{ color:var(--text); }}
+  .panel, .completeness {{ margin:0 0 24px; background:var(--panel); border:1px solid #252525; border-radius:8px; padding:14px 16px; max-width:980px; }}
+  .completeness .metric-row, .filters {{ display:flex; gap:18px; flex-wrap:wrap; align-items:end; color:var(--muted); font-size:0.9rem; }}
+  .metric-row b {{ color:var(--text); }}
+  .metric-row em {{ color:#666; font-style:normal; }}
+  .good {{ color:var(--good) !important; }} .bad {{ color:var(--bad) !important; }}
+  .progress {{ margin-top:10px; height:6px; background:#242424; border-radius:3px; max-width:420px; overflow:hidden; }}
+  .progress div {{ height:6px; border-radius:3px; }}
+  .filters {{ margin:0 0 20px; align-items:center; }}
+  .filters label {{ display:flex; flex-direction:column; gap:4px; color:#777; font-size:0.78rem; }}
+  .filters input, .filters select {{ background:#181818; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:8px 10px; min-width:160px; }}
+  .filters input {{ min-width:280px; }}
+  .filter-count {{ color:#777; font-size:0.82rem; padding-bottom:8px; }}
+  .grid {{ display:flex; flex-wrap:wrap; gap:16px; align-items:stretch; }}
+  .audit-card {{ background:var(--panel); border:1px solid #252525; border-radius:8px; padding:12px; width:224px; flex-shrink:0; }}
+  .audit-card:focus {{ outline:2px solid var(--blue); outline-offset:3px; }}
+  .audit-card img, .thumb {{ width:100%; max-width:200px; height:140px; object-fit:contain; background:#000; border-radius:4px; image-rendering:pixelated; }}
+  .thumb-wrap {{ text-align:center; margin-bottom:8px; }}
+  .thumb {{ display:flex; align-items:center; justify-content:center; padding:8px; font-size:0.76rem; text-align:center; }}
+  .thumb-error {{ background:#2a1717; color:var(--bad); }}
+  .thumb-empty {{ background:#1f1f1f; }}
+  .path {{ font-size:0.74rem; color:#7a7a7a; word-break:break-all; margin-bottom:4px; }}
+  .intent {{ font-size:0.82rem; margin-bottom:2px; font-weight:550; }}
+  .modality {{ color:#777; margin-left:6px; font-weight:400; }}
+  .shape {{ font-size:0.74rem; color:#777; }}
+  .spacing {{ font-size:0.72rem; color:#666; }}
+  .warnings {{ margin:6px 0 0; padding-left:16px; color:var(--warn); font-size:0.72rem; }}
+  .coverage-ok {{ color:var(--good); }} .coverage-error {{ color:var(--warn); }} .coverage-missing {{ color:#555; }}
+  .table-scroll {{ overflow-x:auto; }}
+  .mini-table {{ margin-right:48px; display:inline-block; vertical-align:top; }}
+  .mini-title {{ color:#777; font-size:0.74rem; margin-bottom:6px; font-weight:650; }}
+  .num {{ color:var(--blue); text-align:right; }}
+  .actions ol {{ margin:0; padding-left:22px; }}
+  .actions li {{ margin:6px 0; }}
+  .actions strong {{ display:inline-block; min-width:170px; color:#ddd; }}
+  .action-error strong {{ color:var(--bad); }} .action-warning strong {{ color:var(--warn); }} .action-info strong {{ color:var(--blue); }}
+  @media (prefers-reduced-motion: reduce) {{ * {{ scroll-behavior:auto !important; }} }}
 </style>
 </head>
 <body>
-<h2>Visual Audit — {report.dataset_id}</h2>
+<a class="skip" href="#audit-grid">Skip to visual entries</a>
+<header>
+<h1>Visual Audit — {_esc(report.dataset_id)}</h1>
 {stats_block}
+</header>
 {completeness_html}
+{action_html}
 {coverage_html}
 {warning_html}
 {breakdown_html}
 {failed_html}
-<div class="grid">
+{filter_html}
+<main id="audit-grid" class="grid" tabindex="-1" aria-label="Visual audit entries">
 {cards}
-</div>
+</main>
+<script>
+const cards = Array.from(document.querySelectorAll('.audit-card'));
+const q = document.getElementById('audit-search');
+const status = document.getElementById('audit-status');
+const intent = document.getElementById('audit-intent');
+const count = document.getElementById('audit-count');
+function applyFilters() {{
+  const text = (q.value || '').trim().toLowerCase();
+  const st = status.value;
+  const it = intent.value;
+  let shown = 0;
+  for (const card of cards) {{
+    const matchesText = !text || card.dataset.path.includes(text) || card.dataset.intent.includes(text) || card.dataset.modality.includes(text);
+    const matchesStatus = !st || card.dataset.status === st;
+    const matchesIntent = !it || card.dataset.intent === it;
+    const visible = matchesText && matchesStatus && matchesIntent;
+    card.hidden = !visible;
+    if (visible) shown += 1;
+  }}
+  count.textContent = `${{shown}} of ${{cards.length}} entries shown`;
+}}
+[q, status, intent].forEach(el => el.addEventListener('input', applyFilters));
+applyFilters();
+</script>
 </body>
 </html>"""
 
