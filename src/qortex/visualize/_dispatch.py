@@ -274,12 +274,13 @@ def _inspect_dicom(path: Path) -> VisualAsset:
             asset.metadata["window_center"] = float(wc)
             asset.metadata["window_width"] = float(ww)
 
+        # PHI fields (PatientID, StudyInstanceUID, PatientDOB, PatientSex,
+        # InstitutionName) are intentionally omitted from VisualAsset.metadata
+        # to prevent accidental exposure in logs, provenance dicts, or reports.
+        # Full PHI is available only through the dicom-browser --show-phi path.
         asset.metadata.update({
             "modality_tag": modality_tag,
             "series_description": str(getattr(ds, "SeriesDescription", "")),
-            "patient_id": str(getattr(ds, "PatientID", "ANON")),
-            "series_uid": str(getattr(ds, "SeriesInstanceUID", "")),
-            "study_uid": str(getattr(ds, "StudyInstanceUID", "")),
             "study_description": str(getattr(ds, "StudyDescription", "")),
             "manufacturer": str(getattr(ds, "Manufacturer", "")),
         })
@@ -531,9 +532,18 @@ def plan_from_asset(asset: VisualAsset, mode: str = "auto", **kwargs) -> VisualP
     )
 
 
+_MODE_ALIASES: dict[str, str] = {
+    "interactive": MODE_INTERACTIVE,
+    "html": MODE_INTERACTIVE,
+    "png": MODE_THUMBNAIL,
+    "thumb": MODE_THUMBNAIL,
+    "static_png": MODE_STATIC,
+}
+
+
 def _resolve_mode(asset: VisualAsset, mode: str) -> str:
     if mode != "auto":
-        return mode
+        return _MODE_ALIASES.get(mode, mode)
     return asset.recommended_view
 
 
@@ -626,12 +636,17 @@ def _render_volume(asset: VisualAsset, plan: VisualPlan, **kwargs) -> VisualResu
             return _render_summary_only(asset, plan)
 
         elif plan.mode == "thumbnail":
-            # Fast single-slice PNG
-            vol3d = viewer._vol3d()
+            # Read exactly one center slice — never loads the full volume
             from qortex.visualize._html import array_to_b64png
             import base64
-            cz = vol3d.shape[2] // 2
-            slc = vol3d[:, :, cz].T
+            if viewer._lazy is not None:
+                shape3 = viewer._lazy.shape[:3]
+                cz = shape3[2] // 2
+                slc = viewer._lazy.slice_along(2, cz).T[::-1, :]
+            else:
+                vol3d = viewer._vol3d()
+                cz = vol3d.shape[2] // 2
+                slc = vol3d[:, :, cz].T[::-1, :]
             b64 = array_to_b64png(slc, viewer._vmin, viewer._vmax, viewer.colormap)
             png_bytes = base64.b64decode(b64)
             return VisualResult(asset=asset, plan=plan, png_bytes=png_bytes,

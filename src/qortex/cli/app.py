@@ -962,6 +962,191 @@ def visualize_overlay_cmd(
         typer.echo(f"Overlay rendered ({n:,} chars). Use --output FILE.html or --open to view.")
 
 
+# ── visual-audit ──────────────────────────────────────────────────────────────
+
+@app.command("visual-audit")
+def visual_audit_cmd(
+    dataset_id: str = typer.Argument(..., help="OpenNeuro dataset ID (e.g. ds000001)"),
+    local_path: Optional[Path] = typer.Option(None, "--local", "-l",
+                                               help="Root of the locally downloaded dataset"),
+    output_dir: Path = typer.Option(Path("visual_audit"), "--output-dir", "-o",
+                                    help="Directory for the HTML report"),
+    subjects: Optional[str] = typer.Option(None, "--subjects", "-s",
+                                           help="Comma-separated subject IDs (e.g. 01,02,04)"),
+    suffixes: Optional[str] = typer.Option(None, "--suffixes",
+                                           help="Comma-separated BIDS suffixes (e.g. T1w,bold)"),
+    datatypes: Optional[str] = typer.Option(None, "--datatypes",
+                                            help="Comma-separated BIDS datatypes (e.g. anat,func)"),
+    max_files: int = typer.Option(24, "--max-files"),
+    n_per_suffix: int = typer.Option(3, "--n-per-suffix"),
+    open_browser: bool = typer.Option(False, "--open", is_flag=True),
+) -> None:
+    """Run a visual QC audit on a locally-downloaded OpenNeuro dataset.
+
+    Reads exactly one center slice per NIfTI — the full volume is never loaded.
+
+    \\b
+    Examples:
+      qortex visual-audit ds000001 --local data/ds000001 --output-dir qc/
+      qortex visual-audit ds000001 -l data/ds000001 --suffixes T1w,bold --open
+    """
+    from qortex import Dataset
+
+    sub_list = [s.strip() for s in subjects.split(",")] if subjects else None
+    suf_list = [s.strip() for s in suffixes.split(",")] if suffixes else None
+    dt_list = [s.strip() for s in datatypes.split(",")] if datatypes else None
+
+    ds = Dataset(dataset_id)
+    try:
+        report = ds.visual_audit(
+            output_dir=output_dir,
+            subjects=sub_list,
+            suffixes=suf_list,
+            datatypes=dt_list,
+            local_path=local_path,
+            max_files=max_files,
+            n_per_suffix=n_per_suffix,
+            open_browser=open_browser,
+        )
+    except RuntimeError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1)
+
+    out_html = Path(output_dir) / "visual_audit.html"
+    typer.echo(report.summary())
+    typer.echo(f"\nReport written to {out_html}")
+    if not open_browser:
+        typer.echo("Run with --open to view in your browser.")
+
+
+# ── visualize-openneuro ────────────────────────────────────────────────────────
+
+@app.command("visualize-openneuro")
+def visualize_openneuro_cmd(
+    dataset_id: str = typer.Argument(..., help="OpenNeuro dataset ID (e.g. ds000001)"),
+    subject: Optional[str] = typer.Option(None, "--subject", "-s",
+                                          help="Subject ID without sub- prefix"),
+    suffix: Optional[str] = typer.Option(None, "--suffix",
+                                         help="BIDS suffix (T1w, bold, dwi, ...)"),
+    datatype: Optional[str] = typer.Option(None, "--datatype", "-d",
+                                           help="BIDS datatype folder (anat, func, ...)"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o",
+                                          help="Output HTML path"),
+    output_dir: Optional[Path] = typer.Option(None, "--output-dir",
+                                              help="Download destination (defaults to cache)"),
+    mode: str = typer.Option("auto", "--mode", "-m",
+                             help="Rendering mode: auto|thumbnail|interactive|static"),
+    open_browser: bool = typer.Option(False, "--open", is_flag=True),
+    max_size_mb: float = typer.Option(500.0, "--max-size-mb",
+                                      help="Skip files larger than this (MB)"),
+    n_per_suffix: int = typer.Option(1, "--n-per-suffix"),
+) -> None:
+    """Download a single file from OpenNeuro and visualize it.
+
+    Fetches only the matching file (not the full dataset), then renders
+    a viewer in the browser or writes HTML output.
+
+    \\b
+    Examples:
+      qortex visualize-openneuro ds000001 --subject 01 --suffix T1w --open
+      qortex visualize-openneuro ds004130 --datatype func --suffix bold -o bold.html
+    """
+    from qortex import Dataset
+    from qortex.visualize._audit import run_visual_audit
+
+    sub_list = [subject] if subject else None
+    suf_list = [suffix] if suffix else None
+    dt_list = [datatype] if datatype else None
+
+    ds = Dataset(dataset_id, data_dir=output_dir)
+
+    typer.echo(f"Fetching manifest for {dataset_id}…")
+    try:
+        manifest = ds.manifest()
+    except Exception as exc:
+        typer.echo(f"Could not fetch manifest: {exc}", err=True)
+        raise typer.Exit(1)
+
+    _VIZ_EXTS = (".nii.gz", ".nii", ".mgz", ".mgh", ".edf", ".fif", ".bdf", ".set")
+
+    def _is_viz(fr) -> bool:
+        name = fr.path.lower()
+        return any(name.endswith(ext) for ext in _VIZ_EXTS)
+
+    def _suffix_match(path: str, sfx: str) -> bool:
+        return f"_{sfx}." in path or f"_{sfx}_" in path
+
+    candidates = [fr for fr in manifest.files if _is_viz(fr)]
+    if sub_list:
+        sub_set = {f"sub-{s}" if not s.startswith("sub-") else s for s in sub_list}
+        candidates = [
+            fr for fr in candidates
+            if any(fr.path.startswith(s + "/") or ("/" + s + "/") in fr.path for s in sub_set)
+        ]
+    if dt_list:
+        candidates = [fr for fr in candidates
+                      if any(("/" + dt + "/") in fr.path for dt in dt_list)]
+    if suf_list:
+        candidates = [fr for fr in candidates if _suffix_match(fr.path, suf_list[0])]
+
+    # Skip very large files
+    candidates = [
+        fr for fr in candidates
+        if not hasattr(fr, "size") or (fr.size or 0) <= max_size_mb * 1e6
+    ]
+
+    if not candidates:
+        typer.echo("No matching files found in the dataset manifest.", err=True)
+        raise typer.Exit(1)
+
+    # Take up to n_per_suffix per BIDS suffix for variety
+    selected = candidates[:n_per_suffix]
+    typer.echo(f"Downloading {len(selected)} file(s)…")
+    try:
+        local_root = ds._resolve_data_dir()
+        ds.download_paths([fr.path for fr in selected], progress=True)
+    except Exception as exc:
+        typer.echo(f"Download failed: {exc}", err=True)
+        raise typer.Exit(1)
+
+    report = run_visual_audit(
+        dataset_id=dataset_id,
+        file_records=selected,
+        local_root=local_root,
+        max_files=n_per_suffix,
+    )
+
+    if len(report.entries) == 1 and report.entries[0].asset.family == "nifti":
+        # Single file — use full interactive viewer
+        from qortex.visualize._dispatch import render_asset
+        asset = report.entries[0].asset
+        try:
+            result = render_asset(asset, mode=mode)
+            if output:
+                result.to_html(output)
+                typer.echo(f"Visualization saved to {output}")
+            elif open_browser:
+                result.show()
+            else:
+                typer.echo(
+                    f"Rendered {asset.intent} [{asset.modality}]. "
+                    f"Use --output FILE.html or --open to view."
+                )
+            return
+        except Exception as exc:
+            typer.echo(f"Render failed: {exc}", err=True)
+
+    # Multiple files or fallback — show audit report
+    out_path = output or Path(f"{dataset_id}_preview.html")
+    report.to_html(out_path)
+    typer.echo(report.summary())
+    typer.echo(f"\nPreview written to {out_path}")
+    if open_browser:
+        report.show()
+    else:
+        typer.echo("Run with --open to view in your browser.")
+
+
 # ── dashboard ─────────────────────────────────────────────────────────────────
 
 @app.command()

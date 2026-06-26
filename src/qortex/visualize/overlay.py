@@ -394,11 +394,16 @@ def overlay_labelmap(
     vmin, vmax = _overlay_auto_window(base_h)
     vox = _overlay_voxel_sizes(base_h)
 
-    # Determine unique labels for provenance (materialise only if lazy)
+    # Discover unique labels from 3 strategic slices (25/50/75% of z-axis).
+    # Covers most atlas structures without materialising the full volume.
     from qortex.visualize.volume import _LazyNIfTI
     if isinstance(label_h, _LazyNIfTI):
-        label_sample = label_h.mean_volume()
-        unique_labels = sorted(int(v) for v in np.unique(label_sample) if v != 0)
+        n_z = label_h.shape[2]
+        label_sample = np.concatenate([
+            label_h.slice_along(2, int(n_z * q)).ravel()
+            for q in (0.25, 0.50, 0.75)
+        ])
+        unique_labels = sorted(int(v) for v in np.unique(label_sample.astype(np.int32)) if v != 0)
     else:
         unique_labels = sorted(int(v) for v in np.unique(label_h) if v != 0)
 
@@ -444,13 +449,19 @@ def overlay_stat(
     vmin, vmax = _overlay_auto_window(base_h)
     vox = _overlay_voxel_sizes(base_h)
 
-    # Suprathreshold count for provenance — materialise stat only if needed
+    # Estimate suprathreshold count from ~10% of axial slices and scale to volume.
+    # Avoids materialising the full stat map while still providing a useful count.
     from qortex.visualize.volume import _LazyNIfTI
     if isinstance(stat_h, _LazyNIfTI):
-        stat_arr = stat_h.mean_volume()
+        n_z = stat_h.shape[2]
+        sample_idxs = np.round(np.linspace(0, n_z - 1, max(3, n_z // 10))).astype(int)
+        sample_supra = sum(
+            int((np.abs(stat_h.slice_along(2, int(i)).ravel()) >= threshold).sum())
+            for i in sample_idxs
+        )
+        n_clusters = int(sample_supra * n_z / len(sample_idxs))
     else:
-        stat_arr = stat_h
-    n_clusters = int((np.abs(stat_arr) >= threshold).sum())
+        n_clusters = int((np.abs(stat_h) >= threshold).sum())
 
     asset = inspect_file(base if not isinstance(base, np.ndarray) else base)
     plan = plan_from_asset(asset, "interactive_html")
@@ -491,13 +502,20 @@ def overlay_pet(
     vmin, vmax = _overlay_auto_window(base_h)
     vox = _overlay_voxel_sizes(base_h)
 
-    # Compute percentile-based threshold — needs PET values
+    # Compute percentile threshold from positive PET voxels sampled across ~10%
+    # of axial slices — exact percentile without loading the full volume.
     from qortex.visualize.volume import _LazyNIfTI
     if isinstance(pet_h, _LazyNIfTI):
-        pet_sample = pet_h.sample_window("mri")
-        threshold = pet_sample[0]  # vmin of PET as a rough proxy
+        n_z = pet_h.shape[2]
+        sample_idxs = np.round(np.linspace(0, n_z - 1, max(5, n_z // 10))).astype(int)
+        pos_samples = []
+        for idx in sample_idxs:
+            slc = pet_h.slice_along(2, int(idx)).ravel()
+            pos_samples.append(slc[slc > 0])
+        flat_pos = np.concatenate(pos_samples) if any(s.size > 0 for s in pos_samples) else np.array([0.0])
+        threshold = float(np.percentile(flat_pos, threshold_pct)) if flat_pos.size > 0 else 0.0
     else:
-        pet_arr = pet_h
+        pet_arr = np.asarray(pet_h)
         threshold = float(
             np.percentile(pet_arr[pet_arr > 0], threshold_pct)
         ) if (pet_arr > 0).any() else 0.0

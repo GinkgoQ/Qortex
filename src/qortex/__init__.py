@@ -51,6 +51,7 @@ from qortex.decision import (
 from qortex.inspect.dataset import DatasetInspector, DatasetProfile
 from qortex.inspect.selector import DatasetFitness, DatasetSelector, ResearchGoal
 from qortex import visualize
+from qortex.visualize._audit import VisualAuditReport
 
 
 class Dataset:
@@ -995,6 +996,203 @@ class Dataset:
             include_nifti_headers=include_nifti_headers,
         )
 
+    # ── Visual QC ────────────────────────────────────────────────────────
+
+    def visualize(
+        self,
+        *,
+        subjects: list[str] | None = None,
+        suffixes: list[str] | None = None,
+        datatypes: list[str] | None = None,
+        local_path: Path | None = None,
+        output_dir: Path | None = None,
+        mode: str = "thumbnail",
+        max_files: int = 12,
+        n_per_suffix: int = 2,
+        open_browser: bool = False,
+    ) -> "VisualAuditReport":
+        """Render a visual sample of locally-downloaded dataset files.
+
+        Returns a :class:`VisualAuditReport` whose ``.show()`` opens an HTML
+        gallery in the browser and ``.to_html()`` writes the file.
+
+        Each NIfTI reads **exactly one center slice** from the nibabel
+        ArrayProxy — the full volume is never loaded.
+
+        Parameters
+        ----------
+        subjects:
+            Restrict to these subject IDs (without ``sub-`` prefix).
+            ``None`` includes all subjects.
+        suffixes:
+            BIDS suffixes to include, e.g. ``["T1w", "bold"]``.
+            ``None`` includes all visualizable suffixes.
+        datatypes:
+            BIDS datatype folders, e.g. ``["anat", "func", "eeg"]``.
+        local_path:
+            Root of the locally downloaded dataset.  Falls back to the
+            default cache directory (set during ``download()``).
+        output_dir:
+            If given, write the HTML report to
+            ``{output_dir}/visual_audit.html``.
+        mode:
+            Rendering mode.  ``"thumbnail"`` (default) reads one slice per
+            file.  ``"static"`` renders a multi-panel PNG.
+        max_files:
+            Hard cap on the number of files rendered.
+        n_per_suffix:
+            Maximum files per BIDS suffix; ensures variety when many
+            suffixes are present.
+        open_browser:
+            Open the generated HTML report automatically.
+
+        Returns
+        -------
+        VisualAuditReport
+
+        Examples
+        --------
+        >>> ds = Dataset("ds000001")
+        >>> ds.download(subjects=["01", "02"], suffixes=["T1w"])
+        >>> report = ds.visualize(local_path="data/ds000001", suffixes=["T1w"])
+        >>> report.show()
+        """
+        from qortex.visualize._audit import run_visual_audit, VisualAuditReport
+
+        root = Path(local_path) if local_path else self._resolve_data_dir()
+        if not root.exists():
+            raise RuntimeError(
+                f"Local data directory not found: {root}\n"
+                "Download the data first with ds.download() or pass local_path=."
+            )
+
+        manifest = self.manifest()
+        _VIZ_EXTS = (".nii.gz", ".nii", ".mgz", ".mgh", ".edf", ".fif", ".bdf", ".set")
+
+        def _is_viz(fr) -> bool:
+            name = fr.path.lower()
+            return any(name.endswith(ext) for ext in _VIZ_EXTS)
+
+        candidates = [fr for fr in manifest.files if _is_viz(fr)]
+
+        if subjects is not None:
+            sub_set = {f"sub-{s}" if not s.startswith("sub-") else s for s in subjects}
+            candidates = [
+                fr for fr in candidates
+                if any(fr.path.startswith(s + "/") or ("/" + s + "/") in fr.path
+                       for s in sub_set)
+            ]
+        if datatypes is not None:
+            candidates = [
+                fr for fr in candidates
+                if any(("/" + dt + "/") in fr.path for dt in datatypes)
+            ]
+        if suffixes is not None:
+            def _suffix_match(path: str, sfx_list: list[str]) -> bool:
+                for sfx in sfx_list:
+                    if f"_{sfx}." in path or f"_{sfx}_" in path:
+                        return True
+                return False
+            candidates = [fr for fr in candidates if _suffix_match(fr.path, suffixes)]
+
+        # Group by BIDS suffix for n_per_suffix sampling
+        from collections import defaultdict
+        by_suffix: dict[str, list] = defaultdict(list)
+        for fr in candidates:
+            # Extract BIDS suffix: last underscore segment before the extension
+            stem = fr.path.replace(".nii.gz", "").replace(".gz", "")
+            stem = stem.rsplit(".", 1)[0]
+            parts = stem.rsplit("_", 1)
+            suf = parts[-1] if len(parts) > 1 else stem.rsplit("/", 1)[-1]
+            by_suffix[suf].append(fr)
+
+        selected: list = []
+        for suf_files in sorted(by_suffix.values(), key=len, reverse=True):
+            suf_files_sorted = sorted(suf_files, key=lambda f: f.path)
+            selected.extend(suf_files_sorted[:n_per_suffix])
+        selected = selected[:max_files]
+
+        report = run_visual_audit(
+            dataset_id=self.dataset_id,
+            file_records=selected,
+            local_root=root,
+            max_files=max_files,
+        )
+
+        if output_dir is not None:
+            out = Path(output_dir) / "visual_audit.html"
+            report.to_html(out)
+
+        if open_browser:
+            report.show()
+
+        return report
+
+    def visual_audit(
+        self,
+        output_dir: Path | str,
+        *,
+        subjects: list[str] | None = None,
+        suffixes: list[str] | None = None,
+        datatypes: list[str] | None = None,
+        local_path: Path | None = None,
+        n_per_suffix: int = 3,
+        max_files: int = 24,
+        open_browser: bool = False,
+    ) -> "VisualAuditReport":
+        """Run a comprehensive visual QC report across the dataset.
+
+        Generates a dark-theme HTML gallery with one thumbnail per file,
+        grouped by BIDS suffix.  Useful for catching reconstruction
+        artifacts, intensity outliers, or incomplete downloads at a glance.
+
+        Each NIfTI thumbnail reads **one center slice** — the full volume is
+        never loaded.
+
+        Parameters
+        ----------
+        output_dir:
+            Directory where the report is written.
+            File: ``{output_dir}/visual_audit.html``.
+        subjects:
+            Subjects to include.  ``None`` = all downloaded subjects.
+        suffixes:
+            BIDS suffixes to include.  ``None`` = all visualizable suffixes.
+        datatypes:
+            BIDS datatype folders to filter on.
+        local_path:
+            Override the default download path.
+        n_per_suffix:
+            Files per BIDS suffix.  3 gives variety without overloading.
+        max_files:
+            Hard cap on total renders.
+        open_browser:
+            Open the report in the browser when done.
+
+        Returns
+        -------
+        VisualAuditReport
+            Call ``.to_html()``, ``.show()``, or ``.summary()``.
+
+        Examples
+        --------
+        >>> ds = Dataset("ds000001")
+        >>> ds.download(subjects=["01", "02", "03"], suffixes=["T1w", "bold"])
+        >>> report = ds.visual_audit("qc/", suffixes=["T1w"])
+        >>> print(report.summary())
+        """
+        return self.visualize(
+            subjects=subjects,
+            suffixes=suffixes,
+            datatypes=datatypes,
+            local_path=local_path,
+            output_dir=output_dir,
+            mode="thumbnail",
+            max_files=max_files,
+            n_per_suffix=n_per_suffix,
+            open_browser=open_browser,
+        )
+
     # ── Repr ─────────────────────────────────────────────────────────────
 
     def __repr__(self) -> str:
@@ -1047,6 +1245,7 @@ __all__ = [
     "refresh_catalog_dataset",
     # Visualize
     "visualize",
+    "VisualAuditReport",
     # Inspect
     "DatasetInspector",
     "DatasetProfile",

@@ -160,6 +160,17 @@ class _LazyNIfTI:
             vmax = vmin + 1.0
         return vmin, vmax
 
+    def voxel_timeseries(self, x: int, y: int, z: int) -> np.ndarray:
+        """Read the full timeseries for a single voxel from disk.
+
+        Uses nibabel's direct proxy indexing so only the voxel's data stripe
+        is read — no 3D frame is ever constructed.  For 3D images returns a
+        length-1 array.
+        """
+        if len(self._proxy.shape) == 3:
+            return np.array([float(self._proxy[x, y, z])], dtype=np.float32)
+        return np.asarray(self._proxy[x, y, z, :]).astype(np.float32)
+
 
 # ── VolumeViewer ──────────────────────────────────────────────────────────────
 
@@ -627,10 +638,7 @@ class VolumeViewer:
 
         if self.n_volumes > 1:
             if self._lazy is not None:
-                n_t = self._lazy.shape[3]
-                signal = np.array([
-                    float(self._lazy.frame(t)[x, y, z]) for t in range(n_t)
-                ], dtype=np.float32)
+                signal = self._lazy.voxel_timeseries(x, y, z)
             else:
                 if roi_radius > 0:
                     xs = slice(max(0, x - roi_radius), min(self._vol.shape[0], x + roi_radius + 1))

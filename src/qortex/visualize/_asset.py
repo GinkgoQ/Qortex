@@ -348,9 +348,13 @@ class VisualResult:
                 from qortex.visualize._html import array_to_b64png
                 import base64
                 viewer = VolumeViewer(self.asset.path, modality=self.asset.modality)
-                vol3d = viewer._vol3d()
-                cz = vol3d.shape[2] // 2
-                slc = vol3d[:, :, cz].T[::-1, :]
+                if viewer._lazy is not None:
+                    cz = viewer._lazy.shape[2] // 2
+                    slc = viewer._lazy.slice_along(2, cz).T[::-1, :]
+                else:
+                    vol3d = viewer._vol3d()
+                    cz = vol3d.shape[2] // 2
+                    slc = vol3d[:, :, cz].T[::-1, :]
                 b64 = array_to_b64png(slc, viewer._vmin, viewer._vmax, viewer.colormap)
                 out.write_bytes(base64.b64decode(b64))
                 return out
