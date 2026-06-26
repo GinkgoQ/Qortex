@@ -95,6 +95,9 @@ __all__ = [
     "CT_PRESETS", "MR_PRESETS", "FMRI_PRESETS", "PET_PRESETS",
     # DICOM
     "list_dicom_series", "load_dicom_series", "DicomSeriesBrowser",
+    # Audit helpers
+    "VisualAuditReport", "run_visual_audit", "run_visual_audit_with_manifest",
+    "select_visual_files",
 ]
 
 # ── Lazy imports — keep module load time minimal ──────────────────────────────
@@ -157,6 +160,15 @@ def __getattr__(name: str):
     if name in {"list_dicom_series", "load_dicom_series", "DicomSeriesBrowser"}:
         from qortex.visualize import dicom as _d
         return getattr(_d, name)
+
+    if name in {
+        "VisualAuditReport",
+        "run_visual_audit",
+        "run_visual_audit_with_manifest",
+        "select_visual_files",
+    }:
+        from qortex.visualize import _audit
+        return getattr(_audit, name)
 
     raise AttributeError(f"module 'qortex.visualize' has no attribute {name!r}")
 
@@ -241,15 +253,16 @@ def visualize(
     # Overlay routing
     if overlay is not None:
         from qortex.visualize.overlay import overlay_stat, overlay_mask, overlay_labelmap, overlay_pet
+        from qortex.visualize._asset import INTENT_LABELMAP, INTENT_PET, INTENT_STAT_MAP
         ov_asset = inspect_file(overlay)
-        if ov_asset.intent in {"statistical_map"}:
+        if ov_asset.intent == INTENT_STAT_MAP:
             return overlay_stat(source, overlay, threshold=threshold, alpha=alpha,
                                 colormap=colormap or "RdBu_r",
                                 title=title or "Statistical Map Overlay")
-        elif ov_asset.intent == "pet_volume":
+        elif ov_asset.intent == INTENT_PET:
             return overlay_pet(source, overlay, alpha=alpha,
                                title=title or "PET Overlay")
-        elif ov_asset.intent == "labelmap":
+        elif ov_asset.intent == INTENT_LABELMAP:
             return overlay_labelmap(source, overlay, alpha=alpha,
                                     title=title or "Segmentation Overlay")
         else:

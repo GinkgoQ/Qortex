@@ -342,6 +342,11 @@ class VisualResult:
             except Exception:
                 pass
         # Last resort: render center-slice PNG from the asset
+        if self.asset.family == "nifti" and str(self.asset.path).startswith("<"):
+            raise ValueError(
+                "Cannot export PNG from fallback renderer: source has no filesystem path. "
+                "Render to a figure/png at creation time or pass a path-backed image."
+            )
         if self.asset.family == "nifti" and self.asset.path.exists():
             try:
                 from qortex.visualize.volume import VolumeViewer

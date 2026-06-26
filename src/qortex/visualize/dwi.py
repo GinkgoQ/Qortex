@@ -456,6 +456,115 @@ class DWIViewer:
         )
         return fig
 
+    def contact_sheet(
+        self,
+        shell: int | str | None = None,
+        *,
+        n_slices: int = 9,
+        n_cols: int = 3,
+        title: str = "",
+    ) -> Any:
+        """Axial DWI montage for slice-dropout and distortion QC.
+
+        Parameters
+        ----------
+        shell:
+            ``None`` or ``"b0"`` uses b0 volumes. An integer selects the nearest
+            rounded b-value shell. ``"high"`` uses the highest-b shell.
+        n_slices:
+            Number of evenly spaced axial slices to show.
+        n_cols:
+            Number of montage columns.
+        """
+        try:
+            import plotly.graph_objects as go
+            from plotly.subplots import make_subplots
+        except ImportError:
+            raise ImportError("contact_sheet() requires plotly: pip install plotly")
+
+        if n_slices <= 0:
+            raise ValueError("n_slices must be positive")
+        if n_cols <= 0:
+            raise ValueError("n_cols must be positive")
+
+        vol = self._mean_shell_volume(shell)
+        nz = vol.shape[2]
+        indices = np.round(np.linspace(0, nz - 1, min(n_slices, nz))).astype(int).tolist()
+        n_rows = max(1, (len(indices) + n_cols - 1) // n_cols)
+
+        positive = vol[vol > 0]
+        vmin = float(np.percentile(positive, 1.0)) if positive.size else float(np.percentile(vol, 1.0))
+        vmax = float(np.percentile(positive, 99.0)) if positive.size else float(np.percentile(vol, 99.0))
+        if vmin == vmax:
+            vmax = vmin + 1.0
+
+        fig = make_subplots(
+            rows=n_rows,
+            cols=n_cols,
+            subplot_titles=[f"z={idx}" for idx in indices],
+            horizontal_spacing=0.01,
+            vertical_spacing=0.05,
+        )
+        for k, z in enumerate(indices):
+            row, col = divmod(k, n_cols)
+            slc = vol[:, :, z].T[::-1, :]
+            norm = np.clip((slc - vmin) / max(vmax - vmin, 1e-8), 0, 1)
+            fig.add_trace(
+                go.Heatmap(
+                    z=norm,
+                    colorscale="Gray",
+                    zmin=0,
+                    zmax=1,
+                    showscale=False,
+                    hoverinfo="skip",
+                ),
+                row=row + 1,
+                col=col + 1,
+            )
+        fig.update_xaxes(showticklabels=False, showgrid=False, zeroline=False)
+        fig.update_yaxes(showticklabels=False, showgrid=False, zeroline=False)
+        shell_label = self._shell_label(shell)
+        fig.update_layout(
+            title=title or f"DWI contact sheet — {shell_label}",
+            paper_bgcolor="#111",
+            plot_bgcolor="#111",
+            font_color="#aaa",
+            margin=dict(l=5, r=5, t=55, b=5),
+            height=max(260, n_rows * 170),
+        )
+        return fig
+
+    def _shell_indices(self, shell: int | str | None) -> list[int]:
+        if shell is None or str(shell).lower() == "b0":
+            return self.b0_indices
+        if str(shell).lower() in {"high", "high-b", "max"}:
+            return self.high_b_indices
+        if self._bvals is None:
+            return [0]
+        target = int(shell)
+        rounded = (np.round(self._bvals / 50.0) * 50).astype(int)
+        unique = np.array(sorted(set(rounded.tolist())), dtype=int)
+        nearest = int(unique[np.argmin(np.abs(unique - target))])
+        idxs = [i for i, b in enumerate(rounded) if int(b) == nearest]
+        return idxs or [int(np.argmin(np.abs(rounded - target)))]
+
+    def _mean_shell_volume(self, shell: int | str | None) -> np.ndarray:
+        idxs = self._shell_indices(shell)
+        shape3 = self._shape[:3]
+        if len(self._shape) == 3:
+            return np.asarray(self._lazy._proxy).astype(np.float32)
+        acc = np.zeros(shape3, dtype=np.float64)
+        for t in idxs:
+            acc += np.asarray(self._lazy._proxy[..., int(t)]).astype(np.float64)
+        return (acc / max(1, len(idxs))).astype(np.float32)
+
+    def _shell_label(self, shell: int | str | None) -> str:
+        if shell is None or str(shell).lower() == "b0":
+            return f"b0 ({len(self.b0_indices)} vol{'s' if len(self.b0_indices) != 1 else ''})"
+        if str(shell).lower() in {"high", "high-b", "max"}:
+            return f"high-b ({len(self.high_b_indices)} vol{'s' if len(self.high_b_indices) != 1 else ''})"
+        return f"b≈{shell}"
+
     def __repr__(self) -> str:
         shape_str = "×".join(str(s) for s in self._shape)
         shells_str = str(self.shells) if self._bvals is not None else "no bval"

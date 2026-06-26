@@ -129,9 +129,7 @@ def _classify_by_name(name: str, suffix: str) -> tuple[str, str]:
 
 def _inspect_nifti(path: Path) -> VisualAsset:
     asset = VisualAsset(path=path, family="nifti")
-    parts = path.name.replace(".gz", "").replace(".nii", "")
-    tokens = parts.split("_")
-    bids_suffix = tokens[-1] if tokens else ""
+    bids_suffix = _bids_suffix(path)
     intent, modality = _classify_by_name(path.name, bids_suffix)
     asset.intent = intent
     asset.modality = modality
@@ -227,6 +225,23 @@ def _inspect_nifti(path: Path) -> VisualAsset:
         asset.recommended_view = MODE_STATIC
 
     return asset
+
+
+def _bids_suffix(path: Path) -> str:
+    """Return the BIDS suffix before the imaging extension.
+
+    Handles compound extensions and entity-rich names such as
+    ``sub-01_space-MNI_desc-preproc_bold.nii.gz`` without being confused by
+    entity values. The suffix is the last underscore-delimited component before
+    the extension.
+    """
+    name = path.name
+    for ext in (".nii.gz", ".nii", ".mgz", ".mgh", ".mnc", ".gii"):
+        if name.lower().endswith(ext):
+            name = name[: -len(ext)]
+            break
+    last = name.rsplit("_", 1)[-1] if "_" in name else name
+    return last.split("-", 1)[0] if "-" in last else last
 
 
 # ── DICOM inspection ──────────────────────────────────────────────────────────

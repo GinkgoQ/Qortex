@@ -27,6 +27,8 @@ import numpy as np
 
 log = logging.getLogger(__name__)
 
+BOLD_BRAIN_MASK_THRESHOLD = 0.15
+
 
 # ── MNE helpers ───────────────────────────────────────────────────────────────
 
@@ -113,6 +115,8 @@ def _load_raw_mne(path: Path, max_duration_s: float = 60.0) -> _SignalBundle:
             "sfreq": raw.info["sfreq"],
             "duration_s": raw.times[-1],
             "file_path": str(path),
+            "channel_positions": _mne_channel_positions(raw.info),
+            "bads": list(raw.info.get("bads", [])),
         },
     )
 
@@ -156,7 +160,9 @@ def _from_bold_nifti(path: Path) -> _SignalBundle:
         mean_vol += np.asarray(proxy[..., t]).astype(np.float64)
         count += 1
     mean_vol /= count
-    brain_mask = mean_vol > (mean_vol.max() * 0.1)
+    brain_mask = mean_vol > (mean_vol.max() * BOLD_BRAIN_MASK_THRESHOLD)
+    if not brain_mask.any():
+        brain_mask = np.ones(shape[:3], dtype=bool)
 
     # Extract global mean signal lazily (one frame at a time)
     signal = np.zeros(n_t, dtype=np.float32)
@@ -286,6 +292,11 @@ class TimeSeriesViewer:
                 data=data,
                 sfreq=source.info["sfreq"],
                 ch_names=source.info["ch_names"],
+                ch_types=[mne.channel_type(source.info, i) for i in range(len(source.info["ch_names"]))],
+                info_extra={
+                    "channel_positions": _mne_channel_positions(source.info),
+                    "bads": list(source.info.get("bads", [])),
+                },
             )
 
         # numpy array
@@ -495,6 +506,71 @@ class TimeSeriesViewer:
         )
         return fig
 
+    def topomap(
+        self,
+        t: float = 0.0,
+        *,
+        channels: list[int | str] | None = None,
+        grid_size: int = 80,
+        title: str = "",
+    ):
+        """Sensor topography at a single time point.
+
+        Uses stored MNE channel locations when available. For array-backed
+        signals without sensor geometry, channels are placed on a unit circle
+        in recording order so the method remains useful for quick QC.
+        """
+        go, _ = _require_plotly()
+
+        bundle = self._bundle
+        ch_indices = self._resolve_channels(channels, max_channels=min(bundle.n_channels, 128))
+        sample = int(round(t * bundle.sfreq))
+        sample = max(0, min(sample, bundle.n_samples - 1))
+        values = bundle.data[ch_indices, sample].astype(np.float32)
+        positions = _channel_positions_2d(bundle, ch_indices)
+        grid_x, grid_y, grid_z = _interpolate_topomap(positions, values, grid_size=grid_size)
+
+        fig = go.Figure()
+        fig.add_trace(go.Heatmap(
+            x=grid_x.tolist(),
+            y=grid_y.tolist(),
+            z=grid_z.tolist(),
+            colorscale="RdBu",
+            zmid=0.0,
+            colorbar=dict(title="Amplitude", len=0.75),
+            hovertemplate="x=%{x:.2f}<br>y=%{y:.2f}<br>amp=%{z:.3g}<extra></extra>",
+        ))
+        fig.add_trace(go.Scatter(
+            x=positions[:, 0].tolist(),
+            y=positions[:, 1].tolist(),
+            mode="markers+text",
+            text=[bundle.ch_names[i] for i in ch_indices],
+            textposition="top center",
+            marker=dict(size=6, color="#111", line=dict(color="#eee", width=1)),
+            showlegend=False,
+            hovertemplate="%{text}<extra></extra>",
+        ))
+        theta = np.linspace(0, 2 * np.pi, 160)
+        fig.add_trace(go.Scatter(
+            x=np.cos(theta).tolist(),
+            y=np.sin(theta).tolist(),
+            mode="lines",
+            line=dict(color="#aaa", width=1),
+            showlegend=False,
+            hoverinfo="skip",
+        ))
+        fig.update_yaxes(scaleanchor="x", scaleratio=1, showgrid=False, zeroline=False)
+        fig.update_xaxes(showgrid=False, zeroline=False)
+        fig.update_layout(
+            title=title or f"Topomap at {sample / bundle.sfreq:.3f} s",
+            paper_bgcolor="#111",
+            plot_bgcolor="#111",
+            font_color="#ccc",
+            height=440,
+            margin=dict(l=10, r=40, t=55, b=10),
+        )
+        return fig
+
     def epoched(
         self,
         events: np.ndarray | None = None,
@@ -631,6 +707,19 @@ class TimeSeriesViewer:
         except Exception as exc:
             log.debug("spectrogram failed: %s", exc)
 
+        try:
+            fig = self.topomap(t=min(self.duration_s / 2, self.duration_s), title="Sensor Topography")
+            plots.append(pio.to_html(fig, include_plotlyjs=False, full_html=False, div_id="topomap"))
+        except Exception as exc:
+            log.debug("topomap failed: %s", exc)
+
+        if self._bundle.events is not None and len(self._bundle.events) > 0:
+            try:
+                fig = self.epoched(title="Event-locked Average")
+                plots.append(pio.to_html(fig, include_plotlyjs=False, full_html=False, div_id="epochs"))
+            except Exception as exc:
+                log.debug("epoched failed: %s", exc)
+
         bundle = self._bundle
         meta = {
             "Channels": bundle.n_channels,
@@ -732,3 +821,65 @@ def _hsv_to_rgb(h: float, s: float, v: float) -> tuple[float, float, float]:
     f = h * 6 - int(h * 6)
     p, q, t = v * (1 - s), v * (1 - f * s), v * (1 - (1 - f) * s)
     return [(v, t, p), (q, v, p), (p, v, t), (p, q, v), (t, p, v), (v, p, q)][hi]
+
+
+def _mne_channel_positions(info: Any) -> dict[str, tuple[float, float]]:
+    """Extract 2D channel positions from an MNE Info object."""
+    positions: dict[str, tuple[float, float]] = {}
+    for ch in info.get("chs", []):
+        name = ch.get("ch_name")
+        loc = ch.get("loc")
+        if not name or loc is None or len(loc) < 2:
+            continue
+        x, y = float(loc[0]), float(loc[1])
+        if np.isfinite(x) and np.isfinite(y) and (abs(x) + abs(y)) > 1e-9:
+            positions[str(name)] = (x, y)
+    return positions
+
+
+def _channel_positions_2d(bundle: _SignalBundle, ch_indices: list[int]) -> np.ndarray:
+    stored = bundle.info_extra.get("channel_positions") or {}
+    coords: list[tuple[float, float] | None] = []
+    for idx in ch_indices:
+        pos = stored.get(bundle.ch_names[idx]) if isinstance(stored, dict) else None
+        coords.append(tuple(pos) if pos is not None else None)
+    if coords and all(pos is not None for pos in coords):
+        arr = np.array(coords, dtype=np.float32)
+        radius = np.sqrt((arr ** 2).sum(axis=1)).max()
+        if radius > 0:
+            arr = arr / radius
+        return arr
+
+    n = len(ch_indices)
+    theta = np.linspace(0, 2 * np.pi, n, endpoint=False)
+    return np.column_stack([np.cos(theta), np.sin(theta)]).astype(np.float32)
+
+
+def _interpolate_topomap(
+    positions: np.ndarray,
+    values: np.ndarray,
+    *,
+    grid_size: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Inverse-distance weighted interpolation on a circular head grid."""
+    grid_size = max(16, int(grid_size))
+    axis = np.linspace(-1.05, 1.05, grid_size)
+    xx, yy = np.meshgrid(axis, axis)
+    grid = np.full_like(xx, np.nan, dtype=np.float32)
+    inside = (xx ** 2 + yy ** 2) <= 1.0
+    pts = np.column_stack([xx[inside], yy[inside]])
+    pos = positions.astype(np.float32)
+    vals = values.astype(np.float32)
+    if len(pos) == 1:
+        grid[inside] = vals[0]
+        return axis, axis, grid
+    d2 = ((pts[:, None, :] - pos[None, :, :]) ** 2).sum(axis=2)
+    exact = d2 < 1e-10
+    weights = 1.0 / np.maximum(d2, 1e-6)
+    interp = (weights @ vals) / weights.sum(axis=1)
+    if exact.any():
+        exact_rows = np.where(exact.any(axis=1))[0]
+        exact_cols = exact[exact_rows].argmax(axis=1)
+        interp[exact_rows] = vals[exact_cols]
+    grid[inside] = interp.astype(np.float32)
+    return axis, axis, grid

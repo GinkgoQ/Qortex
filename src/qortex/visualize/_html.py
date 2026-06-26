@@ -77,15 +77,39 @@ def array_to_b64png(
     if aspect is not None:
         row_mm, col_mm = aspect
         if row_mm > 0 and col_mm > 0 and abs(row_mm - col_mm) > 0.05:
-            scale = max(1, round(row_mm / col_mm))
             if row_mm > col_mm:
-                normed = np.repeat(normed, scale, axis=0)
+                new_h = max(normed.shape[0], int(round(normed.shape[0] * row_mm / col_mm)))
+                normed = _resize_bilinear(normed, new_h, normed.shape[1])
             else:
-                normed = np.repeat(normed, scale, axis=1)
+                new_w = max(normed.shape[1], int(round(normed.shape[1] * col_mm / row_mm)))
+                normed = _resize_bilinear(normed, normed.shape[0], new_w)
 
     indices = (normed * 255).astype(np.uint8)
     rgb = lut[indices]  # (H, W, 3)
     return base64.b64encode(_rgb_to_png_bytes(rgb)).decode("ascii")
+
+
+def _resize_bilinear(arr: np.ndarray, new_h: int, new_w: int) -> np.ndarray:
+    """Resize a 2D array with bilinear interpolation using only NumPy."""
+    h, w = arr.shape
+    if h == new_h and w == new_w:
+        return arr
+    if h == 1 or w == 1:
+        return np.resize(arr, (new_h, new_w)).astype(arr.dtype, copy=False)
+
+    y = np.linspace(0, h - 1, new_h)
+    x = np.linspace(0, w - 1, new_w)
+    y0 = np.floor(y).astype(int)
+    x0 = np.floor(x).astype(int)
+    y1 = np.clip(y0 + 1, 0, h - 1)
+    x1 = np.clip(x0 + 1, 0, w - 1)
+    wy = (y - y0).astype(np.float32)
+    wx = (x - x0).astype(np.float32)
+
+    top = (1.0 - wx)[None, :] * arr[y0[:, None], x0[None, :]] + wx[None, :] * arr[y0[:, None], x1[None, :]]
+    bottom = (1.0 - wx)[None, :] * arr[y1[:, None], x0[None, :]] + wx[None, :] * arr[y1[:, None], x1[None, :]]
+    out = (1.0 - wy)[:, None] * top + wy[:, None] * bottom
+    return out.astype(arr.dtype, copy=False)
 
 
 def render_axis_slices(

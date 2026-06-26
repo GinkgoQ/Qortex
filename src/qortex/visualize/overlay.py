@@ -777,7 +777,7 @@ def compare_masks(
         fp_total += int((p & ~t).sum())
         fn_total += int((~p & t).sum())
     denom = 2 * tp_total + fp_total + fn_total
-    dice_approx = (2 * tp_total / denom) if denom > 0 else float("nan")
+    dice_approx = (2 * tp_total / denom) if denom > 0 else 1.0
 
     MAX_SLICES = 80
 

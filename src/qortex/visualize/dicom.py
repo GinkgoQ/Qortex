@@ -406,8 +406,20 @@ class DicomSeriesBrowser:
             wc_str = f"WC {s.window_center:.0f} / WW {s.window_width:.0f}" if s.window_center else "auto"
             # Manufacturer is device info, not patient PHI — keep it
             mfr_html = _e(s.manufacturer) if _show_phi else _e(s.manufacturer.split()[0] if s.manufacturer else "")
+            preview = self._render_series_thumbnail(s)
+            preview_html = (
+                f'<img src="data:image/png;base64,{preview}" '
+                f'style="width:100%;max-width:260px;max-height:260px;object-fit:contain;'
+                f'image-rendering:pixelated;background:#050505;border:1px solid #333;border-radius:4px" '
+                f'alt="Middle slice preview">'
+                if preview else
+                '<div style="width:100%;max-width:260px;height:180px;background:#101010;'
+                'border:1px solid #333;border-radius:4px;color:#666;display:flex;'
+                'align-items:center;justify-content:center">No preview</div>'
+            )
             detail_items += f"""
 <div id="detail_{i}" style="display:{display};padding:12px 0">
+  <div style="margin-bottom:12px">{preview_html}</div>
   <table style="border-collapse:collapse;font-size:0.85em">
     <tr><td style="color:#888;padding:3px 16px 3px 0">Description</td><td style="color:#ccc">{_e(s.description)}</td></tr>
     <tr><td style="color:#888;padding:3px 16px 3px 0">Modality</td><td style="color:#6af">{_e(s.modality)}</td></tr>

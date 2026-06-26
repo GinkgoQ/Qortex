@@ -24,6 +24,7 @@ added to navigate through individual time points.
 from __future__ import annotations
 
 import logging
+import csv
 from pathlib import Path
 from typing import Any
 
@@ -85,6 +86,108 @@ def _detect_modality_from_path(path: Path) -> str:
 def _voxel_sizes_from_affine(affine: np.ndarray) -> tuple[float, float, float]:
     """Extract voxel sizes (mm) from a NIfTI affine."""
     return tuple(float(v) for v in np.sqrt(np.sum(affine[:3, :3] ** 2, axis=0)))
+
+
+def _source_path_from_lazy(lazy: "_LazyNIfTI") -> Path | None:
+    try:
+        filename = lazy._img.get_filename()
+    except Exception:
+        return None
+    return Path(filename) if filename else None
+
+
+def _find_bold_companion(lazy: "_LazyNIfTI", kind: str) -> Path | None:
+    path = _source_path_from_lazy(lazy)
+    if path is None:
+        return None
+    stem = path.name
+    for ext in (".nii.gz", ".nii", ".mgz", ".mgh"):
+        if stem.lower().endswith(ext):
+            stem = stem[: -len(ext)]
+            break
+    base = stem.rsplit("_", 1)[0] if "_" in stem else stem
+    parent = path.parent
+    if kind == "events":
+        candidates = [parent / f"{stem}_events.tsv", parent / f"{base}_events.tsv"]
+    elif kind == "confounds":
+        candidates = [
+            parent / f"{base}_desc-confounds_timeseries.tsv",
+            parent / f"{stem}_desc-confounds_timeseries.tsv",
+            parent / f"{base}_confounds_timeseries.tsv",
+            parent / f"{stem}_confounds_timeseries.tsv",
+        ]
+        candidates.extend(sorted(parent.glob(f"{base}*confounds*timeseries.tsv")))
+    else:
+        candidates = []
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _load_events(path: Path | str | None) -> list[dict[str, Any]]:
+    if path is None:
+        return []
+    event_path = Path(path)
+    if not event_path.exists():
+        return []
+    events: list[dict[str, Any]] = []
+    try:
+        with event_path.open("r", encoding="utf-8", newline="") as f:
+            reader = csv.DictReader(f, delimiter="\t")
+            for row in reader:
+                try:
+                    onset = float(row.get("onset", ""))
+                except ValueError:
+                    continue
+                events.append(
+                    {
+                        "onset": onset,
+                        "duration": _float_or_none(row.get("duration")),
+                        "trial_type": row.get("trial_type") or row.get("value") or "event",
+                    }
+                )
+    except OSError:
+        return []
+    return events
+
+
+def _load_confounds(path: Path | str | None) -> dict[str, np.ndarray]:
+    if path is None:
+        return {}
+    confound_path = Path(path)
+    if not confound_path.exists():
+        return {}
+    wanted = {
+        "framewise_displacement",
+        "dvars",
+        "std_dvars",
+    }
+    columns: dict[str, list[float]] = {key: [] for key in wanted}
+    try:
+        with confound_path.open("r", encoding="utf-8", newline="") as f:
+            reader = csv.DictReader(f, delimiter="\t")
+            for row in reader:
+                for key in wanted:
+                    if key in row:
+                        value = _float_or_none(row.get(key))
+                        columns[key].append(float(value) if value is not None else np.nan)
+    except OSError:
+        return {}
+    return {
+        key: np.asarray(values, dtype=np.float32)
+        for key, values in columns.items()
+        if values and np.isfinite(np.asarray(values, dtype=np.float32)).any()
+    }
+
+
+def _float_or_none(value: Any) -> float | None:
+    if value is None or value == "" or str(value).lower() in {"n/a", "nan"}:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 # ── Lazy NIfTI accessor ───────────────────────────────────────────────────────
@@ -1001,6 +1104,8 @@ class VolumeViewer:
         *,
         max_frames: int = 50,
         title: str = "",
+        events_path: Path | str | None = None,
+        confounds_path: Path | str | None = None,
     ):
         """6-panel fMRI QC summary figure.
 
@@ -1072,12 +1177,20 @@ class VolumeViewer:
 
         _cs = lambda name: {"gray": "Gray", "hot": "Hot", "plasma": "Plasma"}.get(name, "Gray")
 
+        events = _load_events(events_path or _find_bold_companion(lazy, "events"))
+        confounds = _load_confounds(confounds_path or _find_bold_companion(lazy, "confounds"))
+        has_confounds = bool(confounds)
+        n_rows = 3 if has_confounds else 2
+        titles = (
+            "Mean EPI", f"Middle Frame (t={mid_t})", "Temporal Std",
+            "tSNR", "Global Signal", "Slice × Time",
+        )
+        if has_confounds:
+            titles = titles + ("Framewise Displacement", "DVARS", "")
+
         fig = make_subplots(
-            rows=2, cols=3,
-            subplot_titles=(
-                "Mean EPI", f"Middle Frame (t={mid_t})", "Temporal Std",
-                "tSNR", "Global Signal", "Slice × Time",
-            ),
+            rows=n_rows, cols=3,
+            subplot_titles=titles,
             horizontal_spacing=0.06,
             vertical_spacing=0.12,
         )
@@ -1109,10 +1222,32 @@ class VolumeViewer:
             go.Scatter(
                 x=t_axis.tolist(), y=gsig.tolist(),
                 mode="lines", line=dict(color="#6af", width=1.2),
-                showlegend=False,
+                name="Global signal",
+                showlegend=bool(events),
             ),
             row=2, col=2,
         )
+        if events:
+            y0 = float(np.nanmin(gsig))
+            y1 = float(np.nanmax(gsig))
+            label_seen: set[str] = set()
+            for event in events:
+                onset = float(event.get("onset", 0.0))
+                label = str(event.get("trial_type") or "event")
+                fig.add_trace(
+                    go.Scatter(
+                        x=[onset, onset],
+                        y=[y0, y1],
+                        mode="lines",
+                        line=dict(color="rgba(255,180,80,0.45)", width=1, dash="dot"),
+                        name=label,
+                        showlegend=label not in label_seen,
+                        hovertemplate=f"{label}<br>onset={onset:.3f}s<extra></extra>",
+                    ),
+                    row=2,
+                    col=2,
+                )
+                label_seen.add(label)
 
         # Framewise intensity map
         fig.add_trace(
@@ -1123,6 +1258,36 @@ class VolumeViewer:
             row=2, col=3,
         )
 
+        if has_confounds:
+            fd = confounds.get("framewise_displacement")
+            dvars = confounds.get("dvars") or confounds.get("std_dvars")
+            if fd is not None:
+                fd_t = np.arange(len(fd), dtype=np.float32) * tr
+                fig.add_trace(
+                    go.Scatter(
+                        x=fd_t.tolist(),
+                        y=fd.tolist(),
+                        mode="lines",
+                        line=dict(color="#f96", width=1.2),
+                        name="FD",
+                    ),
+                    row=3,
+                    col=1,
+                )
+            if dvars is not None:
+                dv_t = np.arange(len(dvars), dtype=np.float32) * tr
+                fig.add_trace(
+                    go.Scatter(
+                        x=dv_t.tolist(),
+                        y=dvars.tolist(),
+                        mode="lines",
+                        line=dict(color="#6f9", width=1.2),
+                        name="DVARS",
+                    ),
+                    row=3,
+                    col=2,
+                )
+
         fig.update_xaxes(showticklabels=False, showgrid=False, zeroline=False, row=1)
         fig.update_yaxes(showticklabels=False, showgrid=False, zeroline=False, row=1)
         fig.update_xaxes(title_text="Time (s)", row=2, col=2, showgrid=False)
@@ -1131,6 +1296,13 @@ class VolumeViewer:
         fig.update_yaxes(title_text="Slice", row=2, col=3, showgrid=False, showticklabels=False)
         fig.update_xaxes(showticklabels=False, showgrid=False, zeroline=False, row=2, col=1)
         fig.update_yaxes(showticklabels=False, showgrid=False, zeroline=False, row=2, col=1)
+        if has_confounds:
+            fig.update_xaxes(title_text="Time (s)", row=3, col=1, showgrid=False)
+            fig.update_yaxes(title_text="FD", row=3, col=1, showgrid=False, color="#888")
+            fig.update_xaxes(title_text="Time (s)", row=3, col=2, showgrid=False)
+            fig.update_yaxes(title_text="DVARS", row=3, col=2, showgrid=False, color="#888")
+            fig.update_xaxes(showticklabels=False, showgrid=False, zeroline=False, row=3, col=3)
+            fig.update_yaxes(showticklabels=False, showgrid=False, zeroline=False, row=3, col=3)
 
         shape_str = "×".join(str(s) for s in lazy.shape)
         auto_title = title or f"fMRI QC Summary  [{shape_str}]  TR={tr:.3g}s"
@@ -1139,7 +1311,8 @@ class VolumeViewer:
             paper_bgcolor="#111", plot_bgcolor="#111",
             font_color="#888",
             margin=dict(l=5, r=60, t=80, b=30),
-            height=560,
+            height=760 if has_confounds else 560,
+            showlegend=bool(events or has_confounds),
         )
         return fig
 
