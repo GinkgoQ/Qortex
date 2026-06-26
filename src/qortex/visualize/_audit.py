@@ -73,6 +73,49 @@ class VisualAuditReport:
             fh.write(html)
             webbrowser.open(f"file://{fh.name}")
 
+    def coverage_matrix(self) -> dict:
+        """Build a subject × BIDS-suffix coverage grid from the audit entries.
+
+        Returns a dict with keys ``subjects``, ``suffixes``, ``cells``.
+        Each cell value is ``"ok"``, ``"error"``, or ``"missing"``.
+        """
+        subjects: dict[str, dict[str, str]] = {}
+        suffixes: set[str] = set()
+
+        for e in self.entries:
+            parts = e.path_label.replace("\\", "/").split("/")
+            sub = None
+            for p in parts:
+                if p.startswith("sub-"):
+                    sub = p[4:]   # strip "sub-" prefix
+                    break
+            if sub is None:
+                continue
+
+            # Extract BIDS suffix: last `_word` in the stem before extension
+            stem = parts[-1]
+            for ext in (".nii.gz", ".nii", ".mgz", ".mgh", ".edf", ".fif", ".bdf", ".set"):
+                if stem.lower().endswith(ext):
+                    stem = stem[: -len(ext)]
+                    break
+            else:
+                stem = stem.rsplit(".", 1)[0]
+            seg = stem.rsplit("_", 1)
+            suf = seg[-1] if len(seg) > 1 else stem
+
+            suffixes.add(suf)
+            if sub not in subjects:
+                subjects[sub] = {}
+            subjects[sub][suf] = "error" if e.error else "ok"
+
+        sorted_subs = sorted(subjects.keys())
+        sorted_suf = sorted(suffixes)
+        cells = {
+            sub: {suf: subjects[sub].get(suf, "missing") for suf in sorted_suf}
+            for sub in sorted_subs
+        }
+        return {"subjects": sorted_subs, "suffixes": sorted_suf, "cells": cells}
+
     def summary(self) -> str:
         """Return a short text summary of the audit."""
         lines = [
@@ -164,11 +207,51 @@ def _build_card(e: AuditEntry) -> str:
 </div>"""
 
 
+def _build_coverage_html(matrix: dict) -> str:
+    """Render a subject × suffix coverage table as HTML."""
+    subjects = matrix.get("subjects", [])
+    suffixes = matrix.get("suffixes", [])
+    cells = matrix.get("cells", {})
+    if not subjects or not suffixes:
+        return ""
+
+    _STATUS_STYLE = {
+        "ok":      ("color:#6f6", "✓"),
+        "error":   ("color:#fa8", "⚠"),
+        "missing": ("color:#333", "·"),
+    }
+
+    th_cells = "".join(
+        f'<th style="padding:3px 8px;color:#888;font-weight:400">{s}</th>'
+        for s in suffixes
+    )
+    rows = ""
+    for sub in subjects:
+        row_cells = "".join(
+            f'<td style="text-align:center;{_STATUS_STYLE.get(cells.get(sub,{}).get(suf,"missing"),("color:#333","·"))[0]}">'
+            f'{_STATUS_STYLE.get(cells.get(sub,{}).get(suf,"missing"),("color:#333","·"))[1]}</td>'
+            for suf in suffixes
+        )
+        rows += f'<tr><td style="color:#aaa;padding:3px 8px;white-space:nowrap">sub-{sub}</td>{row_cells}</tr>\n'
+
+    return f"""
+<h3 style="color:#888;font-size:0.82em;margin-bottom:8px;font-weight:500;letter-spacing:0.04em">
+  COVERAGE MATRIX &nbsp;<span style="color:#555;font-weight:400">✓ present &nbsp;⚠ error &nbsp;· missing</span>
+</h3>
+<div style="overflow-x:auto;margin-bottom:28px">
+<table style="border-collapse:collapse;font-size:0.75em">
+  <thead><tr><th style="padding:3px 8px;color:#666;font-weight:400;text-align:left">Subject</th>{th_cells}</tr></thead>
+  <tbody>{rows}</tbody>
+</table>
+</div>"""
+
+
 def _build_html(report: VisualAuditReport) -> str:
     cards = "\n".join(_build_card(e) for e in report.entries)
     n_ok = report.n_rendered
     n_fail = report.n_failed
     n_total = report.n_files_inspected
+    coverage_html = _build_coverage_html(report.coverage_matrix())
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -180,7 +263,7 @@ def _build_html(report: VisualAuditReport) -> str:
   body      {{ background:#111; color:#ccc; font-family:system-ui,sans-serif;
                margin:24px; }}
   h2        {{ color:#6af; margin:0 0 6px }}
-  .stats    {{ color:#888; font-size:0.85em; margin-bottom:24px; }}
+  .stats    {{ color:#888; font-size:0.85em; margin-bottom:20px; }}
   .stats b  {{ color:#ccc; }}
   .grid     {{ display:flex; flex-wrap:wrap; gap:16px; }}
 </style>
@@ -192,6 +275,7 @@ def _build_html(report: VisualAuditReport) -> str:
   Rendered <b style="color:#6f6">{n_ok}</b> &nbsp;·&nbsp;
   Failed <b style="color:#f64">{n_fail}</b>
 </div>
+{coverage_html}
 <div class="grid">
 {cards}
 </div>

@@ -179,7 +179,11 @@ _VIEWER_CSS = """
   .panel-hdr { background:#242424; padding:5px 10px; font-size:0.75em; color:#999;
                display:flex; justify-content:space-between; }
   .panel-hdr .axis-label { color:#6af; font-weight:600; }
-  .panel img { width:100%; display:block; image-rendering:pixelated; cursor:crosshair; }
+  /* img-wrap holds the image and the crosshair canvas as a stack */
+  .img-wrap { position:relative; display:block; line-height:0; }
+  .img-wrap img { width:100%; display:block; image-rendering:pixelated; cursor:crosshair; }
+  .ch-canvas { position:absolute; top:0; left:0; width:100%; height:100%;
+               pointer-events:none; /* clicks pass through to the image */ }
   .ctrl-row { padding:6px 10px; display:flex; align-items:center; gap:8px;
               border-top:1px solid #222; }
   input[type=range] { flex:1; -webkit-appearance:none; height:3px; background:#444;
@@ -188,8 +192,10 @@ _VIEWER_CSS = """
     background:#6af; border-radius:50%; }
   .slice-idx { font-size:0.72em; color:#777; min-width:52px; text-align:right; }
   .footer { padding:8px 18px; background:#161616; border-top:1px solid #2a2a2a;
-            display:flex; gap:20px; font-size:0.75em; color:#666; flex-wrap:wrap; }
+            display:flex; gap:20px; font-size:0.75em; color:#666; flex-wrap:wrap;
+            align-items:center; }
   .footer .hi { color:#999; }
+  #hover-coords { font-size:0.72em; color:#888; margin-left:auto; }
   .window-presets { display:flex; gap:6px; flex-wrap:wrap; }
   .preset-btn { background:#2a2a2a; border:1px solid #444; color:#aaa; padding:3px 9px;
     font-size:0.72em; border-radius:3px; cursor:pointer; }
@@ -197,19 +203,20 @@ _VIEWER_CSS = """
   .time-panel { padding:8px 12px; background:#181818; border-top:1px solid #222; }
   .time-panel label { font-size:0.75em; color:#888; display:block; margin-bottom:4px; }
   .kbd-hint { font-size:0.68em; color:#555; }
+  .hist-wrap { display:flex; flex-direction:column; gap:2px; }
+  .hist-label { font-size:0.68em; color:#555; }
+  #hist-svg { width:160px; height:36px; background:#181818; border-radius:2px; }
 """
 
 _VIEWER_JS = r"""
   var DATA = {DATA_JSON};
   var state = { x: DATA.cx, y: DATA.cy, z: DATA.cz, t: 0 };
-  var hasCT = DATA.modality === 'ct';
 
   function b64img(b64) { return 'data:image/png;base64,' + b64; }
 
+  /* ── Slice lookup ──────────────────────────────────────────────────── */
   function getSlice(axis, idx) {
-    var arr = DATA['slices_' + axis];
-    var si = DATA['si_' + axis];
-    // find closest pre-rendered slice index
+    var arr = DATA['slices_' + axis], si = DATA['si_' + axis];
     var best = 0, bestDist = Math.abs(si[0] - idx);
     for (var i = 1; i < si.length; i++) {
       var d = Math.abs(si[i] - idx);
@@ -228,6 +235,113 @@ _VIEWER_JS = r"""
     return DATA.slices_t[best];
   }
 
+  /* ── Crosshair canvas ──────────────────────────────────────────────── */
+  function drawCrosshair(id, hPct, vPct) {
+    var canvas = document.getElementById(id);
+    if (!canvas) return;
+    var w = canvas.offsetWidth, h = canvas.offsetHeight;
+    if (!w || !h) return;
+    canvas.width = w; canvas.height = h;
+    var ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, w, h);
+    ctx.strokeStyle = 'rgba(100,200,255,0.55)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.moveTo(0, vPct * h); ctx.lineTo(w, vPct * h); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(hPct * w, 0); ctx.lineTo(hPct * w, h); ctx.stroke();
+  }
+
+  function updateCrosshairs() {
+    var nx = Math.max(1, DATA.n_x - 1);
+    var ny = Math.max(1, DATA.n_y - 1);
+    var nz = Math.max(1, DATA.n_z - 1);
+    /* Axial   (Z panel): image rows = Y↓, cols = X→; superior is top (y flipped) */
+    drawCrosshair('ch-z', state.x / nx, 1 - state.y / ny);
+    /* Coronal (Y panel): image rows = Z↓, cols = X→; superior is top (z flipped) */
+    drawCrosshair('ch-y', state.x / nx, 1 - state.z / nz);
+    /* Sagittal(X panel): image rows = Z↓, cols = Y→; superior is top (z flipped) */
+    drawCrosshair('ch-x', state.y / ny, 1 - state.z / nz);
+  }
+
+  /* ── Click-to-navigate: clicking any panel updates the other two axes ─ */
+  function imgClick(panelAxis, e) {
+    var ids = {z:'img-axial', y:'img-coronal', x:'img-sagittal'};
+    var img = document.getElementById(ids[panelAxis]);
+    if (!img) return;
+    var r = img.getBoundingClientRect();
+    var px = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+    var py = Math.max(0, Math.min(1, (e.clientY - r.top)  / r.height));
+    if (panelAxis === 'z') {          /* axial: updates x and y */
+      state.x = Math.round(px * (DATA.n_x-1));
+      state.y = Math.round((1-py) * (DATA.n_y-1));
+      setSl('x', state.x); setSl('y', state.y);
+    } else if (panelAxis === 'y') {   /* coronal: updates x and z */
+      state.x = Math.round(px * (DATA.n_x-1));
+      state.z = Math.round((1-py) * (DATA.n_z-1));
+      setSl('x', state.x); setSl('z', state.z);
+    } else {                          /* sagittal: updates y and z */
+      state.y = Math.round(px * (DATA.n_y-1));
+      state.z = Math.round((1-py) * (DATA.n_z-1));
+      setSl('y', state.y); setSl('z', state.z);
+    }
+    updateView();
+  }
+
+  /* ── Hover: show cursor voxel coordinate in the footer ─────────────── */
+  function imgHover(panelAxis, e) {
+    var ids = {z:'img-axial', y:'img-coronal', x:'img-sagittal'};
+    var img = document.getElementById(ids[panelAxis]);
+    if (!img) return;
+    var r = img.getBoundingClientRect();
+    var px = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+    var py = Math.max(0, Math.min(1, (e.clientY - r.top)  / r.height));
+    var xi = state.x, yi = state.y, zi = state.z;
+    if (panelAxis === 'z') {
+      xi = Math.round(px*(DATA.n_x-1)); yi = Math.round((1-py)*(DATA.n_y-1));
+    } else if (panelAxis === 'y') {
+      xi = Math.round(px*(DATA.n_x-1)); zi = Math.round((1-py)*(DATA.n_z-1));
+    } else {
+      yi = Math.round(px*(DATA.n_y-1)); zi = Math.round((1-py)*(DATA.n_z-1));
+    }
+    var el = document.getElementById('hover-coords');
+    if (el) el.textContent = 'Cursor voxel (' + xi + ', ' + yi + ', ' + zi + ')';
+  }
+
+  function setSl(axis, val) {
+    var el = document.getElementById('sl-' + axis);
+    if (el) el.value = val;
+  }
+
+  /* ── Intensity histogram with window markers ────────────────────────── */
+  function renderHistogram() {
+    var hist = DATA.histogram;
+    if (!hist || !hist.counts || !hist.counts.length) return;
+    var svg = document.getElementById('hist-svg');
+    if (!svg) return;
+    var W = 160, H = 36;
+    var maxC = Math.max.apply(null, hist.counts);
+    if (!maxC) return;
+    var n = hist.counts.length, html = '';
+    for (var i = 0; i < n; i++) {
+      var bh = (hist.counts[i] / maxC) * (H - 2);
+      var bx = (i / n) * W;
+      var bw = Math.max(1, W / n - 0.3);
+      html += '<rect x="'+bx.toFixed(1)+'" y="'+(H-bh-1).toFixed(1)+'" width="'+
+              bw.toFixed(1)+'" height="'+bh.toFixed(1)+'" fill="#4a8" opacity="0.8"/>';
+    }
+    if (hist.vmax > hist.vmin && DATA.vmin !== undefined) {
+      var span = hist.vmax - hist.vmin;
+      var wlo = Math.max(0, Math.min(1, (DATA.vmin - hist.vmin) / span));
+      var whi = Math.max(0, Math.min(1, (DATA.vmax - hist.vmin) / span));
+      html += '<line x1="'+(wlo*W).toFixed(1)+'" y1="0" x2="'+(wlo*W).toFixed(1)+'" y2="'+H+
+              '" stroke="#6af" stroke-width="1.5" stroke-dasharray="2,2"/>';
+      html += '<line x1="'+(whi*W).toFixed(1)+'" y1="0" x2="'+(whi*W).toFixed(1)+'" y2="'+H+
+              '" stroke="#fa6" stroke-width="1.5" stroke-dasharray="2,2"/>';
+    }
+    svg.innerHTML = html;
+  }
+
+  /* ── Core view update ──────────────────────────────────────────────── */
   function updateView() {
     document.getElementById('img-axial').src    = b64img(getSlice('z', state.z));
     document.getElementById('img-coronal').src  = b64img(getSlice('y', state.y));
@@ -241,12 +355,10 @@ _VIEWER_JS = r"""
       document.getElementById('lbl-t').textContent = 't=' + state.t +
         (DATA.tr ? '  (' + (state.t * DATA.tr).toFixed(1) + 's)' : '');
     }
+    updateCrosshairs();
   }
 
-  function onSlider(axis, val) {
-    state[axis] = parseInt(val);
-    updateView();
-  }
+  function onSlider(axis, val) { state[axis] = parseInt(val); updateView(); }
 
   function applyPreset(name) {
     if (!DATA.windows || !DATA.windows[name]) return;
@@ -264,21 +376,40 @@ _VIEWER_JS = r"""
   }
 
   document.addEventListener('keydown', function(e) {
-    var axisMap = {'ArrowLeft': ['x',-1], 'ArrowRight': ['x',1],
-                   'ArrowUp':   ['z', 1], 'ArrowDown':  ['z',-1],
-                   'PageUp':    ['y', 1], 'PageDown':   ['y',-1]};
+    var axisMap = {'ArrowLeft':['x',-1],'ArrowRight':['x',1],
+                   'ArrowUp':  ['z', 1],'ArrowDown': ['z',-1],
+                   'PageUp':   ['y', 1],'PageDown':  ['y',-1]};
     var m = axisMap[e.key];
     if (!m) return;
     e.preventDefault();
     var axis = m[0], delta = m[1];
-    var max = DATA['n_' + axis] - 1;
-    state[axis] = Math.max(0, Math.min(max, state[axis] + delta));
-    document.getElementById('sl-' + axis).value = state[axis];
+    state[axis] = Math.max(0, Math.min(DATA['n_'+axis]-1, state[axis]+delta));
+    setSl(axis, state[axis]);
     updateView();
   });
 
-  window.addEventListener('load', updateView);
+  window.addEventListener('load', function() { updateView(); renderHistogram(); });
 """
+
+def _compute_histogram_data(lazy: "Any", n_bins: int = 64) -> dict:
+    """Compute an intensity histogram from sampled axial slices — no full-volume load."""
+    n_z = lazy.shape[2]
+    sample_idxs = np.round(np.linspace(0, n_z - 1, min(10, n_z))).astype(int)
+    samples = []
+    for idx in sample_idxs:
+        slc = lazy.slice_along(2, int(idx)).ravel()
+        samples.append(slc)
+    flat = np.concatenate(samples)
+    flat = flat[np.isfinite(flat) & (flat != 0)]
+    if flat.size == 0:
+        return {"vmin": 0.0, "vmax": 1.0, "counts": []}
+    v0 = float(np.percentile(flat, 0.5))
+    v1 = float(np.percentile(flat, 99.5))
+    if v0 >= v1:
+        v1 = v0 + 1.0
+    counts, _ = np.histogram(flat, bins=n_bins, range=(v0, v1))
+    return {"vmin": v0, "vmax": v1, "counts": counts.tolist()}
+
 
 def build_interactive_html(
     *,
@@ -302,11 +433,22 @@ def build_interactive_html(
     slices_t: list[str] | None = None,
     si_t: list[int] | None = None,
     ct_window_stacks: dict | None = None,
+    histogram: dict | None = None,   # {"vmin","vmax","counts"} from _compute_histogram_data
 ) -> str:
-    """Build a standalone interactive orthogonal viewer HTML page."""
+    """Build a standalone interactive orthogonal viewer HTML page.
+
+    Features:
+    - Three-plane ortho view (axial, coronal, sagittal)
+    - Slice sliders + keyboard navigation (↑↓ / PgUp/Dn / ←→)
+    - Click any panel to re-centre all three views on that voxel
+    - Crosshair canvas overlay in each panel showing current (x,y,z) position
+    - Mouse hover shows cursor voxel coordinates in footer
+    - Intensity histogram with display-window markers (blue=lo, orange=hi)
+    - CT multi-preset windowing tabs
+    - Optional 4D time slider for fMRI data
+    """
     nx, ny, nz = shape[:3]
 
-    # Embed all data as JSON (slices + metadata)
     data_obj = {
         "slices_x": slices_x, "slices_y": slices_y, "slices_z": slices_z,
         "si_x": si_x, "si_y": si_y, "si_z": si_z,
@@ -315,6 +457,8 @@ def build_interactive_html(
         "n_volumes": n_volumes,
         "tr": tr,
         "modality": modality,
+        "vmin": vmin,
+        "vmax": vmax,
     }
     if slices_t:
         data_obj["slices_t"] = slices_t
@@ -322,17 +466,16 @@ def build_interactive_html(
         data_obj["si_t"] = si_t
     if ct_window_stacks:
         data_obj["windows"] = ct_window_stacks
+    if histogram:
+        data_obj["histogram"] = histogram
 
     data_json = json.dumps(data_obj)
 
     ct_buttons = ""
     if modality == "ct":
         presets = [
-            ("Brain", "brain"),
-            ("Soft tissue", "soft_tissue"),
-            ("Bone", "bone"),
-            ("Lung", "lung"),
-            ("Subdural", "subdural"),
+            ("Brain", "brain"), ("Soft tissue", "soft_tissue"),
+            ("Bone", "bone"), ("Lung", "lung"), ("Subdural", "subdural"),
         ]
         buttons = " ".join(
             f'<button class="preset-btn" data-preset="{key}" onclick="applyPreset(\'{key}\')">{label}</button>'
@@ -349,7 +492,7 @@ def build_interactive_html(
     if n_volumes > 1:
         time_panel = f"""
         <div class="time-panel">
-          <label>Time (volumes: {n_volumes}{f', TR={tr}s' if tr else ''})</label>
+          <label>Time (volumes: {n_volumes}{f", TR={tr}s" if tr else ""})</label>
           <div class="ctrl-row">
             <input type="range" id="sl-t" min="0" max="{n_volumes-1}" value="0"
               oninput="onSlider('t', this.value)">
@@ -357,10 +500,19 @@ def build_interactive_html(
           </div>
         </div>"""
 
-    # Time image row (optional)
     time_img = ""
     if slices_t:
         time_img = '<img id="img-time" src="" style="display:block;max-height:120px;object-fit:contain;">'
+
+    hist_html = ""
+    if histogram and histogram.get("counts"):
+        hist_html = """
+        <div class="hist-wrap">
+          <span class="hist-label">Intensity histogram &nbsp;
+            <span style="color:#6af">|</span> lo window &nbsp;
+            <span style="color:#fa6">|</span> hi window</span>
+          <svg id="hist-svg" viewBox="0 0 160 36" preserveAspectRatio="none"></svg>
+        </div>"""
 
     vox_str = " × ".join(f"{v:.2f}" for v in voxel_sizes[:3]) + " mm"
     js = _VIEWER_JS.replace("{DATA_JSON}", data_json)
@@ -380,13 +532,17 @@ def build_interactive_html(
   </div>
 
   <div class="viewer-wrap">
-    <!-- Axial (z) -->
+    <!-- Axial (z): displays XY plane; click updates x,y state -->
     <div class="panel">
       <div class="panel-hdr">
         <span><span class="axis-label">AX</span> Axial</span>
-        <span class="kbd-hint">↑↓ keys</span>
+        <span class="kbd-hint">↑↓ keys · click to navigate</span>
       </div>
-      <img id="img-axial" src="">
+      <div class="img-wrap">
+        <img id="img-axial" src=""
+          onclick="imgClick('z',event)" onmousemove="imgHover('z',event)">
+        <canvas id="ch-z" class="ch-canvas"></canvas>
+      </div>
       <div class="ctrl-row">
         <input type="range" id="sl-z" min="0" max="{nz-1}" value="{cz}"
           oninput="onSlider('z', this.value)">
@@ -394,13 +550,17 @@ def build_interactive_html(
       </div>
     </div>
 
-    <!-- Coronal (y) -->
+    <!-- Coronal (y): displays XZ plane; click updates x,z state -->
     <div class="panel">
       <div class="panel-hdr">
         <span><span class="axis-label">COR</span> Coronal</span>
-        <span class="kbd-hint">PgUp/Dn keys</span>
+        <span class="kbd-hint">PgUp/Dn keys · click to navigate</span>
       </div>
-      <img id="img-coronal" src="">
+      <div class="img-wrap">
+        <img id="img-coronal" src=""
+          onclick="imgClick('y',event)" onmousemove="imgHover('y',event)">
+        <canvas id="ch-y" class="ch-canvas"></canvas>
+      </div>
       <div class="ctrl-row">
         <input type="range" id="sl-y" min="0" max="{ny-1}" value="{cy}"
           oninput="onSlider('y', this.value)">
@@ -408,13 +568,17 @@ def build_interactive_html(
       </div>
     </div>
 
-    <!-- Sagittal (x) -->
+    <!-- Sagittal (x): displays YZ plane; click updates y,z state -->
     <div class="panel">
       <div class="panel-hdr">
         <span><span class="axis-label">SAG</span> Sagittal</span>
-        <span class="kbd-hint">←→ keys</span>
+        <span class="kbd-hint">←→ keys · click to navigate</span>
       </div>
-      <img id="img-sagittal" src="">
+      <div class="img-wrap">
+        <img id="img-sagittal" src=""
+          onclick="imgClick('x',event)" onmousemove="imgHover('x',event)">
+        <canvas id="ch-x" class="ch-canvas"></canvas>
+      </div>
       <div class="ctrl-row">
         <input type="range" id="sl-x" min="0" max="{nx-1}" value="{cx}"
           oninput="onSlider('x', this.value)">
@@ -432,6 +596,8 @@ def build_interactive_html(
     <span>Voxel: <span class="hi">{vox_str}</span></span>
     <span>Window: <span class="hi">{window_str}</span></span>
     <span>Modality: <span class="hi">{modality.upper()}</span></span>
+    {hist_html}
+    <span id="hover-coords"></span>
   </div>
 
   <script>{js}</script>

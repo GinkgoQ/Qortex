@@ -54,6 +54,32 @@ from qortex import visualize
 from qortex.visualize._audit import VisualAuditReport
 
 
+# ── BIDS path helpers (module-level so they work inside Dataset methods) ──────
+
+def _extract_subject(path: str) -> str | None:
+    """Extract subject ID (without sub- prefix) from a BIDS relative path."""
+    for part in path.replace("\\", "/").split("/"):
+        if part.startswith("sub-"):
+            return part[4:]
+    return None
+
+
+def _bids_suffix(path: str) -> str:
+    """Extract the BIDS suffix from a file path by inspecting the filename stem."""
+    name = path.replace("\\", "/").rsplit("/", 1)[-1]
+    # Strip compound extensions (.nii.gz etc.)
+    for ext in (".nii.gz", ".nii", ".mgz", ".mgh", ".edf", ".fif", ".bdf", ".set",
+                ".gz", ".json", ".tsv"):
+        if name.lower().endswith(ext):
+            name = name[: -len(ext)]
+            break
+    else:
+        name = name.rsplit(".", 1)[0]
+    # BIDS suffix = last _word in the stem
+    seg = name.rsplit("_", 1)
+    return seg[-1] if len(seg) > 1 else name
+
+
 class Dataset:
     """High-level facade for working with a single OpenNeuro dataset.
 
@@ -212,6 +238,7 @@ class Dataset:
         sessions: list[str] | None = None,
         tasks: list[str] | None = None,
         modalities: list[str] | None = None,
+        suffixes: list[str] | None = None,
         include_derivatives: bool = False,
         include: list[str] | None = None,
         exclude: list[str] | None = None,
@@ -229,6 +256,10 @@ class Dataset:
         ----------
         subjects / sessions / tasks / modalities:
             Filter which files to download.  ``None`` means include all.
+        suffixes:
+            BIDS suffixes to download, e.g. ``["T1w", "bold", "dwi"]``.
+            Translated to ``include`` glob patterns and combined with any
+            explicit ``include`` patterns you supply.
         include_derivatives:
             Include the ``derivatives/`` subdirectory (default False).
         include / exclude:
@@ -242,11 +273,24 @@ class Dataset:
         -------
         DownloadResult
             Summary of what was downloaded, skipped, or failed.
+
+        Examples
+        --------
+        >>> ds = Dataset("ds000001")
+        >>> ds.download(subjects=["01", "02"], suffixes=["T1w"])
+        >>> ds.download(subjects=["01"], include=["**/*_T1w.*", "**/*_bold.*"])
         """
         from qortex.fetch.engine import DownloadEngine
         from qortex.plan.planner import DownloadPlanner
 
         manifest = self.manifest()
+
+        # Convert BIDS suffix shorthand to glob patterns
+        effective_include = list(include or [])
+        if suffixes:
+            for sfx in suffixes:
+                effective_include.append(f"**/*_{sfx}.*")
+                effective_include.append(f"**/*_{sfx}_*")
 
         spec = SelectionSpec(
             subjects=subjects,
@@ -254,7 +298,7 @@ class Dataset:
             tasks=tasks,
             modalities=modalities,
             include_derivatives=include_derivatives,
-            include=include or [],
+            include=effective_include,
             exclude=exclude or [],
             metadata_only=metadata_only,
             event_complete=event_complete,
@@ -1054,7 +1098,7 @@ class Dataset:
         --------
         >>> ds = Dataset("ds000001")
         >>> ds.download(subjects=["01", "02"], suffixes=["T1w"])
-        >>> report = ds.visualize(local_path="data/ds000001", suffixes=["T1w"])
+        >>> report = ds.visualize(suffixes=["T1w"])
         >>> report.show()
         """
         from qortex.visualize._audit import run_visual_audit, VisualAuditReport
@@ -1067,43 +1111,44 @@ class Dataset:
             )
 
         manifest = self.manifest()
-        _VIZ_EXTS = (".nii.gz", ".nii", ".mgz", ".mgh", ".edf", ".fif", ".bdf", ".set")
+        _VIZ_EXTS = frozenset({".nii.gz", ".nii", ".mgz", ".mgh", ".edf", ".fif", ".bdf", ".set"})
 
         def _is_viz(fr) -> bool:
+            # Prefer structured extension field; fall back to path inspection
+            ext = getattr(fr, "extension", None)
+            if ext is not None:
+                return ext.lower() in _VIZ_EXTS
             name = fr.path.lower()
-            return any(name.endswith(ext) for ext in _VIZ_EXTS)
+            return any(name.endswith(e) for e in _VIZ_EXTS)
 
         candidates = [fr for fr in manifest.files if _is_viz(fr)]
 
         if subjects is not None:
-            sub_set = {f"sub-{s}" if not s.startswith("sub-") else s for s in subjects}
+            sub_set = {s.lstrip("sub-") if s.startswith("sub-") else s for s in subjects}
             candidates = [
                 fr for fr in candidates
-                if any(fr.path.startswith(s + "/") or ("/" + s + "/") in fr.path
-                       for s in sub_set)
+                if (getattr(fr, "subject", None) or _extract_subject(fr.path)) in sub_set
             ]
         if datatypes is not None:
+            dt_set = set(datatypes)
             candidates = [
                 fr for fr in candidates
-                if any(("/" + dt + "/") in fr.path for dt in datatypes)
+                if (getattr(fr, "datatype", None) in dt_set or
+                    any(("/" + dt + "/") in fr.path for dt in dt_set))
             ]
         if suffixes is not None:
-            def _suffix_match(path: str, sfx_list: list[str]) -> bool:
-                for sfx in sfx_list:
-                    if f"_{sfx}." in path or f"_{sfx}_" in path:
-                        return True
-                return False
-            candidates = [fr for fr in candidates if _suffix_match(fr.path, suffixes)]
+            suf_set = set(suffixes)
+            candidates = [
+                fr for fr in candidates
+                if (getattr(fr, "suffix", None) in suf_set or
+                    _bids_suffix(fr.path) in suf_set)
+            ]
 
-        # Group by BIDS suffix for n_per_suffix sampling
+        # Group by BIDS suffix for n_per_suffix sampling, preferring the structured field
         from collections import defaultdict
         by_suffix: dict[str, list] = defaultdict(list)
         for fr in candidates:
-            # Extract BIDS suffix: last underscore segment before the extension
-            stem = fr.path.replace(".nii.gz", "").replace(".gz", "")
-            stem = stem.rsplit(".", 1)[0]
-            parts = stem.rsplit("_", 1)
-            suf = parts[-1] if len(parts) > 1 else stem.rsplit("/", 1)[-1]
+            suf = getattr(fr, "suffix", None) or _bids_suffix(fr.path)
             by_suffix[suf].append(fr)
 
         selected: list = []
@@ -1178,7 +1223,7 @@ class Dataset:
         --------
         >>> ds = Dataset("ds000001")
         >>> ds.download(subjects=["01", "02", "03"], suffixes=["T1w", "bold"])
-        >>> report = ds.visual_audit("qc/", suffixes=["T1w"])
+        >>> report = ds.visual_audit("qc/", suffixes=["T1w"])  # reads 1 slice per file
         >>> print(report.summary())
         """
         return self.visualize(

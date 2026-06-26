@@ -636,18 +636,30 @@ def _render_volume(asset: VisualAsset, plan: VisualPlan, **kwargs) -> VisualResu
             return _render_summary_only(asset, plan)
 
         elif plan.mode == "thumbnail":
-            # Read exactly one center slice — never loads the full volume
+            # Per-modality lazy thumbnail — reads the minimum data possible
             from qortex.visualize._html import array_to_b64png
             import base64
             if viewer._lazy is not None:
-                shape3 = viewer._lazy.shape[:3]
-                cz = shape3[2] // 2
-                slc = viewer._lazy.slice_along(2, cz).T[::-1, :]
+                lazy = viewer._lazy
+                if asset.intent == INTENT_BOLD and len(lazy.shape) == 4:
+                    # fMRI: render tSNR map center slice (Welford streaming, ~20 frames)
+                    tsnr = lazy.tsnr_volume(max_frames=20)
+                    cz = tsnr.shape[2] // 2
+                    slc = tsnr[:, :, cz].T[::-1, :]
+                    pos_vals = slc[slc > 0]
+                    ts_vmin = float(np.percentile(pos_vals, 2)) if pos_vals.size else 0.0
+                    ts_vmax = float(np.percentile(pos_vals, 98)) if pos_vals.size else 100.0
+                    b64 = array_to_b64png(slc, ts_vmin, ts_vmax, "hot")
+                else:
+                    # All other volumetric modalities: single center axial slice
+                    cz = lazy.shape[2] // 2
+                    slc = lazy.slice_along(2, cz).T[::-1, :]
+                    b64 = array_to_b64png(slc, viewer._vmin, viewer._vmax, viewer.colormap)
             else:
                 vol3d = viewer._vol3d()
                 cz = vol3d.shape[2] // 2
                 slc = vol3d[:, :, cz].T[::-1, :]
-            b64 = array_to_b64png(slc, viewer._vmin, viewer._vmax, viewer.colormap)
+                b64 = array_to_b64png(slc, viewer._vmin, viewer._vmax, viewer.colormap)
             png_bytes = base64.b64decode(b64)
             return VisualResult(asset=asset, plan=plan, png_bytes=png_bytes,
                                 warnings=list(asset.warnings))

@@ -35,6 +35,7 @@ from qortex.visualize._colors import (
 )
 from qortex.visualize._html import (
     array_to_b64png, render_axis_slices, build_interactive_html,
+    _compute_histogram_data,
 )
 
 log = logging.getLogger(__name__)
@@ -852,6 +853,14 @@ class VolumeViewer:
         dataset_info = self._meta.get("series_description", "")
         modality = self._meta.get("modality", self.modality)
 
+        # Intensity histogram from sampled slices (no full volume load)
+        histogram: dict | None = None
+        if self._lazy is not None:
+            try:
+                histogram = _compute_histogram_data(self._lazy)
+            except Exception:
+                pass
+
         html = build_interactive_html(
             title=title or f"{modality.upper()} Volume",
             dataset_info=dataset_info,
@@ -868,6 +877,7 @@ class VolumeViewer:
             slices_t=slices_t,
             si_t=si_t,
             ct_window_stacks=ct_window_stacks,
+            histogram=histogram,
         )
 
         if output is not None:
