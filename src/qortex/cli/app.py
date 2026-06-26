@@ -1103,8 +1103,8 @@ def visualize_openneuro_cmd(
     selected = candidates[:n_per_suffix]
     typer.echo(f"Downloading {len(selected)} file(s)…")
     try:
+        ds.download_paths([fr.path for fr in selected])
         local_root = ds._resolve_data_dir()
-        ds.download_paths([fr.path for fr in selected], progress=True)
     except Exception as exc:
         typer.echo(f"Download failed: {exc}", err=True)
         raise typer.Exit(1)

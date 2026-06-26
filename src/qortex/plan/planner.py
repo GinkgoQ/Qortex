@@ -31,7 +31,11 @@ class DownloadPlanner:
         estimated_bytes = sum(f.size or 0 for f in files)
 
         if self._check_disk:
-            disk = shutil.disk_usage(target_dir.parent if not target_dir.exists() else target_dir)
+            # Walk up until we find an ancestor that exists (target_dir may not be created yet)
+            _check_path = target_dir
+            while _check_path != _check_path.parent and not _check_path.exists():
+                _check_path = _check_path.parent
+            disk = shutil.disk_usage(_check_path)
             if estimated_bytes > 0 and disk.free < estimated_bytes * 1.05:
                 raise StorageError(
                     f"Insufficient disk space: need ~{estimated_bytes / 1e9:.2f} GB, "
