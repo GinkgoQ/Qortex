@@ -169,8 +169,8 @@ class Artifact:
             Number of samples to render.
         """
         try:
-            import polars  # noqa: F401
             import plotly.io as pio
+            import polars  # noqa: F401
         except ImportError:
             raise ImportError("visual_audit() requires plotly and polars: pip install plotly polars")
 
@@ -201,14 +201,10 @@ class Artifact:
                     arr = _pl_to_array(row[data_col])
                     if arr.ndim >= 2:
                         fig = _plot_volume_slice(arr, f"Sample {i}") if arr.ndim >= 3 else _plot_signal_2d(arr, f"Sample {i}")
-                        png_bytes = pio.to_image(fig, format="png", width=300, height=180)
-                        import base64
-                        thumb_b64 = base64.b64encode(png_bytes).decode()
+                        thumb_b64 = _figure_to_png_b64(fig, pio, width=300, height=180)
                     elif arr.ndim == 1:
                         fig = _plot_signal_1d(arr, f"Sample {i}")
-                        png_bytes = pio.to_image(fig, format="png", width=300, height=180)
-                        import base64
-                        thumb_b64 = base64.b64encode(png_bytes).decode()
+                        thumb_b64 = _figure_to_png_b64(fig, pio, width=300, height=180)
                 entries.append(AuditEntry(path_label=path_label, asset=asset, thumbnail_b64=thumb_b64))
                 n_rendered += 1
             except Exception as exc:
@@ -249,8 +245,8 @@ class Artifact:
             manifest (``["train", "val", "test"]`` filtered by what exists on disk).
         """
         try:
-            import polars  # noqa: F401
             import plotly.io as pio
+            import polars  # noqa: F401
         except ImportError:
             raise ImportError("compare_splits() requires plotly and polars: pip install plotly polars")
 
@@ -305,9 +301,7 @@ class Artifact:
                             fig = _plot_signal_2d(arr, f"{split_name}/{i}")
                         else:
                             fig = _plot_signal_1d(arr.ravel(), f"{split_name}/{i}")
-                        png_bytes = pio.to_image(fig, format="png", width=280, height=160)
-                        import base64
-                        thumb_b64 = base64.b64encode(png_bytes).decode()
+                        thumb_b64 = _figure_to_png_b64(fig, pio, width=280, height=160)
                     all_entries.append(AuditEntry(
                         path_label=path_label, asset=asset, thumbnail_b64=thumb_b64,
                     ))
@@ -408,6 +402,30 @@ def _artifact_data_column(row: dict[str, Any], manifest: ArtifactManifest) -> st
         ),
         None,
     )
+
+
+def _figure_to_png_b64(fig: Any, pio: Any, *, width: int, height: int, timeout_s: int = 5) -> str | None:
+    import base64
+    import os
+    import signal
+
+    if os.environ.get("QORTEX_ENABLE_STATIC_THUMBNAILS") != "1":
+        return None
+
+    def _timeout(_signum, _frame):
+        raise TimeoutError("Plotly static export timed out")
+
+    old_handler = signal.getsignal(signal.SIGALRM)
+    try:
+        signal.signal(signal.SIGALRM, _timeout)
+        signal.alarm(timeout_s)
+        png_bytes = pio.to_image(fig, format="png", width=width, height=height)
+        return base64.b64encode(png_bytes).decode()
+    except Exception:
+        return None
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
 
 
 def _pl_to_array(value) -> "np.ndarray":
