@@ -516,27 +516,30 @@ def _compute_coverage(
     manifest: Manifest,
     events_files: list[FileRecord],
 ) -> None:
-    """Compute what fraction of signal entity keys have an events file."""
+    """Compute what fraction of signal files have a matching events file.
+
+    Uses ``SidecarResolver.find_events()`` which implements BIDS fallback
+    matching (exact key → without run → without session+run) instead of
+    strict exact-key equality. This correctly handles datasets where events
+    files omit run or session entities.
+    """
+    from qortex.manifest.sidecar import SidecarResolver
+
     signal_modalities = {"eeg", "meg", "ieeg", "fmri", "fnirs", "bold"}
-    signal_keys: set[tuple] = set()
-    events_keys: set[tuple] = set()
+    signal_files = [
+        f for f in manifest.files
+        if not f.is_dir
+        and f.modality in signal_modalities
+        and f.extension not in (".json", ".tsv", ".csv")
+    ]
 
-    for f in manifest.files:
-        if f.is_dir:
-            continue
-        key = (f.subject, f.session, f.task, f.run)
-        if f.modality in signal_modalities:
-            signal_keys.add(key)
-
-    for ef in events_files:
-        events_keys.add((ef.subject, ef.session, ef.task, ef.run))
-
-    if signal_keys:
-        covered = sum(1 for k in signal_keys if k in events_keys)
-        landscape.coverage_pct = covered / len(signal_keys)
-    else:
-        # No signal files tracked — use events file count as proxy
+    if not signal_files:
         landscape.coverage_pct = 1.0 if events_files else 0.0
+        return
+
+    resolver = SidecarResolver(manifest.files)
+    covered = sum(1 for sf in signal_files if resolver.find_events(sf) is not None)
+    landscape.coverage_pct = covered / len(signal_files)
 
 
 def _build_recommendations(landscape: LabelLandscape) -> list[str]:

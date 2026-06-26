@@ -50,6 +50,7 @@ import httpx
 from qortex.client.transport import SSL_CONTEXT, USER_AGENT, RETRYABLE_EXCEPTIONS
 from qortex.core.config import QortexConfig, get_config
 from qortex.core.entities import FileRecord, Manifest
+from qortex.core.exceptions import QortexError
 
 log = logging.getLogger(__name__)
 
@@ -321,7 +322,13 @@ class RemoteFileGateway:
 
     # ── Manifest-aware helpers ────────────────────────────────────────────
 
-    def from_manifest_path(self, manifest: Manifest, path: str) -> bytes:
+    def from_manifest_path(
+        self,
+        manifest: Manifest,
+        path: str,
+        *,
+        max_bytes: int = _DEFAULT_MAX_BYTES,
+    ) -> bytes:
         """Look up a path in the manifest and fetch its bytes remotely.
 
         Parameters
@@ -329,19 +336,26 @@ class RemoteFileGateway:
         path:
             BIDS-relative path, e.g. ``"participants.tsv"`` or
             ``"sub-01/ses-01/eeg/sub-01_ses-01_task-rest_eeg.json"``.
+        max_bytes:
+            Refuse to fetch files larger than this. Raises ``FileTooLargeError``
+            before any HTTP request when ``fr.size`` is known.
 
         Raises
         ------
         FileNotFoundError
             If the path is not in the manifest.
+        FileTooLargeError
+            If the file size exceeds ``max_bytes``.
         RemotePreviewError
             If the URL is not available or the fetch fails.
         """
         fr = manifest.get_file(path)
         if fr is None:
             raise FileNotFoundError(f"Path not in manifest: {path!r}")
+        if fr.size and fr.size > max_bytes:
+            raise FileTooLargeError(fr.path, fr.size, max_bytes)
         url = _pick_url(fr)
-        return self.fetch_bytes(url)
+        return self.fetch_bytes(url, max_bytes=max_bytes)
 
     def preview_path(
         self, manifest: Manifest, path: str, *, n_rows: int = 20
@@ -387,6 +401,7 @@ class RemoteFileGateway:
         self,
         url_map: dict[str, str],
         concurrency: int = _BATCH_CONCURRENCY,
+        max_bytes_per_file: int = 5 * 1024 * 1024,
     ) -> dict[str, Any]:
         """Fetch multiple TSV files concurrently.
 
@@ -396,6 +411,9 @@ class RemoteFileGateway:
             ``{key: url}`` mapping. Keys are returned as-is in the result.
         concurrency:
             Maximum parallel HTTP connections.
+        max_bytes_per_file:
+            Per-file byte cap (default 5 MB). Files exceeding this raise
+            ``FileTooLargeError`` stored in the result dict.
 
         Returns
         -------
@@ -403,31 +421,34 @@ class RemoteFileGateway:
             Successful fetches return a Polars DataFrame.
             Failed fetches return the Exception (never raises).
         """
-        return asyncio.run(
-            _async_batch_fetch(
-                url_map=url_map,
-                fetch_fn=self._async_fetch_tsv,
-                concurrency=concurrency,
-                cfg=self._cfg,
-            )
+        coro = _async_batch_fetch(
+            url_map=url_map,
+            fetch_fn=self._async_fetch_tsv,
+            concurrency=concurrency,
+            cfg=self._cfg,
+            max_bytes=max_bytes_per_file,
         )
+        return _run_async(coro)
 
     def batch_fetch_json(
         self,
         url_map: dict[str, str],
         concurrency: int = _BATCH_CONCURRENCY,
+        max_bytes_per_file: int = 2 * 1024 * 1024,
     ) -> dict[str, Any]:
         """Fetch multiple JSON files concurrently."""
-        return asyncio.run(
-            _async_batch_fetch(
-                url_map=url_map,
-                fetch_fn=self._async_fetch_json,
-                concurrency=concurrency,
-                cfg=self._cfg,
-            )
+        coro = _async_batch_fetch(
+            url_map=url_map,
+            fetch_fn=self._async_fetch_json,
+            concurrency=concurrency,
+            cfg=self._cfg,
+            max_bytes=max_bytes_per_file,
         )
+        return _run_async(coro)
 
-    async def _async_fetch_tsv(self, url: str, client: httpx.AsyncClient) -> Any:
+    async def _async_fetch_tsv(
+        self, url: str, client: httpx.AsyncClient, max_bytes: int = 5 * 1024 * 1024
+    ) -> Any:
         import polars as pl
         cached = self._cache.get(f"{url}|None")
         if cached is not None:
@@ -436,10 +457,14 @@ class RemoteFileGateway:
         if response.status_code not in (200, 206):
             raise RemotePreviewError(url, f"HTTP {response.status_code}")
         data = response.content
+        if len(data) > max_bytes:
+            raise FileTooLargeError(url, len(data), max_bytes)
         self._cache.put(f"{url}|None", data)
         return pl.read_csv(io.BytesIO(data), separator="\t", infer_schema_length=10_000)
 
-    async def _async_fetch_json(self, url: str, client: httpx.AsyncClient) -> dict:
+    async def _async_fetch_json(
+        self, url: str, client: httpx.AsyncClient, max_bytes: int = 2 * 1024 * 1024
+    ) -> dict:
         import json
         cached = self._cache.get(f"{url}|None")
         if cached is not None:
@@ -448,6 +473,8 @@ class RemoteFileGateway:
         if response.status_code not in (200, 206):
             raise RemotePreviewError(url, f"HTTP {response.status_code}")
         data = response.content
+        if len(data) > max_bytes:
+            raise FileTooLargeError(url, len(data), max_bytes)
         self._cache.put(f"{url}|None", data)
         return json.loads(data)
 
@@ -560,12 +587,36 @@ def _parse_nifti_header(header: bytes, bytes_fetched: int) -> NIfTIHeader:
 
 # ── Async batch engine ────────────────────────────────────────────────────────
 
+def _run_async(coro) -> Any:
+    """Run an async coroutine safely regardless of whether a loop is already running.
+
+    In Jupyter notebooks and async frameworks, ``asyncio.run()`` raises
+    ``RuntimeError: asyncio.run() cannot be called from a running event loop``.
+    We detect this and fall back to running the coroutine in a thread that has
+    its own event loop — identical semantics, no external dependencies.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop is None:
+        return asyncio.run(coro)
+
+    # A loop is already running (Jupyter / async app) — use a thread
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(asyncio.run, coro)
+        return future.result()
+
+
 async def _async_batch_fetch(
     *,
     url_map: dict[str, str],
     fetch_fn,
     concurrency: int,
     cfg: QortexConfig,
+    max_bytes: int = _DEFAULT_MAX_BYTES,
 ) -> dict[str, Any]:
     """Execute fetch_fn(url, client) for all URLs concurrently, bounded by semaphore."""
     sem = asyncio.Semaphore(concurrency)
@@ -579,7 +630,7 @@ async def _async_batch_fetch(
         async def _one(key: str, url: str) -> tuple[str, Any]:
             async with sem:
                 try:
-                    result = await fetch_fn(url, client)
+                    result = await fetch_fn(url, client, max_bytes)
                     return key, result
                 except Exception as exc:
                     log.debug("batch fetch failed for %s: %s", url, exc)
@@ -639,7 +690,7 @@ def small_files_from_manifest(
 
 # ── Exceptions ────────────────────────────────────────────────────────────────
 
-class RemotePreviewError(Exception):
+class RemotePreviewError(QortexError):
     """Raised when a remote file cannot be fetched or parsed."""
 
     def __init__(self, url: str, reason: str) -> None:

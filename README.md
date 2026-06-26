@@ -740,6 +740,10 @@ The suite covers:
 | `14_live_openneuro_metadata_project` | Live manifest and metadata smoke check |
 | `15_decision_workflows_project` | Real doctor, minimum, can-train, first-batch, content-status, and recipe workflow |
 | `16_catalog_ingestion_project` | Deep catalog ingestion, task/event search, facets, and file-summary digestion |
+| `17_remote_inspection_project` | `participants()`, `events()`, `sidecar()`, `nifti_info()` — zero-download intelligence |
+| `18_label_landscape_project` | Concurrent remote events fetch, class balance, ISI jitter, cross-subject consistency |
+| `19_signal_budget_project` | Remote sidecar + NIfTI header acquisition params, window estimates, minimum subset planning |
+| `20_dataset_selector_project` | `ResearchGoal` + `DatasetSelector` fitness scoring against known and catalog-searched datasets |
 
 `test/run_all.py` shares one real metadata download across downstream stages so
 the suite does not redownload the same event/sidecar files for every project.
@@ -757,8 +761,8 @@ Qortex is strict about what it can prove.
 - Torch and sklearn convenience adapters currently expect Parquet artifacts.
 - Metadata-first workflows are mature; full raw neuroimaging conversion depends
   on optional modality libraries and loader maturity.
-- Event-aligned windowing exists at the lower level but is not fully exposed
-  through high-level `Dataset.convert()` configuration.
+- Event-aligned windowing is exposed through `Dataset.convert(event_aligned=True, window_tmin=...)`,
+  but still needs broader real-signal scenario coverage before it can be considered production-grade.
 - Dashboard modules exist, but the dashboard is not yet a complete product
   surface.
 - Some advanced platform features are intentionally future work: DataLad

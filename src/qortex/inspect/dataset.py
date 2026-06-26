@@ -148,6 +148,9 @@ class DatasetProfile:
     all_snapshots: list[SnapshotRef]
     manifest: Manifest
 
+    # Rich API metadata (set when get_dataset_rich() is available)
+    rich_info: Any = field(default=None)
+
     # Computed analytics — filled in by _analyse()
     n_subjects: int = 0
     n_sessions: int = 0
@@ -331,9 +334,16 @@ class DatasetInspector:
         """
         log.info("Inspecting dataset %s (tag=%s)", dataset_id, tag or "latest")
 
-        # ── 1. Fetch dataset-level metadata ──────────────────────────────
-        dataset_ref = self._client.get_dataset(dataset_id)
-        log.debug("Got dataset ref: %s", dataset_ref.id)
+        # ── 1. Fetch dataset-level metadata (rich path first) ─────────────
+        rich_info = None
+        try:
+            rich_info = self._client.get_dataset_rich(dataset_id)
+            dataset_ref = rich_info.to_dataset_ref()
+            log.debug("Got rich dataset info for %s", dataset_ref.id)
+        except Exception as exc:
+            log.debug("get_dataset_rich failed (%s), falling back to get_dataset", exc)
+            dataset_ref = self._client.get_dataset(dataset_id)
+            log.debug("Got dataset ref (fallback): %s", dataset_ref.id)
 
         # ── 2. Fetch snapshot list ────────────────────────────────────────
         all_snapshots = self._client.get_snapshots(dataset_id)
@@ -355,6 +365,7 @@ class DatasetInspector:
             snapshot=snapshot_ref,
             all_snapshots=all_snapshots,
             manifest=manifest,
+            rich_info=rich_info,
         )
         _analyse(profile)
         return profile

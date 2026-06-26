@@ -829,7 +829,7 @@ class Dataset:
         if target is None:
             raise FileNotFoundError(f"Path {path!r} not found in manifest")
 
-        resolver = SidecarResolver(manifest)
+        resolver = SidecarResolver(manifest.files)
         sidecar_records = resolver.resolve(target)
 
         gateway = RemoteFileGateway()

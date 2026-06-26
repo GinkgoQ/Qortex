@@ -224,8 +224,9 @@ class DatasetSelector:
     The selector works in three lazily-escalating tiers:
 
     Tier 1 (always runs) — local catalog:
-        Fast structured filter: modality, min_subjects, max_size, license,
-        min_downloads. Eliminates obvious mismatches without any API call.
+        Fast structured filter: modality, min_subjects, max_size.
+        License and min_downloads are NOT enforced here (catalog index may
+        lack the field); they are scored and enforced in Tier 2 API scoring.
 
     Tier 2 (optional, when catalog candidates pass Tier 1) — OpenNeuro API:
         Fetches ``RichDatasetInfo`` (1 API call per dataset) for engagement
@@ -327,6 +328,7 @@ class DatasetSelector:
         tier2_api: bool = True,
         tier3_events: bool = False,
         catalog_path: Any = None,
+        include_failed: bool = False,
     ) -> list[DatasetFitness]:
         """Search the local catalog and rank results by goal fitness.
 
@@ -337,6 +339,17 @@ class DatasetSelector:
         ----------
         catalog_limit:
             How many catalog candidates to evaluate via API (Tier 2).
+        include_failed:
+            If True, also return disqualified datasets after viable ones
+            (useful for debugging why datasets were rejected). Default False.
+
+        Notes
+        -----
+        Tier 1 filters on modality, min_subjects, and max_size_gb only.
+        License and min_downloads are enforced in Tier 2 API scoring, not here,
+        because the local catalog index may not reliably carry those fields.
+        Use ``rank()`` directly when you already know the dataset IDs — it is
+        the diagnostic API and always returns all results including failed ones.
         """
         from qortex.catalog.search import DatasetQuery
 
@@ -348,8 +361,6 @@ class DatasetSelector:
             query.min_subjects(goal.min_subjects)
         if goal.max_size_gb is not None:
             query.max_size_gb(goal.max_size_gb)
-        if goal.license_must_be_open:
-            pass  # filtered post-API
 
         query.limit(catalog_limit)
         candidates = query.fetch()
@@ -367,6 +378,8 @@ class DatasetSelector:
             tier3_events=tier3_events,
             tier3_top_k=5,
         )
+        if include_failed:
+            return ranked[:limit]
         return [r for r in ranked if r.is_viable][:limit]
 
     def _run_tier3(

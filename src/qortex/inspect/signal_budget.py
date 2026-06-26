@@ -434,21 +434,54 @@ class SignalBudgetEstimator:
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 def _build_sidecar_index(manifest: Manifest) -> tuple[dict[str, str], dict[str, FileRecord]]:
-    """Build URL and FileRecord maps for signal-file JSON sidecars."""
+    """Build URL and FileRecord maps for signal-file JSON sidecars.
+
+    Uses ``SidecarResolver`` to follow BIDS inheritance: for each primary
+    signal file, resolves the full sidecar chain (root → task → session →
+    file-level) and fetches each sidecar in order. The most-specific sidecar
+    per signal file is fetched; merged parameters are computed after fetch.
+
+    We track by (signal_file_path, sidecar_path) so that:
+    - All sidecars in the inheritance chain are fetched.
+    - The signal-file ``FileRecord`` is correctly associated with each sidecar
+      for entity metadata (subject, session, task, modality).
+    - Duplicate sidecars (shared by multiple signal files) are de-duplicated.
+    """
+    from qortex.manifest.sidecar import SidecarResolver
+    from qortex.client.remote import _pick_url
+
+    resolver = SidecarResolver(manifest.files)
     url_map: dict[str, str] = {}
     fr_map: dict[str, FileRecord] = {}
 
-    for f in manifest.files:
-        if f.is_dir or f.extension != ".json" or not f.urls or not f.subject:
-            continue
-        if f.modality not in (_SIGNAL_MODALITIES | _FMRI_MODALITIES):
-            continue
-        try:
-            url = _pick_url(f)
-            url_map[f.path] = url
-            fr_map[f.path] = f
-        except Exception:
-            pass
+    # Identify primary signal files
+    signal_files = [
+        f for f in manifest.files
+        if not f.is_dir
+        and f.modality in (_SIGNAL_MODALITIES | _FMRI_MODALITIES)
+        and f.extension not in (".json", ".tsv", ".csv", ".bvec", ".bval")
+        and f.subject
+    ]
+
+    seen_sidecars: set[str] = set()
+    for sig_file in signal_files:
+        chain = resolver.resolve(sig_file)
+        if chain:
+            # Use the most-specific sidecar as the representative for this file;
+            # all sidecars in the chain are queued for fetching
+            for sidecar_fr in chain:
+                if sidecar_fr.path in seen_sidecars or not sidecar_fr.urls:
+                    continue
+                seen_sidecars.add(sidecar_fr.path)
+                try:
+                    url = _pick_url(sidecar_fr)
+                    # Store key = sidecar_path, but associate the signal file's
+                    # entity metadata via sig_file stored in fr_map
+                    key = f"{sig_file.path}||{sidecar_fr.path}"
+                    url_map[key] = url
+                    fr_map[key] = sig_file  # use signal file for entity context
+                except Exception:
+                    pass
 
     return url_map, fr_map
 
