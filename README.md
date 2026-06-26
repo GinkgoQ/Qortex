@@ -144,7 +144,7 @@ downloads.
 | Loaders | Lazy plugin registry and modality-aware loaders for behavior, EEG, MEG, iEEG, fNIRS, MRI, fMRI, DWI, and PET |
 | Conversion | Loader resolution, optional windowing, split assignment, writer dispatch, provenance, artifact manifests |
 | Artifacts | Reopen converted artifacts, inspect sample/split/source metadata, hand off to adapters |
-| Visual QC | Manifest-aware visual audit, accessible HTML reports, fMRI QC, DWI QC, DICOM browser, overlays, mask comparison, and artifact sample review |
+| Visual QC | Manifest-aware visual audit, accessible HTML reports, universal `mode="qc"`, fMRI QC, DWI QC, GIFTI/CIFTI surface summaries, DICOM browser, overlays, mask comparison, and artifact sample review |
 | ML adapters | Basic artifact bridges for Torch, Lightning, sklearn, TensorFlow, HuggingFace, Ray, Dask, and Braindecode; maturity varies by framework |
 | Catalog | Normalized OpenNeuro catalog ingestion, deep file-summary digestion, structured facets, and weighted local search backed by DuckDB or SQLite fallback |
 | Remote inspection | Demographics from API (no TSV download), NIfTI header extraction via 352-byte Range request, concurrent remote events fetch, label landscape with imbalance and ISI jitter, signal budget estimation from sidecars |
@@ -178,7 +178,7 @@ integration path. This avoids treating module existence as production maturity.
 | TensorFlow/HuggingFace/Ray/Dask/Braindecode adapters | Basic integration paths | Modules exist, but should not be treated as production-grade adapters yet |
 | Validation wrapper | Useful | Runs official `bids-validator` when installed; exports typed reports; does not fabricate results |
 | Dashboard | Experimental | Entrypoint exists; full dashboard product is future work |
-| Visual QC workflow | Useful | Manifest-aware reports, accessible HTML/Markdown/JSON export, fMRI/DWI summaries, overlays, mask comparison, DICOM browsing, and artifact sample review are scenario-tested |
+| Visual QC workflow | Useful | Manifest-aware reports, accessible HTML/Markdown/JSON export, universal QC dispatch, fMRI/DWI summaries, GIFTI/CIFTI summaries, overlays, mask comparison, DICOM browsing, and artifact sample review are scenario-tested |
 | Real scenario suite | Useful integration coverage | Uses real OpenNeuro data and shared metadata download; not a substitute for unit/contract tests |
 
 ## Compatibility Matrix
@@ -465,13 +465,28 @@ Run modality-specific QC when one file needs deeper inspection:
 ```python
 from qortex import visualize
 
+qc = visualize.visualize("sub-01/func/sub-01_task-rest_bold.nii.gz", mode="qc")
+qc.to_html("reports/sub-01-bold-qc.html")
+
 fmri_fig = visualize.fmri_summary("sub-01/func/sub-01_task-rest_bold.nii.gz")
 dwi_fig = visualize.dwi_summary("sub-01/dwi/sub-01_dwi.nii.gz")
+surface_fig = visualize.surface_summary("sub-01/anat/sub-01_hemi-L_pial.surf.gii")
 dicom_report = visualize.browse_dicom("dicom/study")
 
 fmri_fig.write_html("reports/sub-01-bold-qc.html")
 dwi_fig.write_html("reports/sub-01-dwi-qc.html")
+surface_fig.write_html("reports/sub-01-surface-qc.html")
 dicom_report.to_html("reports/dicom-study.html")
+```
+
+CLI equivalents:
+
+```bash
+qortex visualize sub-01/anat/sub-01_T1w.nii.gz --mode qc -o reports/t1w-qc.html
+qortex visualize sub-01/func/sub-01_task-rest_bold.nii.gz --mode qc -o reports/bold-qc.html
+qortex fmri-qc sub-01/func/sub-01_task-rest_bold.nii.gz --events sub-01/func/sub-01_task-rest_events.tsv -o reports/bold-qc.html
+qortex dwi-qc sub-01/dwi/sub-01_dwi.nii.gz --bval sub-01/dwi/sub-01_dwi.bval --bvec sub-01/dwi/sub-01_dwi.bvec -o reports/dwi-qc.html
+qortex artifact-visualize artifacts/ds000001 --split train --n 16 -o reports/artifact-qc.html
 ```
 
 Use overlays and exact mask metrics for segmentation/model review:
@@ -490,6 +505,12 @@ comparison = visualize.compare_masks(
 print(comparison.provenance["dice_exact"])
 print(comparison.provenance["per_slice_dice"][:5])
 comparison.to_html("mask-comparison.html")
+```
+
+The same segmentation comparison is available from the CLI:
+
+```bash
+qortex compare-masks T1w.nii.gz pred_mask.nii.gz truth_mask.nii.gz --exact --per-slice -o reports/mask-comparison.html
 ```
 
 Verify converted artifacts before training:
@@ -818,6 +839,13 @@ The catalog uses DuckDB when available and falls back to SQLite.
 | `qortex local-index` | Index a local BIDS tree and optionally reconcile with a saved manifest |
 | `qortex eda` | Run EDA and optionally write HTML |
 | `qortex convert` | Convert a downloaded dataset into an ML artifact |
+| `qortex visualize` | Inspect and render one local neuroimaging file; `--mode qc` auto-routes BOLD/DWI/anatomical/surface outputs |
+| `qortex visual-audit` | Build a manifest-aware local visual audit report with completeness and missing-file paths |
+| `qortex visualize-openneuro` | Download selected OpenNeuro files and render a preview/audit through the shared selector |
+| `qortex fmri-qc` | Generate a BOLD QC report with tSNR, stability, events, and confounds |
+| `qortex dwi-qc` | Generate a DWI QC report with b0/high-b views, shell counts, and gradient sphere |
+| `qortex compare-masks` | Compare prediction and ground-truth masks with TP/FP/FN overlay and Dice metrics |
+| `qortex artifact-visualize` | Inspect converted artifact samples, split audits, and split comparisons |
 | `qortex cache` | Inspect and manage local cache/registry state |
 | `qortex login` | Save or remove an OpenNeuro API token |
 | `qortex catalog-refresh` | Refresh the local OpenNeuro catalog |

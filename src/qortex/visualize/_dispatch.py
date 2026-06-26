@@ -24,7 +24,7 @@ from qortex.visualize._asset import (
     INTENT_FIELDMAP, INTENT_LABELMAP, INTENT_MASK, INTENT_PET,
     INTENT_RAW_SIGNAL, INTENT_SERIES_BROWSER, INTENT_STAT_MAP,
     INTENT_SURFACE, INTENT_UNKNOWN,
-    MODE_INTERACTIVE, MODE_STATIC, MODE_THUMBNAIL,
+    MODE_INTERACTIVE, MODE_STATIC, MODE_SUMMARY, MODE_THUMBNAIL,
 )
 
 log = logging.getLogger(__name__)
@@ -149,6 +149,15 @@ def _inspect_nifti(path: Path) -> VisualAsset:
     try:
         import nibabel as nib
         img = nib.load(str(path))
+        if "cifti" in img.__class__.__name__.lower():
+            asset.family = "cifti"
+            asset.intent = INTENT_SURFACE
+            asset.modality = "surface"
+            asset.shape = tuple(int(s) for s in img.shape)
+            asset.ndim = len(asset.shape)
+            asset.dtype = str(img.get_data_dtype())
+            asset.recommended_view = MODE_STATIC
+            return asset
         hdr = img.header
         shape = tuple(int(s) for s in img.shape)
         asset.shape = shape
@@ -542,6 +551,8 @@ _MODE_ALIASES: dict[str, str] = {
     "png": MODE_THUMBNAIL,
     "thumb": MODE_THUMBNAIL,
     "static_png": MODE_STATIC,
+    "quality": "qc",
+    "quality_control": "qc",
 }
 
 
@@ -620,7 +631,24 @@ def render_asset(asset: VisualAsset, mode: str = "auto", **kwargs) -> VisualResu
 
     # Surface
     if asset.intent == INTENT_SURFACE:
-        return _render_summary_only(asset, plan, "Surface rendering requires a surface viewer")
+        try:
+            from qortex.visualize.surface import surface_summary
+            fig = surface_summary(asset.path, title=kwargs.get("title", ""))
+            return VisualResult(
+                asset=asset,
+                plan=plan,
+                figures=[fig],
+                warnings=list(asset.warnings),
+                provenance={"renderer": "surface_summary", "path": str(asset.path)},
+            )
+        except Exception as exc:
+            result = _render_summary_only(asset, plan, f"Surface render failed: {exc}")
+            result.warnings.append(VisualWarning(
+                code="surface_render_failed",
+                message=f"Surface render failed: {exc}",
+                severity="warning",
+            ))
+            return result
 
     # Volumetric (NIfTI / DICOM as volume)
     return _render_volume(asset, plan, **kwargs)
@@ -636,10 +664,39 @@ def _render_volume(asset: VisualAsset, plan: VisualPlan, **kwargs) -> VisualResu
             colormap=plan.colormap,
         )
 
-        if plan.mode == "summary":
+        if plan.mode in {MODE_SUMMARY, "qc"}:
             if asset.intent == INTENT_BOLD and viewer._lazy is not None and len(viewer._lazy.shape) == 4:
                 fig = viewer.fmri_summary(title=kwargs.get("title", ""))
-                return VisualResult(asset=asset, plan=plan, figures=[fig], warnings=list(asset.warnings))
+                return VisualResult(
+                    asset=asset,
+                    plan=plan,
+                    figures=[fig],
+                    warnings=list(asset.warnings),
+                    provenance={"renderer": "VolumeViewer.fmri_summary", "path": str(asset.path)},
+                )
+            if asset.intent == INTENT_DWI:
+                from qortex.visualize.dwi import DWIViewer
+                fig = DWIViewer(
+                    asset.path,
+                    bval_path=kwargs.get("bval_path"),
+                    bvec_path=kwargs.get("bvec_path"),
+                ).dwi_summary(title=kwargs.get("title", ""))
+                return VisualResult(
+                    asset=asset,
+                    plan=plan,
+                    figures=[fig],
+                    warnings=list(asset.warnings),
+                    provenance={"renderer": "DWIViewer.dwi_summary", "path": str(asset.path)},
+                )
+            if plan.mode == "qc":
+                fig = viewer.ortho(title=kwargs.get("title", f"QC — {asset.path.name}"))
+                return VisualResult(
+                    asset=asset,
+                    plan=plan,
+                    figures=[fig],
+                    warnings=list(asset.warnings),
+                    provenance={"renderer": "VolumeViewer.ortho", "mode": "qc", "path": str(asset.path)},
+                )
             return _render_summary_only(asset, plan)
 
         elif plan.mode == "thumbnail":
@@ -672,6 +729,20 @@ def _render_volume(asset: VisualAsset, plan: VisualPlan, **kwargs) -> VisualResu
                                 warnings=list(asset.warnings))
 
         elif plan.mode == "static":
+            if asset.intent == INTENT_DWI:
+                from qortex.visualize.dwi import DWIViewer
+                fig = DWIViewer(
+                    asset.path,
+                    bval_path=kwargs.get("bval_path"),
+                    bvec_path=kwargs.get("bvec_path"),
+                ).dwi_summary(title=kwargs.get("title", ""))
+                return VisualResult(
+                    asset=asset,
+                    plan=plan,
+                    figures=[fig],
+                    warnings=list(asset.warnings),
+                    provenance={"renderer": "DWIViewer.dwi_summary", "path": str(asset.path)},
+                )
             # Ortho view via plotly (returns figures)
             try:
                 fig = viewer.ortho(title=kwargs.get("title", ""))

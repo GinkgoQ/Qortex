@@ -737,7 +737,7 @@ def catalog_profile(
 @app.command("visualize")
 def visualize_cmd(
     path: Path = typer.Argument(..., help="File or directory to visualize"),
-    mode: str = typer.Option("auto", "--mode", "-m", help="Rendering mode: auto|static|interactive|thumbnail|summary"),
+    mode: str = typer.Option("auto", "--mode", "-m", help="Rendering mode: auto|qc|static|interactive|thumbnail|summary"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Write HTML/PNG output to this path"),
     colormap: Optional[str] = typer.Option(None, "--colormap", help="Matplotlib colormap name (e.g. gray, hot, plasma)"),
     modality: Optional[str] = typer.Option(None, "--modality", help="Override modality: mri|ct|pet|fmri|eeg"),
@@ -852,6 +852,180 @@ def dicom_browser_cmd(
         typer.echo("Opened in browser.")
     else:
         typer.echo(f"HTML generated ({len(html)} chars). Use --output or --open to save/view.")
+
+
+# ── modality-specific QC ──────────────────────────────────────────────────────
+
+@app.command("fmri-qc")
+def fmri_qc_cmd(
+    bold: Path = typer.Argument(..., help="4D BOLD/fMRI NIfTI file"),
+    events: Optional[Path] = typer.Option(None, "--events", help="Optional BIDS events.tsv companion"),
+    confounds: Optional[Path] = typer.Option(None, "--confounds", help="Optional confounds TSV companion"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Write HTML QC report to this path"),
+    open_browser: bool = typer.Option(False, "--open", help="Open the result in the default browser"),
+) -> None:
+    """Generate a real fMRI QC summary: mean, variability, tSNR, drift, events/confounds."""
+    if not bold.exists():
+        typer.echo(f"BOLD file not found: {bold}", err=True)
+        raise typer.Exit(1)
+    for label, companion in (("events", events), ("confounds", confounds)):
+        if companion is not None and not companion.exists():
+            typer.echo(f"{label} file not found: {companion}", err=True)
+            raise typer.Exit(1)
+
+    try:
+        from qortex.visualize.fmri import fmri_summary
+    except ImportError as exc:
+        typer.echo(f"fMRI QC dependencies not installed: {exc}\nInstall: pip install qortex[visual]", err=True)
+        raise typer.Exit(1)
+
+    try:
+        fig = fmri_summary(
+            bold,
+            events_path=events,
+            confounds_path=confounds,
+            title=f"fMRI QC — {bold.name}",
+        )
+    except Exception as exc:
+        typer.echo(f"fMRI QC failed: {exc}", err=True)
+        raise typer.Exit(1)
+
+    if output:
+        _write_visual_output(fig, output)
+        typer.echo(f"fMRI QC HTML saved to {output}")
+    elif open_browser:
+        _show_visual_output(fig)
+        typer.echo("Opened in browser.")
+    else:
+        typer.echo("fMRI QC rendered. Use --output FILE.html or --open to view.")
+
+
+@app.command("dwi-qc")
+def dwi_qc_cmd(
+    dwi: Path = typer.Argument(..., help="4D DWI NIfTI file"),
+    bval: Optional[Path] = typer.Option(None, "--bval", help="BIDS .bval gradient table"),
+    bvec: Optional[Path] = typer.Option(None, "--bvec", help="BIDS .bvec gradient table"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Write HTML QC report to this path"),
+    open_browser: bool = typer.Option(False, "--open", help="Open the result in the default browser"),
+) -> None:
+    """Generate a DWI QC summary: b0/high-b anatomy, shells, and gradient sphere."""
+    if not dwi.exists():
+        typer.echo(f"DWI file not found: {dwi}", err=True)
+        raise typer.Exit(1)
+    for label, companion in (("bval", bval), ("bvec", bvec)):
+        if companion is not None and not companion.exists():
+            typer.echo(f"{label} file not found: {companion}", err=True)
+            raise typer.Exit(1)
+
+    try:
+        from qortex.visualize.dwi import dwi_summary
+    except ImportError as exc:
+        typer.echo(f"DWI QC dependencies not installed: {exc}\nInstall: pip install qortex[visual]", err=True)
+        raise typer.Exit(1)
+
+    try:
+        fig = dwi_summary(dwi, bval_path=bval, bvec_path=bvec, title=f"DWI QC — {dwi.name}")
+    except Exception as exc:
+        typer.echo(f"DWI QC failed: {exc}", err=True)
+        raise typer.Exit(1)
+
+    if output:
+        _write_visual_output(fig, output)
+        typer.echo(f"DWI QC HTML saved to {output}")
+    elif open_browser:
+        _show_visual_output(fig)
+        typer.echo("Opened in browser.")
+    else:
+        typer.echo("DWI QC rendered. Use --output FILE.html or --open to view.")
+
+
+@app.command("artifact-visualize")
+def artifact_visualize_cmd(
+    artifact: Path = typer.Argument(..., help="Qortex artifact directory containing artifact_manifest.json"),
+    split: str = typer.Option("train", "--split", help="Artifact split to inspect, or 'all'"),
+    n: int = typer.Option(16, "--n", help="Number of samples for audit views"),
+    sample_index: Optional[int] = typer.Option(None, "--sample-index", help="Render exactly one sample index"),
+    compare_splits: bool = typer.Option(False, "--compare-splits", help="Render a train/val/test split comparison"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Write HTML output to this path"),
+    open_browser: bool = typer.Option(False, "--open", help="Open the result in the default browser"),
+) -> None:
+    """Visualize converted artifact samples and split-level QC reports."""
+    if not artifact.exists():
+        typer.echo(f"Artifact path not found: {artifact}", err=True)
+        raise typer.Exit(1)
+
+    try:
+        from qortex.artifact import Artifact
+    except ImportError as exc:
+        typer.echo(f"Artifact visualization dependencies not installed: {exc}", err=True)
+        raise typer.Exit(1)
+
+    try:
+        art = Artifact.open(artifact)
+        if sample_index is not None:
+            rendered = art.visualize_sample(sample_index, split=None if split == "all" else split, mode="static")
+        elif compare_splits:
+            rendered = art.compare_splits(n=n)
+        else:
+            rendered = art.visual_audit(split=split, n=n)
+    except Exception as exc:
+        typer.echo(f"Artifact visualization failed: {exc}", err=True)
+        raise typer.Exit(1)
+
+    if output:
+        _write_visual_output(rendered, output)
+        typer.echo(f"Artifact visualization saved to {output}")
+    elif open_browser:
+        _show_visual_output(rendered)
+        typer.echo("Opened in browser.")
+    else:
+        typer.echo("Artifact visualization rendered. Use --output FILE.html or --open to view.")
+
+
+@app.command("compare-masks")
+def compare_masks_cmd(
+    base: Path = typer.Argument(..., help="Base anatomical image"),
+    prediction: Path = typer.Argument(..., help="Predicted segmentation mask"),
+    ground_truth: Path = typer.Argument(..., help="Ground-truth segmentation mask"),
+    exact: bool = typer.Option(False, "--exact", help="Compute exact full-volume metrics"),
+    per_slice: bool = typer.Option(False, "--per-slice", help="Include per-slice Dice metrics in provenance"),
+    resample: bool = typer.Option(False, "--resample", help="Resample masks to base geometry if needed"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Write HTML comparison to this path"),
+    open_browser: bool = typer.Option(False, "--open", help="Open the result in the default browser"),
+) -> None:
+    """Compare predicted and ground-truth masks with TP/FP/FN overlays and Dice metrics."""
+    for p in (base, prediction, ground_truth):
+        if not p.exists():
+            typer.echo(f"File not found: {p}", err=True)
+            raise typer.Exit(1)
+
+    try:
+        from qortex.visualize import compare_masks
+    except ImportError as exc:
+        typer.echo(f"Segmentation comparison dependencies not installed: {exc}\nInstall: pip install qortex[visual]", err=True)
+        raise typer.Exit(1)
+
+    try:
+        rendered = compare_masks(
+            base,
+            prediction,
+            ground_truth,
+            exact=exact,
+            per_slice=per_slice,
+            resample=resample,
+        )
+    except Exception as exc:
+        typer.echo(f"Mask comparison failed: {exc}", err=True)
+        raise typer.Exit(1)
+
+    if output:
+        _write_visual_output(rendered, output)
+        typer.echo(f"Mask comparison saved to {output}")
+    elif open_browser:
+        _show_visual_output(rendered)
+        typer.echo("Opened in browser.")
+    else:
+        typer.echo("Mask comparison rendered. Use --output FILE.html or --open to view.")
 
 
 # ── visualize-overlay ─────────────────────────────────────────────────────────
@@ -1052,7 +1226,7 @@ def visualize_openneuro_cmd(
       qortex visualize-openneuro ds004130 --datatype func --suffix bold -o bold.html
     """
     from qortex import Dataset
-    from qortex.visualize._audit import run_visual_audit, select_visual_files
+    from qortex.visualize._audit import run_visual_audit, select_visual_file_records
 
     sub_list = [subject] if subject else None
     suf_list = [suffix] if suffix else None
@@ -1067,8 +1241,8 @@ def visualize_openneuro_cmd(
         typer.echo(f"Could not fetch manifest: {exc}", err=True)
         raise typer.Exit(1)
 
-    selected = select_visual_files(
-        manifest.files,
+    selected = select_visual_file_records(
+        manifest,
         subjects=sub_list,
         suffixes=suf_list,
         datatypes=dt_list,
@@ -1183,7 +1357,8 @@ def _render_modality_specific(asset, *, mode: str):
 
 
 def _write_visual_output(rendered, output: Path) -> None:
-    if hasattr(rendered, "to_html"):
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if hasattr(rendered, "to_html") and not hasattr(rendered, "data"):
         rendered.to_html(output)
         return
     if isinstance(rendered, str):

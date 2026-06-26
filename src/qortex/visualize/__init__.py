@@ -45,6 +45,10 @@ Quick usage
     result.show()                   # open in browser
     result.to_html("output.html")   # write file + JSON sidecar
 
+    # Quality-control dispatch
+    qc = visualize.visualize("sub-01_task-rest_bold.nii.gz", mode="qc")
+    qc.to_html("bold_qc.html")
+
     # Inspect only (no rendering, very fast)
     asset = visualize.inspect("sub-01_task-rest_bold.nii.gz")
     print(asset.summary())
@@ -90,7 +94,7 @@ __all__ = [
     # ML overlay comparison
     "overlay_contour", "overlay_edges", "compare_masks",
     # fMRI / DWI
-    "fmri_summary", "DWIViewer", "dwi_summary",
+    "fmri_summary", "DWIViewer", "dwi_summary", "surface_summary",
     # Explicit viewers
     "volume", "timeseries",
     # Viewer classes (lazy)
@@ -102,7 +106,7 @@ __all__ = [
     "list_dicom_series", "load_dicom_series", "DicomSeriesBrowser",
     # Audit helpers
     "VisualAuditReport", "run_visual_audit", "run_visual_audit_with_manifest",
-    "select_visual_files",
+    "select_visual_files", "select_visual_file_records",
 ]
 
 # ── Lazy imports — keep module load time minimal ──────────────────────────────
@@ -165,6 +169,10 @@ def __getattr__(name: str):
     if name == "DWIViewer":
         return _dwi_cls()
 
+    if name == "surface_summary":
+        from qortex.visualize.surface import surface_summary
+        return surface_summary
+
     # DICOM helpers
     if name in {"list_dicom_series", "load_dicom_series", "DicomSeriesBrowser"}:
         from qortex.visualize import dicom as _d
@@ -175,6 +183,7 @@ def __getattr__(name: str):
         "run_visual_audit",
         "run_visual_audit_with_manifest",
         "select_visual_files",
+        "select_visual_file_records",
     }:
         from qortex.visualize import _audit
         return getattr(_audit, name)
@@ -360,6 +369,12 @@ def fmri_summary(bold_path: Any, **kwargs) -> Any:
     """fMRI QC summary: mean EPI, std, tSNR, global signal, framewise map."""
     from qortex.visualize.fmri import fmri_summary as _fn
     return _fn(bold_path, **kwargs)
+
+
+def surface_summary(path: Any, **kwargs) -> Any:
+    """Surface QC summary for GIFTI meshes and CIFTI dense matrices."""
+    from qortex.visualize.surface import surface_summary as _fn
+    return _fn(path, **kwargs)
 
 
 # ── Explicit viewers ──────────────────────────────────────────────────────────

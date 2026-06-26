@@ -37,6 +37,11 @@ Test catalogue
 30.  compare_masks exact/per-slice metrics — evaluation-grade provenance
 31.  Artifact visualization — schema-aware lazy Parquet sample reads
 32.  VisualAuditReport UX — action items, Markdown, filters, ARIA labels
+33.  Universal mode="qc" — BOLD/DWI/anatomical dispatch through public API
+34.  Dedicated QC CLI — fmri-qc and dwi-qc write real HTML outputs
+35.  Shared selector alias — select_visual_file_records accepts manifest object
+36.  Segmentation CLI — compare-masks writes a TP/FP/FN HTML report
+37.  Surface summary — GIFTI mesh renders as a real Plotly surface figure
 
 All tests use synthetic in-memory or temp-file data.
 nibabel, plotly, and MNE are each skipped gracefully when absent.
@@ -1053,14 +1058,17 @@ def test_20_audit_expected_vs_local():
     require(report.n_expected == 3, f"n_expected should be 3, got {report.n_expected}")
     require(report.n_local_present == 1, f"n_local_present should be 1, got {report.n_local_present}")
     require(report.n_missing_local == 2, f"n_missing_local should be 2, got {report.n_missing_local}")
+    require(len(report.missing_local_files) == 2, "Missing local file list should contain concrete paths")
 
     html = report.to_html()
     require("Expected" in html or "expected" in html, "HTML should show expected count")
     require("Missing" in html or "missing" in html, "HTML should show missing count")
+    require("sub-02_T1w.nii.gz" in html, "HTML should include concrete missing file path")
 
     print_kv("n_expected", report.n_expected)
     print_kv("n_local_present", report.n_local_present)
     print_kv("n_missing_local", report.n_missing_local)
+    print_kv("missing_paths", [item["path"] for item in report.missing_local_files])
 
 
 def test_21_dwi_contact_sheet():
@@ -1451,6 +1459,158 @@ def test_32_visual_audit_accessibility_workflow():
     print_kv("markdown_lines", len(markdown.splitlines()))
 
 
+def test_33_universal_qc_dispatch():
+    banner('33 — Universal visualize(mode="qc"): BOLD/DWI/anatomical dispatch')
+    nib = _try_import("nibabel")
+    plotly = _try_import("plotly")
+    if nib is None or plotly is None:
+        print("  SKIP: nibabel or plotly not installed")
+        return
+
+    from qortex import visualize
+    from qortex.visualize._asset import VisualResult
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        bold = _write_synthetic_nifti(root / "sub-01_task-rest_bold.nii.gz", (18, 18, 8, 10), modality="bold")
+        dwi = _write_synthetic_nifti(root / "sub-01_dwi.nii.gz", (18, 18, 8, 5), modality="dwi")
+        _write_bval(root / "sub-01_dwi.bval", [0, 1000, 1000, 2000, 2000])
+        _write_bvec(root / "sub-01_dwi.bvec", 5)
+        t1w = _write_synthetic_nifti(root / "sub-01_T1w.nii.gz", (18, 18, 8))
+
+        bold_result = visualize.visualize(bold, mode="qc")
+        dwi_result = visualize.visualize(dwi, mode="qc")
+        t1w_result = visualize.visualize(t1w, mode="qc")
+
+    for label, result in (("bold", bold_result), ("dwi", dwi_result), ("t1w", t1w_result)):
+        require_type(result, VisualResult, f"{label} QC result")
+        require(result.figures, f"{label} QC should return a figure")
+
+    require("fMRI QC" in (bold_result.figures[0].layout.title.text or ""), "BOLD QC did not use fMRI summary")
+    require("DWI QC" in (dwi_result.figures[0].layout.title.text or ""), "DWI QC did not use DWI summary")
+    require(t1w_result.provenance.get("mode") == "qc", "Anatomical QC did not use orthogonal QC path")
+    print_kv("bold_renderer", bold_result.provenance.get("renderer"))
+    print_kv("dwi_renderer", dwi_result.provenance.get("renderer"))
+    print_kv("t1w_renderer", t1w_result.provenance.get("renderer"))
+
+
+def test_34_dedicated_qc_cli_outputs():
+    banner("34 — Dedicated QC CLI: fmri-qc and dwi-qc write HTML")
+    nib = _try_import("nibabel")
+    plotly = _try_import("plotly")
+    typer = _try_import("typer")
+    if nib is None or plotly is None or typer is None:
+        print("  SKIP: nibabel, plotly, or typer not installed")
+        return
+
+    from typer.testing import CliRunner
+    from qortex.cli.app import app
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        bold = _write_synthetic_nifti(root / "sub-01_task-rest_bold.nii.gz", (18, 18, 8, 10), modality="bold")
+        dwi = _write_synthetic_nifti(root / "sub-01_dwi.nii.gz", (18, 18, 8, 5), modality="dwi")
+        bval = _write_bval(root / "sub-01_dwi.bval", [0, 1000, 1000, 2000, 2000])
+        bvec = _write_bvec(root / "sub-01_dwi.bvec", 5)
+        fmri_html = root / "fmri_qc.html"
+        dwi_html = root / "dwi_qc.html"
+
+        runner = CliRunner()
+        fmri_res = runner.invoke(app, ["fmri-qc", str(bold), "-o", str(fmri_html)])
+        dwi_res = runner.invoke(app, ["dwi-qc", str(dwi), "--bval", str(bval), "--bvec", str(bvec), "-o", str(dwi_html)])
+
+        require(fmri_res.exit_code == 0, f"fmri-qc failed: {fmri_res.output}")
+        require(dwi_res.exit_code == 0, f"dwi-qc failed: {dwi_res.output}")
+        require(fmri_html.exists() and "fMRI QC" in fmri_html.read_text(encoding="utf-8"), "fMRI HTML missing QC title")
+        require(dwi_html.exists() and "DWI QC" in dwi_html.read_text(encoding="utf-8"), "DWI HTML missing QC title")
+
+    print_kv("fmri_output", fmri_html.name)
+    print_kv("dwi_output", dwi_html.name)
+
+
+def test_35_select_visual_file_records_manifest_alias():
+    banner("35 — select_visual_file_records: manifest-object structured selection")
+    from types import SimpleNamespace
+    from qortex.visualize._audit import select_visual_file_records
+
+    manifest = SimpleNamespace(files=[
+        SimpleNamespace(path="sub-01/anat/sub-01_T1w.nii.gz", subject="01", datatype="anat", suffix="T1w", size=1_000),
+        SimpleNamespace(path="sub-01/func/sub-01_task-rest_bold.nii.gz", subject="01", datatype="func", suffix="bold", size=2_000),
+        SimpleNamespace(path="sub-02/dwi/sub-02_dwi.nii.gz", subject="02", datatype="dwi", suffix="dwi", size=900_000_000),
+    ])
+
+    anat = select_visual_file_records(manifest, subjects=["01"], datatypes=["anat"])
+    small = select_visual_file_records(manifest, max_size_mb=10)
+    dwi = select_visual_file_records(manifest, suffixes=["dwi"], n_per_suffix=1)
+
+    require([fr.path for fr in anat] == ["sub-01/anat/sub-01_T1w.nii.gz"], f"Wrong anat selection: {anat}")
+    require(len(small) == 2, f"Expected two small files, got {len(small)}")
+    require(len(dwi) == 1 and dwi[0].suffix == "dwi", "DWI selection failed")
+    print_kv("anat_selected", [fr.path for fr in anat])
+    print_kv("small_count", len(small))
+    print_kv("dwi_selected", [fr.path for fr in dwi])
+
+
+def test_36_compare_masks_cli_output():
+    banner("36 — compare-masks CLI: segmentation TP/FP/FN HTML output")
+    nib = _try_import("nibabel")
+    typer = _try_import("typer")
+    if nib is None or typer is None:
+        print("  SKIP: nibabel or typer not installed")
+        return
+
+    from typer.testing import CliRunner
+    from qortex.cli.app import app
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        base = _write_synthetic_nifti(root / "sub-01_T1w.nii.gz", (18, 18, 8))
+        pred = _write_synthetic_nifti(root / "pred_mask.nii.gz", (18, 18, 8))
+        truth = _write_synthetic_nifti(root / "truth_mask.nii.gz", (18, 18, 8))
+        out = root / "mask_compare.html"
+
+        runner = CliRunner()
+        res = runner.invoke(app, ["compare-masks", str(base), str(pred), str(truth), "--exact", "-o", str(out)])
+        require(res.exit_code == 0, f"compare-masks failed: {res.output}")
+        html = out.read_text(encoding="utf-8")
+        require("Dice" in html or "dice" in html, "Mask comparison HTML missing Dice metrics")
+        require("False Positive" in html or "FP" in html, "Mask comparison HTML missing FP label")
+
+    print_kv("mask_compare_output", out.name)
+
+
+def test_37_surface_summary_gifti():
+    banner("37 — Surface summary: GIFTI mesh renders as Plotly surface")
+    nib = _try_import("nibabel")
+    plotly = _try_import("plotly")
+    if nib is None or plotly is None:
+        print("  SKIP: nibabel or plotly not installed")
+        return
+
+    import nibabel as nib
+    from nibabel.gifti import GiftiDataArray, GiftiImage
+    from qortex import visualize
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "sub-01_hemi-L_pial.surf.gii"
+        coords = np.array(
+            [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]],
+            dtype=np.float32,
+        )
+        faces = np.array([[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]], dtype=np.int32)
+        img = GiftiImage(darrays=[GiftiDataArray(coords), GiftiDataArray(faces)])
+        nib.save(img, str(path))
+
+        asset = visualize.inspect(path)
+        result = visualize.visualize(path, mode="qc")
+
+    require(asset.intent == "surface", f"Expected surface intent, got {asset.intent}")
+    require(result.figures, "Surface QC should return a figure")
+    require(len(result.figures[0].data) >= 1, "Surface figure should contain mesh trace")
+    print_kv("surface_family", asset.family)
+    print_kv("surface_renderer", result.provenance.get("renderer"))
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -1486,6 +1646,11 @@ def main() -> None:
     test_30_compare_masks_exact_metrics()
     test_31_artifact_lazy_schema_visualization()
     test_32_visual_audit_accessibility_workflow()
+    test_33_universal_qc_dispatch()
+    test_34_dedicated_qc_cli_outputs()
+    test_35_select_visual_file_records_manifest_alias()
+    test_36_compare_masks_cli_output()
+    test_37_surface_summary_gifti()
     passed("project_20_visualization_advanced")
 
 

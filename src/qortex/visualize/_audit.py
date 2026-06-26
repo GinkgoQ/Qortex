@@ -85,6 +85,7 @@ class VisualAuditReport:
     n_expected: int | None = None
     n_local_present: int | None = None
     n_missing_local: int | None = None
+    missing_local_files: list[dict[str, Any]] = field(default_factory=list)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -361,6 +362,13 @@ class VisualAuditReport:
             lines.extend(["", "## Failed Files", ""])
             for entry in self.failed_files:
                 lines.append(f"- `{entry.path_label}`: {entry.error}")
+        if self.missing_local_files:
+            lines.extend(["", "## Missing Local Files", ""])
+            for item in self.missing_local_files[:50]:
+                size = item.get("size_bytes", 0) or 0
+                lines.append(f"- `{item.get('path')}` ({size} bytes)")
+            if len(self.missing_local_files) > 50:
+                lines.append(f"- ... {len(self.missing_local_files) - 50} more")
         text = "\n".join(lines) + "\n"
         if path is not None:
             out = Path(path)
@@ -393,6 +401,7 @@ class VisualAuditReport:
             d["n_expected"] = self.n_expected
             d["n_local_present"] = self.n_local_present
             d["n_missing_local"] = self.n_missing_local
+            d["missing_local_files"] = self.missing_local_files
         d.update({
             "coverage_matrix": self.coverage_matrix(),
             "per_suffix_counts": self.per_suffix_counts,
@@ -711,6 +720,28 @@ def _build_completeness_html(report: "VisualAuditReport") -> str:
     n_miss = report.n_missing_local or 0
     pct = int(100 * n_pres / max(1, n_exp))
     bar_color = "#6f6" if pct >= 90 else "#fa8" if pct >= 50 else "#f64"
+    missing_html = ""
+    if report.missing_local_files:
+        rows = "".join(
+            f'<tr><td>{_esc(_shorten(str(item.get("path", "")), max_parts=4))}</td>'
+            f'<td>{_esc(item.get("subject") or "")}</td>'
+            f'<td>{_esc(item.get("suffix") or "")}</td>'
+            f'<td class="num">{int(item.get("size_bytes", 0) or 0)}</td></tr>'
+            for item in report.missing_local_files[:25]
+        )
+        more = ""
+        if len(report.missing_local_files) > 25:
+            more = f'<p class="missing-more">Showing 25 of {len(report.missing_local_files)} missing files.</p>'
+        missing_html = f"""
+  <details class="missing-files">
+    <summary>Missing local file paths</summary>
+    <table>
+      <caption>Manifest files absent from the local dataset root</caption>
+      <thead><tr><th scope="col">Path</th><th scope="col">Subject</th><th scope="col">Suffix</th><th scope="col">Bytes</th></tr></thead>
+      <tbody>{rows}</tbody>
+    </table>
+    {more}
+  </details>"""
     return f"""
 <section class="completeness" aria-labelledby="completeness-title">
   <h3 id="completeness-title">Manifest Completeness</h3>
@@ -725,6 +756,7 @@ def _build_completeness_html(report: "VisualAuditReport") -> str:
        aria-valuemin="0" aria-valuemax="100" aria-valuenow="{pct}">
     <div style="background:{bar_color};width:{pct}%"></div>
   </div>
+  {missing_html}
 </section>"""
 
 
@@ -809,6 +841,9 @@ def _build_html(report: "VisualAuditReport") -> str:
   .good {{ color:var(--good) !important; }} .bad {{ color:var(--bad) !important; }}
   .progress {{ margin-top:10px; height:6px; background:#242424; border-radius:3px; max-width:420px; overflow:hidden; }}
   .progress div {{ height:6px; border-radius:3px; }}
+  details.missing-files {{ margin-top:12px; color:#aaa; }}
+  details.missing-files summary {{ cursor:pointer; color:var(--warn); font-size:0.86rem; }}
+  .missing-more {{ margin:8px 0 0; color:#777; font-size:0.8rem; }}
   .filters {{ margin:0 0 20px; align-items:center; }}
   .filters label {{ display:flex; flex-direction:column; gap:4px; color:#777; font-size:0.78rem; }}
   .filters input, .filters select {{ background:#181818; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:8px 10px; min-width:160px; }}
@@ -1098,6 +1133,32 @@ def select_visual_files(
     return out
 
 
+def select_visual_file_records(
+    manifest: Any,
+    *,
+    subjects: list[str] | None = None,
+    suffixes: list[str] | None = None,
+    datatypes: list[str] | None = None,
+    max_size_mb: float | None = None,
+    n_per_suffix: int | None = None,
+) -> list:
+    """Select manifest file records through the shared structured audit filter.
+
+    Accepts either a manifest-like object with a ``.files`` attribute or a raw
+    file-record iterable.  This is the canonical helper for Dataset-level visual
+    selection, OpenNeuro preview, and CLI audit commands.
+    """
+    manifest_files = getattr(manifest, "files", manifest)
+    return select_visual_files(
+        list(manifest_files),
+        subjects=subjects,
+        suffixes=suffixes,
+        datatypes=datatypes,
+        max_size_mb=max_size_mb,
+        n_per_suffix=n_per_suffix,
+    )
+
+
 # ── Manifest-aware audit runner ───────────────────────────────────────────────
 
 def run_visual_audit_with_manifest(
@@ -1140,7 +1201,7 @@ def run_visual_audit_with_manifest(
         Forwarded to ``select_visual_files()`` for pre-filtering.
     """
     # Pre-filter with the shared helper
-    filtered = select_visual_files(
+    filtered = select_visual_file_records(
         manifest_files,
         subjects=subjects,
         suffixes=suffixes,
@@ -1155,6 +1216,7 @@ def run_visual_audit_with_manifest(
     n_local_present = 0
     n_missing_local = 0
     local_files: list = []
+    missing_local_files: list[dict[str, Any]] = []
     for fr in filtered:
         rel = getattr(fr, "path", str(fr))
         if (local_root / rel).exists():
@@ -1162,6 +1224,13 @@ def run_visual_audit_with_manifest(
             local_files.append(fr)
         else:
             n_missing_local += 1
+            missing_local_files.append({
+                "path": rel,
+                "subject": getattr(fr, "subject", None) or _label_subject(rel),
+                "suffix": getattr(fr, "suffix", None) or _label_suffix(rel),
+                "datatype": getattr(fr, "datatype", None) or _label_datatype(rel),
+                "size_bytes": int(getattr(fr, "size", 0) or 0),
+            })
 
     # Run the core audit on locally-present files only
     report = run_visual_audit(dataset_id, local_files, local_root, max_files=max_files)
@@ -1170,5 +1239,6 @@ def run_visual_audit_with_manifest(
     report.n_expected = n_expected
     report.n_local_present = n_local_present
     report.n_missing_local = n_missing_local
+    report.missing_local_files = missing_local_files
 
     return report
