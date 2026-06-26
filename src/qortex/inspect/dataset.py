@@ -317,8 +317,10 @@ class DatasetInspector:
         self,
         dataset_id: str,
         tag: str | None = None,
+        *,
+        level: str = "manifest",
     ) -> DatasetProfile:
-        """Fetch all metadata and return a DatasetProfile.
+        """Fetch metadata and return a DatasetProfile.
 
         Parameters
         ----------
@@ -326,15 +328,35 @@ class DatasetInspector:
             OpenNeuro dataset accession number (e.g. ``"ds000117"``).
         tag:
             Snapshot tag.  ``None`` → latest published snapshot.
+        level:
+            Inspection depth:
+
+            ``"summary"``
+                API-only. Fetches subjects, sessions, tasks, modalities, size,
+                demographics, and engagement from the OpenNeuro API without
+                requesting the recursive file tree. Completes in <2 s and
+                produces a ``DatasetProfile`` with ``manifest=None``.
+            ``"manifest"`` *(default)*
+                Full recursive file tree + deep in-memory analysis. Produces
+                a complete ``DatasetProfile`` including companion coverage,
+                sidecar coverage, modality breakdown, and ML readiness score.
+            ``"deep"``
+                Manifest level plus concurrent remote events and sidecar
+                analysis (``LabelLandscape`` + ``SignalBudget``). Stores
+                results in ``profile.rich_info``. Takes 10-60 s depending
+                on dataset size.
 
         Returns
         -------
         DatasetProfile
-            Fully populated, no download performed.
+            Populated to the depth requested by ``level``.
         """
-        log.info("Inspecting dataset %s (tag=%s)", dataset_id, tag or "latest")
+        if level not in ("summary", "manifest", "deep"):
+            raise ValueError(f"level must be 'summary', 'manifest', or 'deep'; got {level!r}")
 
-        # ── 1. Fetch dataset-level metadata (rich path first) ─────────────
+        log.info("Inspecting dataset %s (tag=%s, level=%s)", dataset_id, tag or "latest", level)
+
+        # ── Always: rich API metadata ─────────────────────────────────────
         rich_info = None
         try:
             rich_info = self._client.get_dataset_rich(dataset_id)
@@ -343,23 +365,51 @@ class DatasetInspector:
         except Exception as exc:
             log.debug("get_dataset_rich failed (%s), falling back to get_dataset", exc)
             dataset_ref = self._client.get_dataset(dataset_id)
-            log.debug("Got dataset ref (fallback): %s", dataset_ref.id)
 
-        # ── 2. Fetch snapshot list ────────────────────────────────────────
+        # ── "summary" level: return early without file tree ───────────────
+        if level == "summary":
+            snap_summary = None
+            try:
+                snap_tag = tag or (rich_info.latest_snapshot_summary.tag if rich_info else None)
+                if snap_tag is None:
+                    snap_tag = self._client.get_latest_snapshot(dataset_id).tag
+                snap_summary = self._client.get_snapshot_summary(dataset_id, snap_tag)
+            except Exception as exc:
+                log.debug("get_snapshot_summary failed: %s", exc)
+
+            snap_ref = SnapshotRef(
+                tag=snap_summary.tag if snap_summary else (tag or "latest"),
+                hexsha=snap_summary.hexsha if snap_summary else None,
+            )
+            profile = DatasetProfile(
+                dataset_ref=dataset_ref,
+                snapshot=snap_ref,
+                all_snapshots=[],
+                manifest=None,   # type: ignore[arg-type]  # summary level: no manifest
+                rich_info=rich_info,
+            )
+            # Populate fields from API summary
+            if snap_summary:
+                profile.n_subjects = snap_summary.n_subjects
+                profile.n_sessions = snap_summary.n_sessions
+                profile.n_tasks = snap_summary.n_tasks
+                profile.subjects = list(snap_summary.subjects)
+                profile.sessions = list(snap_summary.sessions)
+                profile.tasks = list(snap_summary.tasks)
+                profile.total_size_gb = snap_summary.total_size_gb
+            if rich_info:
+                profile.recommendations = _summary_level_recommendations(profile, rich_info)
+            return profile
+
+        # ── "manifest" and "deep" levels: fetch file tree ─────────────────
         all_snapshots = self._client.get_snapshots(dataset_id)
-        log.debug("Got %d snapshots", len(all_snapshots))
-
-        # ── 3. Fetch full recursive file tree ────────────────────────────
         snapshot_ref, raw_files = self._client.get_files(dataset_id, tag=tag)
         log.info(
             "Fetched %d file records for %s snapshot=%s",
             len(raw_files), dataset_id, snapshot_ref.tag,
         )
 
-        # ── 4. Build typed Manifest ───────────────────────────────────────
         manifest = self._builder.build(dataset_id, snapshot_ref, raw_files)
-
-        # ── 5. Deep analysis ─────────────────────────────────────────────
         profile = DatasetProfile(
             dataset_ref=dataset_ref,
             snapshot=snapshot_ref,
@@ -368,6 +418,20 @@ class DatasetInspector:
             rich_info=rich_info,
         )
         _analyse(profile)
+
+        # ── "deep" level: remote events + acquisition analysis ────────────
+        if level == "deep":
+            try:
+                from qortex.client.remote import RemoteFileGateway
+                from qortex.inspect.label_landscape import LabelLandscapeAnalyzer
+                from qortex.inspect.signal_budget import SignalBudgetEstimator
+                gateway = RemoteFileGateway(config=self._cfg)
+                profile._label_landscape = LabelLandscapeAnalyzer(gateway).analyze(manifest)
+                profile._signal_budget = SignalBudgetEstimator(gateway).estimate(manifest)
+                log.info("Deep inspection complete for %s", dataset_id)
+            except Exception as exc:
+                log.warning("Deep analysis failed for %s: %s", dataset_id, exc)
+
         return profile
 
     def compare(
@@ -427,6 +491,19 @@ class DatasetInspector:
 
     def __exit__(self, *_) -> None:
         self.close()
+
+
+def _summary_level_recommendations(profile: DatasetProfile, rich_info: Any) -> list[str]:
+    """Quick recommendations from API-level info (no manifest needed)."""
+    recs = []
+    lic = (profile.dataset_ref.license or "").lower()
+    if lic and lic not in {"cc0", "cc0-1.0", "pddl", "cc-by", "cc-by-4.0", "cc-by-3.0"}:
+        recs.append(f"License '{profile.dataset_ref.license}' may restrict redistribution.")
+    if profile.n_subjects < 10:
+        recs.append(f"Only {profile.n_subjects} subjects — likely too small for most ML tasks.")
+    if rich_info and not rich_info.tasks:
+        recs.append("No tasks listed in API metadata — check if dataset has event files.")
+    return recs
 
 
 # ── Analysis engine ───────────────────────────────────────────────────────────

@@ -155,10 +155,7 @@ class ManifestGraph:
         return file.datatype is not None
 
     def _top_level(self, filename: str) -> FileRecord | None:
-        for file in self.files:
-            if file.filename == filename and "/" not in file.path:
-                return file
-        return None
+        return self.by_path.get(filename)
 
     def _best_role(
         self,

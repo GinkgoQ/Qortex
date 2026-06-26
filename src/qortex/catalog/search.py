@@ -204,8 +204,8 @@ class DatasetQuery:
             index.close()
 
     def count(self) -> int:
-        """Return the total number of matching rows without fetching data."""
-        return len(self.fetch_page().results)
+        """Return the total number of matching rows (not just the current page)."""
+        return self.fetch_page().total
 
     def as_dataframe(self):
         """Return results as a Polars DataFrame."""

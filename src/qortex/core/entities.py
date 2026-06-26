@@ -12,7 +12,7 @@ from html import escape
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 
 def _utcnow() -> datetime:
@@ -271,6 +271,17 @@ class Manifest(_Mutable):
     summary: ManifestSummary = Field(default_factory=ManifestSummary)
     built_at: datetime = Field(default_factory=_utcnow)
 
+    # ── Internal index (populated lazily on first get_file call) ─────────
+    _path_index: dict[str, FileRecord] | None = PrivateAttr(default=None)
+
+    def _ensure_index(self) -> None:
+        if self._path_index is None:
+            self._path_index = {f.path: f for f in self.files}
+
+    def rebuild_index(self) -> None:
+        """Rebuild the path index. Call after mutating ``self.files``."""
+        self._path_index = {f.path: f for f in self.files}
+
     # ── Convenience queries ───────────────────────────────────────────────
 
     def filter(
@@ -283,33 +294,99 @@ class Manifest(_Mutable):
         datatypes: list[str] | None = None,
         extensions: list[str] | None = None,
         exclude_dirs: bool = True,
+        include_shared: bool = True,
     ) -> list[FileRecord]:
+        """Return files matching the given entity filters.
+
+        Parameters
+        ----------
+        subjects / sessions / tasks:
+            Entity value lists. When ``include_shared=True`` (default), files
+            without that entity (e.g. root ``participants.tsv``) are also
+            included — they are shared across all subjects/sessions/tasks.
+            Set ``include_shared=False`` to get strictly per-entity files.
+        modalities / datatypes / extensions:
+            Strict filters — no null-passthrough. Files without a matching
+            modality, datatype, or extension are excluded.
+        exclude_dirs:
+            Skip directory entries (default True).
+        include_shared:
+            When True, files whose entity is None pass through subject/session/
+            task filters (BIDS root files shared across entities). When False,
+            only files whose entity exactly matches the filter value are returned.
+        """
         result = self.files
         if exclude_dirs:
             result = [f for f in result if not f.is_dir]
         if subjects:
-            result = [f for f in result if f.subject in subjects or f.subject is None]
+            s = set(subjects)
+            if include_shared:
+                result = [f for f in result if f.subject in s or f.subject is None]
+            else:
+                result = [f for f in result if f.subject in s]
         if sessions:
-            result = [f for f in result if f.session in sessions or f.session is None]
+            s = set(sessions)
+            if include_shared:
+                result = [f for f in result if f.session in s or f.session is None]
+            else:
+                result = [f for f in result if f.session in s]
         if tasks:
-            result = [f for f in result if f.task in tasks or f.task is None]
+            s = set(tasks)
+            if include_shared:
+                result = [f for f in result if f.task in s or f.task is None]
+            else:
+                result = [f for f in result if f.task in s]
         if modalities:
-            result = [f for f in result if f.modality in modalities]
+            s = set(modalities)
+            result = [f for f in result if f.modality in s]
         if datatypes:
-            result = [f for f in result if f.datatype in datatypes]
+            s = set(datatypes)
+            result = [f for f in result if f.datatype in s]
         if extensions:
-            result = [f for f in result if f.extension in extensions]
+            s = set(extensions)
+            result = [f for f in result if f.extension in s]
         return result
 
     def get_file(self, path: str) -> FileRecord | None:
-        for f in self.files:
-            if f.path == path:
-                return f
-        return None
+        """Return the FileRecord for a BIDS-relative path, or None. O(1)."""
+        self._ensure_index()
+        return self._path_index.get(path)
+
+    def has_file(self, path: str) -> bool:
+        """Return True if the manifest contains this path. O(1)."""
+        self._ensure_index()
+        return path in self._path_index
 
     def estimate_size(self, files: list[FileRecord] | None = None) -> int:
+        """Return total bytes for the given files (or all manifest files).
+
+        Files with unknown size contribute 0. Use ``summary.total_size_known``
+        to detect whether the total is reliable.
+        """
         src = files if files is not None else self.files
         return sum(f.size or 0 for f in src)
+
+    def subjects_with_modality(self, modality: str) -> list[str]:
+        """Return sorted BIDS subject IDs (``sub-XX`` form) with this modality."""
+        return sorted({
+            f"sub-{f.subject}" for f in self.files
+            if f.modality == modality and f.subject is not None and not f.is_dir
+        })
+
+    def tasks_for_subject(self, subject: str) -> list[str]:
+        """Return sorted task names for one subject.
+
+        Accepts both BIDS-prefixed form (``sub-01``) and raw entity value (``01``).
+        """
+        raw = subject.removeprefix("sub-")
+        return sorted({
+            f.task for f in self.files
+            if f.subject == raw and f.task is not None
+        })
+
+    def files_by_suffix(self, suffix: str) -> list[FileRecord]:
+        """Return all non-directory files with the given BIDS suffix."""
+        return [f for f in self.files if not f.is_dir and f.suffix == suffix]
 
 
 # ── Planning layer ────────────────────────────────────────────────────────────

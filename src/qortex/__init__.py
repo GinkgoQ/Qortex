@@ -159,30 +159,48 @@ class Dataset:
         """Return essential metadata and lightweight sidecar/table files."""
         return self.files(metadata_only=True)
 
-    def inspect(self) -> "DatasetProfile":
-        """Fetch full metadata and return a DatasetProfile — no download needed.
+    def inspect(self, *, level: str = "manifest") -> "DatasetProfile":
+        """Fetch metadata and return a DatasetProfile — no download needed.
 
-        Queries the OpenNeuro API for the complete recursive file tree and
-        analyses it in-memory to produce modality breakdown, subject/session/
-        task structure, companion coverage, ML readiness score, and actionable
-        recommendations — all without writing any data bytes to disk.
+        Parameters
+        ----------
+        level:
+            Inspection depth:
+
+            ``"summary"``
+                API-only, completes in <2 s. Returns subjects, sessions,
+                tasks, modalities, size, demographics, and engagement from
+                the OpenNeuro GraphQL API without fetching the file tree.
+                ``profile.manifest`` will be ``None`` at this level.
+            ``"manifest"`` *(default)*
+                Fetches the full recursive file tree, builds a typed
+                ``Manifest``, and computes modality breakdown, companion
+                coverage, ML readiness score, and recommendations.
+            ``"deep"``
+                Manifest level plus concurrent remote events and sidecar
+                analysis. Adds ``LabelLandscape`` and ``SignalBudget`` data
+                to the profile. Takes 10–60 s depending on dataset size.
 
         Returns
         -------
         DatasetProfile
-            Rich inspection report.  Call ``.summary()`` for a compact view or
-            ``.report()`` for the full modality-level report.
+            Inspection report. Call ``.summary()`` for a compact view,
+            ``.report()`` for the full modality breakdown.
 
         Examples
         --------
         >>> ds = Dataset("ds000117")
+        >>> # Fast API-only check
+        >>> quick = ds.inspect(level="summary")
+        >>> print(quick.n_subjects, quick.tasks)
+        >>> # Full manifest analysis
         >>> profile = ds.inspect()
-        >>> print(profile.summary())
         >>> print(profile.ml_readiness.grade)
-        >>> print(profile.recommendations)
+        >>> # With remote events + signal budget
+        >>> deep = ds.inspect(level="deep")
         """
         inspector = DatasetInspector(token=self._token)
-        return inspector.inspect(self.dataset_id, tag=self.snapshot)
+        return inspector.inspect(self.dataset_id, tag=self.snapshot, level=level)
 
     # ── Download ──────────────────────────────────────────────────────────
 

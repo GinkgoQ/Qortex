@@ -351,47 +351,56 @@ class SignalBudgetEstimator:
         """
         budget = SignalBudget(dataset_id=manifest.dataset_id)
 
-        # ── Step 1: Fetch JSON sidecars for signal files ──────────────────
-        sidecar_url_map, sidecar_file_map = _build_sidecar_index(manifest)
+        # ── Step 1: Build per-signal sidecar chains + flat URL map ───────
+        sidecar_url_map, signal_chains = _build_sidecar_chains(manifest)
 
         if max_sidecars is not None:
-            keys = list(sidecar_url_map)[:max_sidecars]
-            sidecar_url_map = {k: sidecar_url_map[k] for k in keys}
-            sidecar_file_map = {k: sidecar_file_map[k] for k in keys}
+            # Cap by limiting the number of signal files, not sidecar URLs,
+            # so we preserve full chains for the files we do process.
+            signal_chains = signal_chains[:max_sidecars]
+            needed = {p for _, chain in signal_chains for p in chain}
+            sidecar_url_map = {k: v for k, v in sidecar_url_map.items() if k in needed}
 
-        log.info("Fetching %d sidecars...", len(sidecar_url_map))
+        log.info(
+            "Fetching %d unique sidecars for %d signal files...",
+            len(sidecar_url_map), len(signal_chains),
+        )
         sidecar_results = self._gateway.batch_fetch_json(sidecar_url_map, concurrency=concurrency)
 
-        # ── Step 2: Parse sidecar results into AcquisitionParams ─────────
+        # ── Step 2: Merge sidecar chain per signal file → AcquisitionParams
         acquisitions: list[AcquisitionParams] = []
         n_failed = 0
-        nifti_to_fetch: dict[str, tuple[str, FileRecord]] = {}  # sidecar_path → (nifti_url, nifti_fr)
+        nifti_to_fetch: dict[str, tuple[str, FileRecord]] = {}  # sig_path → (nifti_url, nifti_fr)
 
-        # Build signal file index for NIfTI header fetching
         nifti_index = _build_nifti_index(manifest) if include_nifti_headers else {}
 
-        for sidecar_path, result in sidecar_results.items():
-            fr = sidecar_file_map.get(sidecar_path)
-            if fr is None:
+        for sig_file, chain_paths in signal_chains:
+            merged: dict = {}
+            any_ok = False
+            for spath in chain_paths:
+                result = sidecar_results.get(spath)
+                if isinstance(result, Exception) or result is None:
+                    log.debug("Sidecar fetch failed %s: %s", spath, result)
+                    n_failed += 1
+                elif isinstance(result, dict):
+                    merged.update(result)   # BIDS: later (more-specific) wins
+                    any_ok = True
+
+            if not any_ok:
                 continue
 
-            if isinstance(result, Exception):
-                n_failed += 1
-                log.debug("Sidecar fetch failed %s: %s", sidecar_path, result)
-                continue
+            params = _parse_sidecar(sig_file, merged)
 
-            params = _parse_sidecar(fr, result)
-
-            # If fMRI sidecar missing TR / volumes, queue NIfTI header fetch
+            # Queue NIfTI header fetch when fMRI sidecar missing TR / volumes
             if (
                 include_nifti_headers
-                and fr.modality in _FMRI_MODALITIES
+                and sig_file.modality in _FMRI_MODALITIES
                 and (params.tr_s is None or params.n_volumes is None)
             ):
-                key = (fr.subject, fr.session, fr.task, fr.run)
+                key = (sig_file.subject, sig_file.session, sig_file.task, sig_file.run)
                 nifti_fr = nifti_index.get(key)
                 if nifti_fr and nifti_fr.urls:
-                    nifti_to_fetch[sidecar_path] = (_pick_url(nifti_fr), nifti_fr)
+                    nifti_to_fetch[sig_file.path] = (_pick_url(nifti_fr), nifti_fr)
 
             acquisitions.append(params)
 
@@ -405,11 +414,11 @@ class SignalBudgetEstimator:
             header_results = _fetch_nifti_headers_concurrent(
                 self._gateway, nifti_url_map, concurrency=concurrency
             )
-            # Update acquisitions from headers
-            acq_by_sidecar = {a.path: a for a in acquisitions}
-            for sidecar_path, hdr in header_results.items():
-                if isinstance(hdr, NIfTIHeader) and sidecar_path in acq_by_sidecar:
-                    a = acq_by_sidecar[sidecar_path]
+            # Update acquisitions with header-derived params (keyed by signal file path)
+            acq_by_path = {a.path: a for a in acquisitions}
+            for sig_path, hdr in header_results.items():
+                if isinstance(hdr, NIfTIHeader) and sig_path in acq_by_path:
+                    a = acq_by_path[sig_path]
                     if a.tr_s is None and hdr.tr_s:
                         a.tr_s = hdr.tr_s
                     if a.n_volumes is None and hdr.n_volumes:
@@ -433,28 +442,27 @@ class SignalBudgetEstimator:
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
-def _build_sidecar_index(manifest: Manifest) -> tuple[dict[str, str], dict[str, FileRecord]]:
-    """Build URL and FileRecord maps for signal-file JSON sidecars.
+def _build_sidecar_chains(
+    manifest: Manifest,
+) -> tuple[dict[str, str], list[tuple[FileRecord, list[str]]]]:
+    """Build data structures for per-signal-file BIDS sidecar inheritance.
 
-    Uses ``SidecarResolver`` to follow BIDS inheritance: for each primary
-    signal file, resolves the full sidecar chain (root → task → session →
-    file-level) and fetches each sidecar in order. The most-specific sidecar
-    per signal file is fetched; merged parameters are computed after fetch.
-
-    We track by (signal_file_path, sidecar_path) so that:
-    - All sidecars in the inheritance chain are fetched.
-    - The signal-file ``FileRecord`` is correctly associated with each sidecar
-      for entity metadata (subject, session, task, modality).
-    - Duplicate sidecars (shared by multiple signal files) are de-duplicated.
+    Returns
+    -------
+    url_map:
+        ``{sidecar_path: cdn_url}`` — deduplicated across all signal files so
+        each unique sidecar URL is fetched exactly once.
+    signal_chains:
+        ``[(signal_file, [sidecar_path, ...]), ...]`` — ordered most-general
+        to most-specific. Used after fetching to merge params per signal file.
     """
     from qortex.manifest.sidecar import SidecarResolver
     from qortex.client.remote import _pick_url
 
     resolver = SidecarResolver(manifest.files)
     url_map: dict[str, str] = {}
-    fr_map: dict[str, FileRecord] = {}
+    signal_chains: list[tuple[FileRecord, list[str]]] = []
 
-    # Identify primary signal files
     signal_files = [
         f for f in manifest.files
         if not f.is_dir
@@ -463,27 +471,22 @@ def _build_sidecar_index(manifest: Manifest) -> tuple[dict[str, str], dict[str, 
         and f.subject
     ]
 
-    seen_sidecars: set[str] = set()
     for sig_file in signal_files:
         chain = resolver.resolve(sig_file)
-        if chain:
-            # Use the most-specific sidecar as the representative for this file;
-            # all sidecars in the chain are queued for fetching
-            for sidecar_fr in chain:
-                if sidecar_fr.path in seen_sidecars or not sidecar_fr.urls:
-                    continue
-                seen_sidecars.add(sidecar_fr.path)
-                try:
-                    url = _pick_url(sidecar_fr)
-                    # Store key = sidecar_path, but associate the signal file's
-                    # entity metadata via sig_file stored in fr_map
-                    key = f"{sig_file.path}||{sidecar_fr.path}"
-                    url_map[key] = url
-                    fr_map[key] = sig_file  # use signal file for entity context
-                except Exception:
-                    pass
+        chain_paths: list[str] = []
+        for sidecar_fr in chain:
+            if not sidecar_fr.urls:
+                continue
+            try:
+                url = _pick_url(sidecar_fr)
+                url_map[sidecar_fr.path] = url   # dedup: same path = same fetch
+                chain_paths.append(sidecar_fr.path)
+            except Exception:
+                pass
+        if chain_paths:
+            signal_chains.append((sig_file, chain_paths))
 
-    return url_map, fr_map
+    return url_map, signal_chains
 
 
 def _build_nifti_index(manifest: Manifest) -> dict[tuple, FileRecord]:
@@ -541,18 +544,17 @@ def _fetch_nifti_headers_concurrent(
     url_map: dict[str, str],
     concurrency: int,
 ) -> dict[str, Any]:
-    """Fetch NIfTI headers (Range requests) concurrently."""
-    import asyncio
+    """Fetch NIfTI headers (Range requests) concurrently using _run_async."""
     from qortex.client.remote import (
         _GZIP_RANGE_BYTES,
         _async_batch_fetch,
         _decompress_nifti_header,
         _parse_nifti_header,
-        SSL_CONTEXT,
-        USER_AGENT,
+        _run_async,
     )
 
-    async def _fetch_header(url: str, client) -> NIfTIHeader:
+    # _async_batch_fetch calls fetch_fn(url, client, max_bytes) — accept and ignore max_bytes
+    async def _fetch_header(url: str, client, max_bytes: int = _GZIP_RANGE_BYTES) -> NIfTIHeader:
         is_gz = ".gz" in url.lower()
         range_bytes = _GZIP_RANGE_BYTES if is_gz else 352
         r = await client.get(url, headers={"Range": f"bytes=0-{range_bytes - 1}"})
@@ -560,12 +562,13 @@ def _fetch_nifti_headers_concurrent(
         header_bytes = _decompress_nifti_header(raw, url) if is_gz else raw
         return _parse_nifti_header(header_bytes, len(raw))
 
-    return asyncio.run(
+    return _run_async(
         _async_batch_fetch(
             url_map=url_map,
             fetch_fn=_fetch_header,
             concurrency=concurrency,
             cfg=gateway._cfg,
+            max_bytes=_GZIP_RANGE_BYTES,
         )
     )
 

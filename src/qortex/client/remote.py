@@ -229,25 +229,44 @@ class RemoteFileGateway:
         elif cap < _DEFAULT_MAX_BYTES:
             headers["Range"] = f"bytes=0-{cap - 1}"
 
-        try:
-            response = self._client.get(url, headers=headers)
-        except RETRYABLE_EXCEPTIONS as exc:
-            raise RemotePreviewError(url, f"Network error: {exc}") from exc
+        _MAX_RETRIES = 3
+        _BASE_DELAY = 1.0
 
-        if response.status_code not in (200, 206):
-            raise RemotePreviewError(
-                url,
-                f"HTTP {response.status_code}: "
-                + (response.text[:200] if response.text else ""),
-            )
+        for attempt in range(_MAX_RETRIES):
+            try:
+                response = self._client.get(url, headers=headers)
+            except RETRYABLE_EXCEPTIONS as exc:
+                if attempt < _MAX_RETRIES - 1:
+                    time.sleep(_BASE_DELAY * (2 ** attempt))
+                    continue
+                raise RemotePreviewError(url, f"Network error after {_MAX_RETRIES} attempts: {exc}") from exc
 
-        data = response.content
-        if range_bytes is None and len(data) > cap:
-            raise FileTooLargeError(url, len(data), cap)
+            if response.status_code == 429:
+                retry_after = float(response.headers.get("Retry-After", _BASE_DELAY * (2 ** attempt)))
+                log.debug("Rate-limited on %s; sleeping %.1fs (attempt %d)", url, retry_after, attempt + 1)
+                time.sleep(retry_after)
+                continue
 
-        if use_cache:
-            self._cache.put(cache_key, data)
-        return data
+            if response.status_code in (500, 502, 503, 504) and attempt < _MAX_RETRIES - 1:
+                time.sleep(_BASE_DELAY * (2 ** attempt))
+                continue
+
+            if response.status_code not in (200, 206):
+                raise RemotePreviewError(
+                    url,
+                    f"HTTP {response.status_code}: "
+                    + (response.text[:200] if response.text else ""),
+                )
+
+            data = response.content
+            if range_bytes is None and len(data) > cap:
+                raise FileTooLargeError(url, len(data), cap)
+
+            if use_cache:
+                self._cache.put(cache_key, data)
+            return data
+
+        raise RemotePreviewError(url, f"Failed after {_MAX_RETRIES} retries")
 
     # ── Text / structured types ───────────────────────────────────────────
 
