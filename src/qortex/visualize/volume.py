@@ -276,6 +276,12 @@ class VolumeViewer:
         except ImportError:
             pass
 
+        # Raw numpy array — store directly, no file I/O
+        if isinstance(source, np.ndarray):
+            self._vol = source.astype(np.float32)
+            self._meta = {"shape": self._vol.shape}
+            return
+
         # nibabel image object (duck-typed)
         if hasattr(source, "get_fdata") and hasattr(source, "affine"):
             self._vol = np.asarray(source.get_fdata(dtype=np.float32))
