@@ -305,7 +305,6 @@ class DWIViewer:
 
         # Unit sphere wireframe (latitude/longitude lines)
         u = np.linspace(0, 2 * np.pi, 60)
-        v = np.linspace(0, np.pi, 30)
         for lv in np.linspace(0, np.pi, 7):
             fig.add_trace(go.Scatter3d(
                 x=(np.cos(u) * np.sin(lv)).tolist(),

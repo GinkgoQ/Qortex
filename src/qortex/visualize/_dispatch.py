@@ -24,12 +24,7 @@ from qortex.visualize._asset import (
     INTENT_FIELDMAP, INTENT_LABELMAP, INTENT_MASK, INTENT_PET,
     INTENT_RAW_SIGNAL, INTENT_SERIES_BROWSER, INTENT_STAT_MAP,
     INTENT_SURFACE, INTENT_UNKNOWN,
-    MODE_INTERACTIVE, MODE_STATIC, MODE_SUMMARY, MODE_THUMBNAIL,
-    _warn,
-)
-from qortex.visualize._colors import (
-    CT_PRESETS, MR_PRESETS, FMRI_PRESETS, PET_PRESETS,
-    auto_window, colormap_for_modality,
+    MODE_INTERACTIVE, MODE_STATIC, MODE_THUMBNAIL,
 )
 
 log = logging.getLogger(__name__)
@@ -498,13 +493,7 @@ def inspect_file(source: Any) -> VisualAsset:
 
     if suffix in _DICOM_EXTS:
         # Single DICOM file
-        try:
-            import pydicom
-            return _inspect_dicom(path)
-        except ImportError:
-            asset = VisualAsset(path=path, family="dicom")
-            asset.warn("pydicom_missing", "pydicom not installed", "info")
-            return asset
+        return _inspect_dicom(path)
 
     is_nifti = (suffix in _NIFTI_EXTS) or name_lower.endswith(".nii.gz")
     if is_nifti:

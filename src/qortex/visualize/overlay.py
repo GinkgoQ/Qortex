@@ -22,13 +22,9 @@ from typing import Any
 
 import numpy as np
 
-from qortex.visualize._asset import (
-    INTENT_LABELMAP, INTENT_MASK, INTENT_PET, INTENT_STAT_MAP,
-    VisualAsset, VisualPlan, VisualResult, VisualWarning,
-    MODE_INTERACTIVE, MODE_STATIC, _warn,
-)
+from qortex.visualize._asset import VisualResult
 from qortex.visualize._colors import apply_window, auto_window, get_lut
-from qortex.visualize._html import array_to_b64png, build_interactive_html, render_axis_slices
+from qortex.visualize._html import build_interactive_html
 from qortex.visualize._dispatch import inspect_file, plan_from_asset
 
 log = logging.getLogger(__name__)
@@ -587,7 +583,7 @@ def overlay_contour(
     )
     vmin, vmax = _overlay_auto_window(base_h)
     vox = _overlay_voxel_sizes(base_h)
-    from qortex.visualize._html import array_to_b64png, build_interactive_html, apply_window
+    from qortex.visualize._html import build_interactive_html
     from qortex.visualize._colors import apply_window as _aw
 
     nx, ny, nz = _get_shape3(base_h)
@@ -599,7 +595,6 @@ def overlay_contour(
         base_norm = _aw(base_slc, vmin, vmax)     # (H, W) in [0, 1]
         contour = _binary_contour_2d(mask_slc)
 
-        from qortex.visualize.overlay import _blend_slice
         # Use the label color mode but with a pre-built contour mask
         base_lut = get_lut("gray")
         base_idx = (np.clip(base_norm, 0, 1) * 255).astype(np.uint8)
@@ -764,8 +759,6 @@ def compare_masks(
     from qortex.visualize._html import build_interactive_html
     from qortex.visualize._colors import apply_window as _aw
 
-    # Compute Dice from sampled slices (avoids full volume materialisation)
-    from qortex.visualize.volume import _LazyNIfTI
     nx, ny, nz = _get_shape3(base_h)
     n_z_sample = max(5, nz // 8)
     sample_z = np.round(np.linspace(0, nz - 1, n_z_sample)).astype(int)

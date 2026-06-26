@@ -32,7 +32,7 @@ import numpy as np
 
 from qortex.visualize._colors import (
     CT_PRESETS, WindowPreset,
-    auto_window, apply_window, colormap_for_modality, get_lut,
+    auto_window, apply_window, colormap_for_modality,
 )
 from qortex.visualize._html import (
     array_to_b64png, render_axis_slices, build_interactive_html,
@@ -1260,7 +1260,9 @@ class VolumeViewer:
 
         if has_confounds:
             fd = confounds.get("framewise_displacement")
-            dvars = confounds.get("dvars") or confounds.get("std_dvars")
+            dvars = confounds.get("dvars")
+            if dvars is None:
+                dvars = confounds.get("std_dvars")
             if fd is not None:
                 fd_t = np.arange(len(fd), dtype=np.float32) * tr
                 fig.add_trace(

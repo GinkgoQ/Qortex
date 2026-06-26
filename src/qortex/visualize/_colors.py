@@ -10,8 +10,7 @@ All values are in native image units (Hounsfield for CT, arbitrary for MRI).
 from __future__ import annotations
 
 import numpy as np
-from dataclasses import dataclass, field
-from typing import Sequence
+from dataclasses import dataclass
 
 
 # ── Window presets ────────────────────────────────────────────────────────────

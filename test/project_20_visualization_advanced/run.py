@@ -25,6 +25,11 @@ Test catalogue
 18.  visualize-openneuro selection — shared select_visual_files helper
 19.  Artifact.compare_splits() — returns VisualAuditReport with correct structure
 20.  Visual audit n_expected / n_local_present auto-population
+21.  DWI contact_sheet — shell-specific montage with real plotted slice panels
+22.  TimeSeriesViewer.topomap — sensor interpolation and channel marker output
+23.  fMRI summary companions — events and confounds become explicit QC traces
+24.  Pathless VisualResult.to_png — clear error for non-file-backed NIfTI result
+25.  Visualization edge cases — robust BIDS suffix, smooth aspect resize, empty Dice
 
 All tests use synthetic in-memory or temp-file data.
 nibabel, plotly, and MNE are each skipped gracefully when absent.
@@ -850,7 +855,7 @@ def test_16_eeg_thumbnail():
     print_kv("n_traces", len(fig.data))
     print_kv("html_chars", len(html_str))
 
-    # PNG export only when kaleido is available
+    # PNG export only when kaleido is available and compatible with Plotly.
     try:
         import kaleido  # noqa: F401
         png_bytes = pio.to_image(fig, format="png", width=400, height=200)
@@ -859,8 +864,8 @@ def test_16_eeg_thumbnail():
         png_raw = base64.b64decode(b64)
         require(png_raw[:8] == b"\x89PNG\r\n\x1a\n", "EEG thumbnail not a valid PNG")
         print_kv("png_bytes", len(png_raw))
-    except ImportError:
-        print("  PNG export: SKIP (kaleido not installed)")
+    except (ImportError, ValueError) as exc:
+        print(f"  PNG export: SKIP ({type(exc).__name__}: {str(exc).splitlines()[0]})")
 
 
 def test_17_coverage_matrix():
@@ -1064,6 +1069,166 @@ def test_20_audit_expected_vs_local():
     print_kv("n_missing_local", report.n_missing_local)
 
 
+def test_21_dwi_contact_sheet():
+    banner("21 — DWI contact_sheet(): shell-specific montage with slice panels")
+    nib = _try_import("nibabel")
+    plotly = _try_import("plotly")
+    if nib is None or plotly is None:
+        print("  SKIP: nibabel or plotly not installed")
+        return
+
+    from qortex.visualize.dwi import DWIViewer
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        dwi_path = _write_synthetic_nifti(
+            root / "sub-01_dir-AP_dwi.nii.gz",
+            (24, 24, 12, 8),
+            modality="dwi",
+        )
+        bvals = [0, 0, 1000, 1000, 1000, 2000, 2000, 2000]
+        bval_path = _write_bval(root / "sub-01_dir-AP_dwi.bval", bvals)
+        bvec_path = _write_bvec(root / "sub-01_dir-AP_dwi.bvec", len(bvals))
+
+        viewer = DWIViewer(dwi_path, bval_path=bval_path, bvec_path=bvec_path)
+        fig = viewer.contact_sheet(shell="high", n_slices=6, n_cols=3)
+
+    require(hasattr(fig, "data"), "contact_sheet() must return a Plotly figure")
+    require(len(fig.data) == 6, f"Expected 6 slice panels, got {len(fig.data)}")
+    require("high-b" in (fig.layout.title.text or ""), "contact sheet title should mention selected shell")
+    print_kv("shells", viewer.shells)
+    print_kv("contact_sheet_traces", len(fig.data))
+    print_kv("title", fig.layout.title.text)
+
+
+def test_22_timeseries_topomap():
+    banner("22 — TimeSeriesViewer.topomap(): interpolated scalp map plus channel markers")
+    plotly = _try_import("plotly")
+    if plotly is None:
+        print("  SKIP: plotly not installed")
+        return
+
+    from qortex.visualize.timeseries import TimeSeriesViewer
+
+    sfreq = 100.0
+    t = np.arange(0, 2.0, 1.0 / sfreq)
+    data = np.column_stack([
+        np.sin(2 * np.pi * 8 * t),
+        np.cos(2 * np.pi * 8 * t),
+        0.5 * np.sin(2 * np.pi * 12 * t),
+        0.5 * np.cos(2 * np.pi * 12 * t),
+    ]).astype(np.float32)
+    channels = ["Fz", "Cz", "Pz", "Oz"]
+
+    viewer = TimeSeriesViewer(data, sfreq=sfreq, ch_names=channels)
+    fig = viewer.topomap(t=0.5, title="Synthetic topography")
+
+    trace_types = [trace.type for trace in fig.data]
+    require("heatmap" in trace_types, f"Topomap missing heatmap trace: {trace_types}")
+    require("scatter" in trace_types, f"Topomap missing sensor marker trace: {trace_types}")
+    require("Synthetic topography" in (fig.layout.title.text or ""), "Topomap title not applied")
+    print_kv("trace_types", trace_types)
+    print_kv("channels", channels)
+
+
+def test_23_fmri_summary_events_confounds():
+    banner("23 — fMRI summary: events.tsv markers and confounds traces")
+    nib = _try_import("nibabel")
+    plotly = _try_import("plotly")
+    if nib is None or plotly is None:
+        print("  SKIP: nibabel or plotly not installed")
+        return
+
+    from qortex.visualize.volume import VolumeViewer
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        bold_path = _write_synthetic_nifti(
+            root / "sub-01_task-rest_bold.nii.gz",
+            (20, 20, 10, 16),
+            modality="bold",
+        )
+        (root / "sub-01_task-rest_events.tsv").write_text(
+            "onset\tduration\ttrial_type\n"
+            "4.0\t1.0\tstim\n"
+            "12.0\t1.0\tstim\n",
+            encoding="utf-8",
+        )
+        (root / "sub-01_task-rest_desc-confounds_timeseries.tsv").write_text(
+            "framewise_displacement\tdvars\tstd_dvars\n"
+            + "\n".join(f"{0.01 * i:.4f}\t{2.0 + i:.3f}\t{0.1 * i:.3f}" for i in range(16))
+            + "\n",
+            encoding="utf-8",
+        )
+
+        fig = VolumeViewer(bold_path, modality="fmri").fmri_summary(title="BOLD QC")
+
+    names = [getattr(trace, "name", "") for trace in fig.data]
+    require("Global signal" in names, "Global signal trace missing")
+    require("FD" in names, "Framewise displacement trace missing")
+    require("DVARS" in names, "DVARS trace missing")
+    require(any(name == "stim" for name in names), f"Event marker trace missing: {names}")
+    print_kv("trace_names", [name for name in names if name])
+    print_kv("layout_height", fig.layout.height)
+
+
+def test_24_pathless_nifti_png_error():
+    banner("24 — VisualResult.to_png(): clear failure for pathless NIfTI fallback")
+    from qortex.visualize._asset import MODE_STATIC, VisualAsset, VisualPlan, VisualResult
+
+    asset = VisualAsset(path=Path("<array>"), family="nifti", modality="mri", shape=(8, 8, 8), ndim=3)
+    plan = VisualPlan(
+        asset=asset,
+        mode=MODE_STATIC,
+        backend="pure_python",
+        views=["orthogonal"],
+        window_preset="auto",
+        colormap="gray",
+        overlay_path=None,
+        requires_companions=[],
+    )
+    result = VisualResult(asset=asset, plan=plan)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            result.to_png(Path(tmp) / "pathless.png")
+        except ValueError as exc:
+            message = str(exc)
+        else:
+            raise AssertionError("Expected ValueError for pathless NIfTI PNG fallback")
+
+    require("no filesystem path" in message, f"Unexpected error message: {message}")
+    print_kv("error", message)
+
+
+def test_25_visualization_edge_cases():
+    banner("25 — Visualization edge cases: BIDS suffix, aspect resize, empty-mask Dice")
+    import base64
+    import struct
+
+    from qortex.visualize._dispatch import _bids_suffix
+    from qortex.visualize._html import array_to_b64png
+    from qortex.visualize.overlay import compare_masks
+
+    suffix = _bids_suffix(Path("sub-01_ses-02_task-rest_run-03_desc-preproc_bold.nii.gz"))
+    require(suffix == "bold", f"Expected robust BIDS suffix 'bold', got {suffix!r}")
+
+    arr = np.arange(12, dtype=np.float32).reshape(3, 4)
+    png_b64 = array_to_b64png(arr, float(arr.min()), float(arr.max()), aspect=(2.0, 1.0))
+    png = base64.b64decode(png_b64)
+    width, height = struct.unpack(">II", png[16:24])
+    require(width == 4 and height == 6, f"Aspect-corrected PNG dimensions wrong: {width}x{height}")
+
+    base = np.ones((12, 12, 8), dtype=np.float32)
+    empty = np.zeros_like(base)
+    result = compare_masks(base, empty, empty, title="Empty mask comparison")
+    dice = result.provenance.get("dice_approx")
+    require(dice == 1.0, f"Empty-vs-empty Dice should be 1.0, got {dice}")
+    print_kv("bids_suffix", suffix)
+    print_kv("aspect_png_size", f"{width}x{height}")
+    print_kv("empty_mask_dice", dice)
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -1087,6 +1252,11 @@ def main() -> None:
     test_18_select_visual_files()
     test_19_artifact_compare_splits()
     test_20_audit_expected_vs_local()
+    test_21_dwi_contact_sheet()
+    test_22_timeseries_topomap()
+    test_23_fmri_summary_events_confounds()
+    test_24_pathless_nifti_png_error()
+    test_25_visualization_edge_cases()
     passed("project_20_visualization_advanced")
 
 

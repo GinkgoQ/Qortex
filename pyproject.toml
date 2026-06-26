@@ -43,14 +43,14 @@ dask   = ["dask>=2024.5"]
 braindecode = ["braindecode>=0.8", "mne>=1.7"]
 sklearn = ["scikit-learn>=1.5"]
 validation = ["pybids>=0.22"]
-dashboard = ["fastapi>=0.111", "uvicorn>=0.30", "streamlit>=1.36", "plotly>=5.22"]
-visual    = ["nibabel>=5.2", "plotly>=5.22"]
+dashboard = ["fastapi>=0.111", "uvicorn>=0.30", "streamlit>=1.36", "plotly>=6.1.1"]
+visual    = ["nibabel>=5.2", "plotly>=6.1.1"]
 dicom     = ["pydicom>=2.4"]
 dicom-full = ["pydicom>=2.4", "SimpleITK>=2.4; python_version>='3.9'"]
-visual-export = ["plotly>=5.22", "kaleido>=0.2"]
+visual-export = ["plotly>=6.1.1", "kaleido>=0.2"]
 visual-all = [
   "nibabel>=5.2",
-  "plotly>=5.22",
+  "plotly>=6.1.1",
   "pydicom>=2.4",
   "mne>=1.7",
   "kaleido>=0.2",

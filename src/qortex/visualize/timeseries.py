@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 import math
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 import numpy as np
 
@@ -121,13 +121,29 @@ def _load_raw_mne(path: Path, max_duration_s: float = 60.0) -> _SignalBundle:
     )
 
 
-def _from_ndarray(data: np.ndarray, sfreq: float) -> _SignalBundle:
+def _from_ndarray(
+    data: np.ndarray,
+    sfreq: float,
+    *,
+    ch_names: list[str] | None = None,
+    ch_types: list[str] | None = None,
+) -> _SignalBundle:
     if data.ndim == 1:
         data = data[np.newaxis, :]
     elif data.ndim == 2 and data.shape[0] > data.shape[1]:
         # Assume (samples, channels) → transpose
         data = data.T
-    return _SignalBundle(data=data.astype(np.float32), sfreq=sfreq)
+    n_channels = data.shape[0]
+    if ch_names is not None and len(ch_names) != n_channels:
+        raise ValueError(f"ch_names has {len(ch_names)} entries but data has {n_channels} channels")
+    if ch_types is not None and len(ch_types) != n_channels:
+        raise ValueError(f"ch_types has {len(ch_types)} entries but data has {n_channels} channels")
+    return _SignalBundle(
+        data=data.astype(np.float32),
+        sfreq=sfreq,
+        ch_names=ch_names or [f"ch{i}" for i in range(n_channels)],
+        ch_types=ch_types or ["signal"] * n_channels,
+    )
 
 
 def _from_bold_nifti(path: Path) -> _SignalBundle:
@@ -278,11 +294,19 @@ class TimeSeriesViewer:
         *,
         sfreq: float | None = None,
         modality: str | None = None,
+        ch_names: list[str] | None = None,
+        ch_types: list[str] | None = None,
     ) -> None:
-        self._bundle = self._load(source, sfreq=sfreq)
+        self._bundle = self._load(source, sfreq=sfreq, ch_names=ch_names, ch_types=ch_types)
         self.modality = modality or (self._bundle.ch_types[0] if self._bundle.ch_types else "signal")
 
-    def _load(self, source: Any, sfreq: float | None) -> _SignalBundle:
+    def _load(
+        self,
+        source: Any,
+        sfreq: float | None,
+        ch_names: list[str] | None = None,
+        ch_types: list[str] | None = None,
+    ) -> _SignalBundle:
         mne = _try_mne()
 
         # MNE Raw object
@@ -303,7 +327,7 @@ class TimeSeriesViewer:
         if isinstance(source, np.ndarray):
             if sfreq is None:
                 raise ValueError("sfreq required when source is a numpy array")
-            return _from_ndarray(source, sfreq)
+            return _from_ndarray(source, sfreq, ch_names=ch_names, ch_types=ch_types)
 
         path = Path(source)
         if not path.exists():

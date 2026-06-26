@@ -68,9 +68,14 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 log = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from qortex.visualize._asset import VisualAsset, VisualResult
+    from qortex.visualize.timeseries import TimeSeriesViewer
+    from qortex.visualize.volume import VolumeViewer
 
 __all__ = [
     # Core language
