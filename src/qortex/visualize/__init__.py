@@ -82,6 +82,10 @@ __all__ = [
     "inspect", "visualize", "browse_dicom",
     # Overlay API
     "overlay_mask", "overlay_labelmap", "overlay_stat", "overlay_pet",
+    # ML overlay comparison
+    "overlay_contour", "overlay_edges", "compare_masks",
+    # DWI
+    "DWIViewer", "dwi_summary",
     # Explicit viewers
     "volume", "timeseries",
     # Viewer classes (lazy)
@@ -146,6 +150,8 @@ def __getattr__(name: str):
         return _volume_cls()
     if name == "TimeSeriesViewer":
         return _ts_cls()
+    if name == "DWIViewer":
+        return _dwi_cls()
 
     # DICOM helpers
     if name in {"list_dicom_series", "load_dicom_series", "DicomSeriesBrowser"}:
@@ -298,6 +304,39 @@ def overlay_pet(base: Any, pet: Any, **kwargs) -> "VisualResult":
     """Overlay a PET SUVR map on an anatomical background."""
     from qortex.visualize.overlay import overlay_pet as _fn
     return _fn(base, pet, **kwargs)
+
+
+def overlay_contour(base: Any, mask: Any, **kwargs) -> "VisualResult":
+    """Overlay the 1-voxel-thick contour of a binary mask on an anatomical image."""
+    from qortex.visualize.overlay import overlay_contour as _fn
+    return _fn(base, mask, **kwargs)
+
+
+def overlay_edges(base: Any, mask: Any, **kwargs) -> "VisualResult":
+    """Overlay gradient-magnitude edges of a mask on an anatomical image."""
+    from qortex.visualize.overlay import overlay_edges as _fn
+    return _fn(base, mask, **kwargs)
+
+
+def compare_masks(base: Any, pred: Any, truth: Any, **kwargs) -> "VisualResult":
+    """TP/FP/FN diagnostic overlay comparing predicted vs ground-truth masks.
+
+    Green = True Positive, Red = False Positive, Blue = False Negative.
+    Dice similarity is computed from sampled slices and shown in the report.
+    """
+    from qortex.visualize.overlay import compare_masks as _fn
+    return _fn(base, pred, truth, **kwargs)
+
+
+def dwi_summary(dwi_path: Any, bval_path: Any = None, bvec_path: Any = None, **kwargs) -> Any:
+    """4-panel DWI QC summary: b0, high-b, b-value histogram, gradient sphere."""
+    from qortex.visualize.dwi import dwi_summary as _fn
+    return _fn(dwi_path, bval_path=bval_path, bvec_path=bvec_path, **kwargs)
+
+
+def _dwi_cls():
+    from qortex.visualize.dwi import DWIViewer
+    return DWIViewer
 
 
 # ── Explicit viewers ──────────────────────────────────────────────────────────

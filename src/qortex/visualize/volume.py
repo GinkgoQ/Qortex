@@ -210,6 +210,107 @@ class _LazyNIfTI:
         np.clip(tsnr, 0, 500, out=tsnr)
         return tsnr
 
+    def std_volume(self, max_frames: int = 50) -> np.ndarray:
+        """Compute temporal standard deviation using Welford's online algorithm.
+
+        Streams one 3D frame at a time — peak memory is 3 × one-frame cost.
+        For 3D images returns an all-zeros array.
+        """
+        shape = self._proxy.shape
+        if len(shape) == 3:
+            return np.zeros(shape[:3], dtype=np.float32)
+
+        n_t = shape[3]
+        step = max(1, n_t // max_frames)
+        frame_idxs = list(range(0, n_t, step))
+
+        mean = np.zeros(shape[:3], dtype=np.float64)
+        M2 = np.zeros(shape[:3], dtype=np.float64)
+        for n_seen, t in enumerate(frame_idxs, start=1):
+            frame = np.asarray(self._proxy[..., t], dtype=np.float64)
+            delta = frame - mean
+            mean += delta / n_seen
+            M2 += delta * (frame - mean)
+
+        variance = M2 / max(1, len(frame_idxs) - 1)
+        return np.sqrt(variance).astype(np.float32)
+
+    def global_signal(self, max_frames: int | None = None) -> np.ndarray:
+        """Extract the brain-masked global mean signal for every timepoint.
+
+        Strategy:
+        1. Build a brain mask from ~20 sampled frames (threshold at 15 % of max).
+        2. Compute the masked-mean intensity for every requested frame.
+
+        Memory cost: always 2 × one 3D frame (mask + current frame).
+        Never loads the full 4D volume.
+        """
+        shape = self._proxy.shape
+        if len(shape) == 3:
+            return np.array([float(np.asarray(self._proxy).mean())], dtype=np.float32)
+
+        n_t = shape[3]
+        # Brain mask from sampled frames
+        mask_step = max(1, n_t // 20)
+        mean_vol = np.zeros(shape[:3], dtype=np.float64)
+        count = 0
+        for t in range(0, n_t, mask_step):
+            mean_vol += np.asarray(self._proxy[..., t]).astype(np.float64)
+            count += 1
+        mean_vol /= max(1, count)
+        brain_mask = mean_vol > (mean_vol.max() * 0.15)
+        if not brain_mask.any():
+            brain_mask = np.ones(shape[:3], dtype=bool)
+
+        # Global signal for every (or sampled) timepoint
+        n_out = n_t if max_frames is None else min(n_t, max_frames)
+        step = max(1, n_t // n_out)
+        t_idxs = list(range(0, n_t, step))[:n_out]
+        signal = np.zeros(len(t_idxs), dtype=np.float32)
+        for i, t in enumerate(t_idxs):
+            frame = np.asarray(self._proxy[..., t]).astype(np.float32)
+            signal[i] = float(frame[brain_mask].mean())
+        return signal
+
+    def framewise_intensity_map(
+        self,
+        n_frames: int = 50,
+        n_slices: int | None = None,
+    ) -> tuple[np.ndarray, list[int]]:
+        """Compute a slice × time intensity matrix for framewise QC.
+
+        Each cell is the mean intensity of one axial slice at one timepoint.
+        This is a classic fMRI QA tool: horizontal stripes indicate slice
+        dropouts; vertical stripes indicate volume spikes.
+
+        Returns
+        -------
+        matrix : np.ndarray
+            (n_slices_out, n_frames_out) float32 array.
+        frame_indices : list[int]
+            Sampled timepoint indices (into the 4D volume).
+        """
+        shape = self._proxy.shape
+        if len(shape) == 3:
+            return np.array([[float(np.asarray(self._proxy).mean())]]), [0]
+
+        n_t = shape[3]
+        n_z = shape[2]
+        n_slices_out = n_slices or min(n_z, 32)
+        n_frames_out = min(n_t, n_frames)
+
+        step_t = max(1, n_t // n_frames_out)
+        t_idxs = list(range(0, n_t, step_t))[:n_frames_out]
+
+        z_idxs = np.round(np.linspace(0, n_z - 1, n_slices_out)).astype(int).tolist()
+
+        matrix = np.zeros((n_slices_out, len(t_idxs)), dtype=np.float32)
+        for j, t in enumerate(t_idxs):
+            frame = np.asarray(self._proxy[..., t]).astype(np.float32)
+            for i, z in enumerate(z_idxs):
+                matrix[i, j] = float(frame[:, :, z].mean())
+        return matrix, t_idxs
+
 
 # ── VolumeViewer ──────────────────────────────────────────────────────────────
 
@@ -892,6 +993,246 @@ class VolumeViewer:
             log.info("Wrote interactive viewer to %s", out_path)
 
         return html
+
+    # ── fMRI-specific QC panels ───────────────────────────────────────────
+
+    def fmri_summary(
+        self,
+        *,
+        max_frames: int = 50,
+        title: str = "",
+    ):
+        """6-panel fMRI QC summary figure.
+
+        Panels:
+        1. Mean EPI — temporal mean, center axial slice (gray)
+        2. Middle frame — single raw volume, center axial slice (gray)
+        3. Temporal std — standard deviation map (hot)
+        4. tSNR — temporal SNR via Welford streaming (hot)
+        5. Global signal — mean-brain signal timeseries
+        6. Framewise intensity — slice × time heatmap (plasma)
+
+        Lazy: panels 1–4 read the minimum frames using Welford streaming.
+        Panel 6 reads one 3D frame per sampled timepoint.
+        """
+        try:
+            import plotly.graph_objects as go
+            from plotly.subplots import make_subplots
+        except ImportError:
+            raise ImportError("fmri_summary() requires plotly: pip install plotly")
+
+        if self._lazy is None:
+            raise RuntimeError(
+                "fmri_summary() requires a lazy NIfTI source (nibabel must be installed)."
+            )
+        if len(self._lazy.shape) != 4:
+            raise ValueError(
+                f"fmri_summary() requires a 4D BOLD NIfTI, got shape {self._lazy.shape}"
+            )
+
+        lazy = self._lazy
+        n_t = lazy.shape[3]
+        cz = lazy.shape[2] // 2
+        tr = self.tr or 2.0
+
+        # Panel 1: mean EPI (streaming)
+        mean_vol = lazy.mean_volume(max_frames=max_frames)
+        mean_slc = mean_vol[:, :, cz].T[::-1, :]
+        mean_vmin, mean_vmax = float(np.percentile(mean_slc[mean_slc > 0], 1.0) if (mean_slc > 0).any() else 0), float(np.percentile(mean_slc, 99.5))
+
+        # Panel 2: middle frame
+        mid_t = n_t // 2
+        mid_frame = lazy.frame(mid_t)
+        mid_slc = mid_frame[:, :, cz].T[::-1, :]
+
+        # Panels 3 & 4: std and tSNR (Welford, single pass for tSNR)
+        tsnr_vol = lazy.tsnr_volume(max_frames=max_frames)
+        std_vol = lazy.std_volume(max_frames=max_frames)
+        tsnr_slc = tsnr_vol[:, :, cz].T[::-1, :]
+        std_slc = std_vol[:, :, cz].T[::-1, :]
+
+        pos_tsnr = tsnr_slc[tsnr_slc > 0]
+        tsnr_vmin = float(np.percentile(pos_tsnr, 2)) if pos_tsnr.size else 0.0
+        tsnr_vmax = float(np.percentile(pos_tsnr, 98)) if pos_tsnr.size else 100.0
+
+        pos_std = std_slc[std_slc > 0]
+        std_vmin = 0.0
+        std_vmax = float(np.percentile(pos_std, 98)) if pos_std.size else 1.0
+
+        # Panel 5: global signal timeseries
+        gsig = lazy.global_signal(max_frames=min(n_t, 200))
+        t_axis = np.arange(len(gsig)) * (tr * max(1, n_t // len(gsig)))
+
+        # Panel 6: framewise intensity map
+        fw_matrix, fw_idxs = lazy.framewise_intensity_map(n_frames=50, n_slices=24)
+        fw_times = [i * tr for i in fw_idxs]
+
+        def _norm(slc, vmin, vmax):
+            return np.clip((slc - vmin) / max(vmax - vmin, 1e-8), 0, 1)
+
+        _cs = lambda name: {"gray": "Gray", "hot": "Hot", "plasma": "Plasma"}.get(name, "Gray")
+
+        fig = make_subplots(
+            rows=2, cols=3,
+            subplot_titles=(
+                "Mean EPI", f"Middle Frame (t={mid_t})", "Temporal Std",
+                "tSNR", "Global Signal", "Slice × Time",
+            ),
+            horizontal_spacing=0.06,
+            vertical_spacing=0.12,
+        )
+
+        # Row 1: image panels
+        for col, (slc, vmin, vmax, cs) in enumerate([
+            (_norm(mean_slc, mean_vmin, mean_vmax), 0, 1, "gray"),
+            (_norm(mid_slc, self._vmin, self._vmax), 0, 1, "gray"),
+            (_norm(std_slc, std_vmin, std_vmax), 0, 1, "hot"),
+        ], start=1):
+            fig.add_trace(
+                go.Heatmap(z=slc, colorscale=_cs(cs), zmin=0, zmax=1,
+                           showscale=False, hoverinfo="skip"),
+                row=1, col=col,
+            )
+
+        # tSNR
+        fig.add_trace(
+            go.Heatmap(z=_norm(tsnr_slc, tsnr_vmin, tsnr_vmax),
+                       colorscale="Hot", zmin=0, zmax=1,
+                       showscale=True,
+                       colorbar=dict(len=0.45, y=0.2, title="tSNR", thickness=10),
+                       hoverinfo="skip"),
+            row=2, col=1,
+        )
+
+        # Global signal
+        fig.add_trace(
+            go.Scatter(
+                x=t_axis.tolist(), y=gsig.tolist(),
+                mode="lines", line=dict(color="#6af", width=1.2),
+                showlegend=False,
+            ),
+            row=2, col=2,
+        )
+
+        # Framewise intensity map
+        fig.add_trace(
+            go.Heatmap(
+                x=fw_times, z=fw_matrix.tolist(),
+                colorscale="Plasma", showscale=False, hoverinfo="skip",
+            ),
+            row=2, col=3,
+        )
+
+        fig.update_xaxes(showticklabels=False, showgrid=False, zeroline=False, row=1)
+        fig.update_yaxes(showticklabels=False, showgrid=False, zeroline=False, row=1)
+        fig.update_xaxes(title_text="Time (s)", row=2, col=2, showgrid=False)
+        fig.update_yaxes(title_text="Signal", row=2, col=2, showgrid=False, color="#888")
+        fig.update_xaxes(title_text="Time (s)", row=2, col=3, showgrid=False, showticklabels=False)
+        fig.update_yaxes(title_text="Slice", row=2, col=3, showgrid=False, showticklabels=False)
+        fig.update_xaxes(showticklabels=False, showgrid=False, zeroline=False, row=2, col=1)
+        fig.update_yaxes(showticklabels=False, showgrid=False, zeroline=False, row=2, col=1)
+
+        shape_str = "×".join(str(s) for s in lazy.shape)
+        auto_title = title or f"fMRI QC Summary  [{shape_str}]  TR={tr:.3g}s"
+        fig.update_layout(
+            title=dict(text=auto_title, font=dict(size=12, color="#ccc")),
+            paper_bgcolor="#111", plot_bgcolor="#111",
+            font_color="#888",
+            margin=dict(l=5, r=60, t=80, b=30),
+            height=560,
+        )
+        return fig
+
+    def mean_epi_figure(self, *, max_frames: int = 50, title: str = ""):
+        """Orthogonal view of the temporal mean EPI volume."""
+        if self._lazy is None or len(self._lazy.shape) != 4:
+            raise ValueError("mean_epi_figure() requires a 4D lazy NIfTI")
+        mean_vol = self._lazy.mean_volume(max_frames=max_frames)
+        viewer = VolumeViewer(mean_vol, modality=self.modality)
+        viewer._vmin, viewer._vmax = self._vmin, self._vmax
+        return viewer.ortho(title=title or "Mean EPI")
+
+    def std_epi_figure(self, *, max_frames: int = 50, title: str = ""):
+        """Orthogonal view of the temporal standard deviation map."""
+        if self._lazy is None or len(self._lazy.shape) != 4:
+            raise ValueError("std_epi_figure() requires a 4D lazy NIfTI")
+        std_vol = self._lazy.std_volume(max_frames=max_frames)
+        pos = std_vol[std_vol > 0]
+        vmax = float(np.percentile(pos, 98)) if pos.size else 1.0
+        viewer = VolumeViewer(std_vol, modality=self.modality)
+        viewer._vmin, viewer._vmax = 0.0, vmax
+        viewer.colormap = "hot"
+        return viewer.ortho(title=title or "Temporal Std")
+
+    def tsnr_figure(self, *, max_frames: int = 50, title: str = ""):
+        """Orthogonal view of the tSNR map (mean/std, Welford streaming)."""
+        if self._lazy is None or len(self._lazy.shape) != 4:
+            raise ValueError("tsnr_figure() requires a 4D lazy NIfTI")
+        tsnr_vol = self._lazy.tsnr_volume(max_frames=max_frames)
+        pos = tsnr_vol[tsnr_vol > 0]
+        vmin = float(np.percentile(pos, 2)) if pos.size else 0.0
+        vmax = float(np.percentile(pos, 98)) if pos.size else 100.0
+        viewer = VolumeViewer(tsnr_vol, modality=self.modality)
+        viewer._vmin, viewer._vmax = vmin, vmax
+        viewer.colormap = "hot"
+        return viewer.ortho(title=title or "tSNR Map")
+
+    def global_signal_timeseries(self, *, max_frames: int | None = None):
+        """Plot the brain-masked global mean BOLD signal over time."""
+        try:
+            import plotly.graph_objects as go
+        except ImportError:
+            raise ImportError("global_signal_timeseries() requires plotly")
+
+        if self._lazy is None or len(self._lazy.shape) != 4:
+            raise ValueError("global_signal_timeseries() requires a 4D lazy NIfTI")
+
+        gsig = self._lazy.global_signal(max_frames=max_frames)
+        n_t = self._lazy.shape[3]
+        tr = self.tr or 2.0
+        step = max(1, n_t // len(gsig))
+        times = np.arange(len(gsig)) * tr * step
+
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=times.tolist(), y=gsig.tolist(),
+            mode="lines", line=dict(color="#6af", width=1.5),
+            name="Global mean",
+        ))
+        fig.update_layout(
+            title="Global Signal",
+            xaxis_title="Time (s)", yaxis_title="Mean intensity",
+            paper_bgcolor="#111", plot_bgcolor="#111", font_color="#ccc",
+            height=280,
+        )
+        return fig
+
+    def framewise_preview(self, *, n_frames: int = 50, n_slices: int = 24, title: str = ""):
+        """Slice × time framewise intensity heatmap for motion/spike QC."""
+        try:
+            import plotly.graph_objects as go
+        except ImportError:
+            raise ImportError("framewise_preview() requires plotly")
+
+        if self._lazy is None or len(self._lazy.shape) != 4:
+            raise ValueError("framewise_preview() requires a 4D lazy NIfTI")
+
+        matrix, t_idxs = self._lazy.framewise_intensity_map(n_frames=n_frames, n_slices=n_slices)
+        tr = self.tr or 2.0
+        x_times = [i * tr for i in t_idxs]
+
+        fig = go.Figure(go.Heatmap(
+            x=x_times, z=matrix.tolist(),
+            colorscale="Plasma",
+            colorbar=dict(title="Mean intensity", len=0.7, thickness=12),
+        ))
+        fig.update_layout(
+            title=title or "Framewise Intensity (slice × time)",
+            xaxis_title="Time (s)", yaxis_title="Axial slice",
+            paper_bgcolor="#111", plot_bgcolor="#111", font_color="#ccc",
+            height=300,
+        )
+        return fig
 
     def to_html(self, output: Path | str, **kwargs) -> Path:
         """Write interactive HTML viewer to file. Returns the output Path."""

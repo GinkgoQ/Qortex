@@ -530,3 +530,316 @@ def overlay_pet(
     )
     return VisualResult(asset=asset, plan=plan, html=html,
                         provenance={"type": "pet_overlay", "threshold": threshold})
+
+
+# ── ML-oriented overlay utilities ─────────────────────────────────────────────
+
+def _binary_contour_2d(mask_2d: np.ndarray) -> np.ndarray:
+    """Return the 1-pixel-wide contour of a binary mask.
+
+    Pure numpy: contour = mask AND NOT morphological-erosion.
+    The erosion uses 4-connectivity (no diagonal neighbors) to produce
+    crisp, unambiguous boundary pixels.
+    """
+    m = mask_2d.astype(bool)
+    eroded = (
+        m
+        & np.roll(m,  1, axis=0)
+        & np.roll(m, -1, axis=0)
+        & np.roll(m,  1, axis=1)
+        & np.roll(m, -1, axis=1)
+    )
+    return m & ~eroded
+
+
+def overlay_contour(
+    base: Any,
+    mask: Any,
+    *,
+    alpha: float = 0.9,
+    color: tuple[int, int, int] = (255, 80, 80),
+    title: str = "Mask Contour Overlay",
+    resample: bool = False,
+    allow_affine_mismatch: bool = False,
+) -> VisualResult:
+    """Overlay the contour (boundary) of a binary mask on an anatomical image.
+
+    Unlike ``overlay_mask()`` which fills the masked region, this draws only
+    the 1-voxel-thick boundary — useful for checking registration accuracy and
+    mask placement without obscuring the underlying anatomy.
+
+    Parameters
+    ----------
+    base:   Path, nibabel image, or numpy array for the anatomical background.
+    mask:   Path, nibabel image, or numpy array for the binary mask.
+    alpha:  Contour line opacity (0–1).
+    color:  RGB tuple for the contour colour.  Default red (255, 80, 80).
+    resample:
+        Resample mask to base geometry when shapes differ.
+    allow_affine_mismatch:
+        Suppress the OverlayGeometryError when affines differ.
+    """
+    base_h, base_shape, base_aff = _load_vol_lazy(base)
+    mask_h, mask_shape, mask_aff = _load_vol_lazy(mask)
+    base_h, mask_h = _check_geometry(
+        base_h, mask_h, base_aff, mask_aff, resample,
+        allow_affine_mismatch=allow_affine_mismatch, interp_order=0,
+    )
+    vmin, vmax = _overlay_auto_window(base_h)
+    vox = _overlay_voxel_sizes(base_h)
+    from qortex.visualize._html import array_to_b64png, build_interactive_html, apply_window
+    from qortex.visualize._colors import apply_window as _aw
+
+    nx, ny, nz = _get_shape3(base_h)
+    MAX_SLICES = 80
+
+    def _b64_contour_slice(axis: int, idx: int) -> str:
+        base_slc = _get_slice(base_h, axis, idx).T[::-1, :]
+        mask_slc = _get_slice(mask_h, axis, idx).T[::-1, :]
+        base_norm = _aw(base_slc, vmin, vmax)     # (H, W) in [0, 1]
+        contour = _binary_contour_2d(mask_slc)
+
+        from qortex.visualize.overlay import _blend_slice
+        # Use the label color mode but with a pre-built contour mask
+        base_lut = get_lut("gray")
+        base_idx = (np.clip(base_norm, 0, 1) * 255).astype(np.uint8)
+        rgb = base_lut[base_idx].astype(np.float32)
+        ov_color = np.array(color, dtype=np.float32)
+        rgb[contour] = (1 - alpha) * rgb[contour] + alpha * ov_color
+        return _rgb_slice_to_b64png(np.clip(rgb, 0, 255).astype(np.uint8))
+
+    def _render_axis(axis: int, n: int):
+        idxs = (np.round(np.linspace(0, n - 1, MAX_SLICES)).astype(int).tolist()
+                if n > MAX_SLICES else list(range(n)))
+        return [_b64_contour_slice(axis, i) for i in idxs], idxs
+
+    slices_x, si_x = _render_axis(0, nx)
+    slices_y, si_y = _render_axis(1, ny)
+    slices_z, si_z = _render_axis(2, nz)
+
+    html = build_interactive_html(
+        title=title, dataset_info="Contour overlay",
+        modality="overlay", shape=(nx, ny, nz), voxel_sizes=vox,
+        vmin=vmin, vmax=vmax, window_str="contour",
+        slices_x=slices_x, slices_y=slices_y, slices_z=slices_z,
+        si_x=si_x, si_y=si_y, si_z=si_z,
+        cx=nx // 2, cy=ny // 2, cz=nz // 2,
+        n_volumes=1, tr=None, slices_t=None,
+    )
+
+    asset = inspect_file(base if not isinstance(base, np.ndarray) else base)
+    plan = plan_from_asset(asset, "interactive_html")
+    return VisualResult(asset=asset, plan=plan, html=html,
+                        provenance={"type": "contour_overlay", "alpha": alpha, "color": color})
+
+
+def overlay_edges(
+    base: Any,
+    mask: Any,
+    *,
+    alpha: float = 0.8,
+    color: tuple[int, int, int] = (80, 200, 255),
+    title: str = "Edge Overlay",
+    resample: bool = False,
+    allow_affine_mismatch: bool = False,
+) -> VisualResult:
+    """Overlay the gradient-magnitude edges of a mask on an anatomical image.
+
+    Uses a 2D finite-difference gradient (np.gradient) to detect edges —
+    crisper than contour-erosion for smooth/probabilistic masks.  Threshold
+    is set at 30 % of the per-slice gradient maximum so faint edges are
+    captured without noise amplification.
+
+    Parameters
+    ----------
+    base:   Anatomical background.
+    mask:   Binary or probabilistic mask (edges are extracted via gradient).
+    alpha:  Edge overlay opacity.
+    color:  RGB tuple for edge colour.  Default cyan (80, 200, 255).
+    """
+    base_h, base_shape, base_aff = _load_vol_lazy(base)
+    mask_h, mask_shape, mask_aff = _load_vol_lazy(mask)
+    base_h, mask_h = _check_geometry(
+        base_h, mask_h, base_aff, mask_aff, resample,
+        allow_affine_mismatch=allow_affine_mismatch, interp_order=0,
+    )
+    vmin, vmax = _overlay_auto_window(base_h)
+    vox = _overlay_voxel_sizes(base_h)
+    from qortex.visualize._html import build_interactive_html
+    from qortex.visualize._colors import apply_window as _aw
+
+    nx, ny, nz = _get_shape3(base_h)
+    MAX_SLICES = 80
+
+    def _b64_edge_slice(axis: int, idx: int) -> str:
+        base_slc = _get_slice(base_h, axis, idx).T[::-1, :]
+        mask_slc = _get_slice(mask_h, axis, idx).T[::-1, :].astype(np.float32)
+        base_norm = _aw(base_slc, vmin, vmax)
+
+        dy, dx = np.gradient(mask_slc)
+        grad_mag = np.sqrt(dx ** 2 + dy ** 2)
+        thresh = float(grad_mag.max()) * 0.30
+        edges = grad_mag > thresh if thresh > 1e-6 else np.zeros_like(grad_mag, dtype=bool)
+
+        base_lut = get_lut("gray")
+        base_idx_arr = (np.clip(base_norm, 0, 1) * 255).astype(np.uint8)
+        rgb = base_lut[base_idx_arr].astype(np.float32)
+        ov_color = np.array(color, dtype=np.float32)
+        rgb[edges] = (1 - alpha) * rgb[edges] + alpha * ov_color
+        return _rgb_slice_to_b64png(np.clip(rgb, 0, 255).astype(np.uint8))
+
+    def _render_axis(axis: int, n: int):
+        idxs = (np.round(np.linspace(0, n - 1, MAX_SLICES)).astype(int).tolist()
+                if n > MAX_SLICES else list(range(n)))
+        return [_b64_edge_slice(axis, i) for i in idxs], idxs
+
+    slices_x, si_x = _render_axis(0, nx)
+    slices_y, si_y = _render_axis(1, ny)
+    slices_z, si_z = _render_axis(2, nz)
+
+    html = build_interactive_html(
+        title=title, dataset_info="Edge overlay (gradient magnitude)",
+        modality="overlay", shape=(nx, ny, nz), voxel_sizes=vox,
+        vmin=vmin, vmax=vmax, window_str="edges",
+        slices_x=slices_x, slices_y=slices_y, slices_z=slices_z,
+        si_x=si_x, si_y=si_y, si_z=si_z,
+        cx=nx // 2, cy=ny // 2, cz=nz // 2,
+        n_volumes=1, tr=None, slices_t=None,
+    )
+
+    asset = inspect_file(base if not isinstance(base, np.ndarray) else base)
+    plan = plan_from_asset(asset, "interactive_html")
+    return VisualResult(asset=asset, plan=plan, html=html,
+                        provenance={"type": "edge_overlay", "alpha": alpha})
+
+
+def compare_masks(
+    base: Any,
+    pred: Any,
+    truth: Any,
+    *,
+    alpha: float = 0.65,
+    title: str = "Mask Comparison (TP / FP / FN)",
+    resample: bool = False,
+    allow_affine_mismatch: bool = False,
+) -> VisualResult:
+    """Compare a predicted binary mask against a ground-truth mask.
+
+    Three-class diagnostic overlay — the standard tool for ML segmentation QC:
+
+    * **Green**  — True Positive  (pred=1, truth=1) — correct detection
+    * **Red**    — False Positive (pred=1, truth=0) — over-segmentation
+    * **Blue**   — False Negative (pred=0, truth=1) — under-segmentation
+    * Transparent — True Negative (pred=0, truth=0) — background unchanged
+
+    Dice similarity and voxel counts are embedded in the HTML report header.
+    All three volumes are read lazily — only the displayed slices are loaded.
+
+    Parameters
+    ----------
+    base:   Anatomical background (NIfTI path, nibabel image, or numpy array).
+    pred:   Predicted binary mask (same geometry as base).
+    truth:  Ground-truth binary mask (same geometry as base).
+    alpha:  Overlay opacity for TP/FP/FN voxels (0–1).
+    resample:
+        Resample pred and truth to base geometry when shapes differ.
+    allow_affine_mismatch:
+        Suppress OverlayGeometryError for affine mismatches.
+    """
+    base_h, _, base_aff = _load_vol_lazy(base)
+    pred_h, _, pred_aff = _load_vol_lazy(pred)
+    truth_h, _, truth_aff = _load_vol_lazy(truth)
+
+    base_h, pred_h = _check_geometry(
+        base_h, pred_h, base_aff, pred_aff, resample,
+        allow_affine_mismatch=allow_affine_mismatch, interp_order=0,
+    )
+    base_h, truth_h = _check_geometry(
+        base_h, truth_h, base_aff, truth_aff, resample,
+        allow_affine_mismatch=allow_affine_mismatch, interp_order=0,
+    )
+
+    vmin, vmax = _overlay_auto_window(base_h)
+    vox = _overlay_voxel_sizes(base_h)
+    from qortex.visualize._html import build_interactive_html
+    from qortex.visualize._colors import apply_window as _aw
+
+    # Compute Dice from sampled slices (avoids full volume materialisation)
+    from qortex.visualize.volume import _LazyNIfTI
+    nx, ny, nz = _get_shape3(base_h)
+    n_z_sample = max(5, nz // 8)
+    sample_z = np.round(np.linspace(0, nz - 1, n_z_sample)).astype(int)
+    tp_total = fp_total = fn_total = 0
+    for z in sample_z:
+        p = _get_slice(pred_h, 2, int(z)).ravel() > 0.5
+        t = _get_slice(truth_h, 2, int(z)).ravel() > 0.5
+        tp_total += int((p & t).sum())
+        fp_total += int((p & ~t).sum())
+        fn_total += int((~p & t).sum())
+    denom = 2 * tp_total + fp_total + fn_total
+    dice_approx = (2 * tp_total / denom) if denom > 0 else float("nan")
+
+    MAX_SLICES = 80
+
+    # RGB colors
+    _TP = np.array([30, 200, 80], dtype=np.float32)    # green
+    _FP = np.array([240, 60, 60], dtype=np.float32)    # red
+    _FN = np.array([60, 100, 240], dtype=np.float32)   # blue
+
+    def _b64_compare_slice(axis: int, idx: int) -> str:
+        base_slc = _get_slice(base_h, axis, idx).T[::-1, :]
+        pred_slc = (_get_slice(pred_h, axis, idx).T[::-1, :] > 0.5)
+        truth_slc = (_get_slice(truth_h, axis, idx).T[::-1, :] > 0.5)
+
+        base_norm = _aw(base_slc, vmin, vmax)
+        base_lut = get_lut("gray")
+        base_idx_arr = (np.clip(base_norm, 0, 1) * 255).astype(np.uint8)
+        rgb = base_lut[base_idx_arr].astype(np.float32)
+
+        tp = pred_slc & truth_slc
+        fp = pred_slc & ~truth_slc
+        fn = ~pred_slc & truth_slc
+
+        for mask_2d, color in [(tp, _TP), (fp, _FP), (fn, _FN)]:
+            rgb[mask_2d] = (1 - alpha) * rgb[mask_2d] + alpha * color
+
+        return _rgb_slice_to_b64png(np.clip(rgb, 0, 255).astype(np.uint8))
+
+    def _render_axis(axis: int, n: int):
+        idxs = (np.round(np.linspace(0, n - 1, MAX_SLICES)).astype(int).tolist()
+                if n > MAX_SLICES else list(range(n)))
+        return [_b64_compare_slice(axis, i) for i in idxs], idxs
+
+    slices_x, si_x = _render_axis(0, nx)
+    slices_y, si_y = _render_axis(1, ny)
+    slices_z, si_z = _render_axis(2, nz)
+
+    dice_str = f"{dice_approx:.3f}" if not (dice_approx != dice_approx) else "N/A"
+    legend = (
+        "🟢 TP (correct) &nbsp;🔴 FP (over-seg) &nbsp;🔵 FN (under-seg)"
+        f" &nbsp;·&nbsp; Dice ≈ {dice_str}"
+        f" &nbsp;(sampled from {n_z_sample} slices)"
+    )
+
+    html = build_interactive_html(
+        title=title, dataset_info=legend,
+        modality="overlay", shape=(nx, ny, nz), voxel_sizes=vox,
+        vmin=vmin, vmax=vmax, window_str="comparison",
+        slices_x=slices_x, slices_y=slices_y, slices_z=slices_z,
+        si_x=si_x, si_y=si_y, si_z=si_z,
+        cx=nx // 2, cy=ny // 2, cz=nz // 2,
+        n_volumes=1, tr=None, slices_t=None,
+    )
+
+    asset = inspect_file(base if not isinstance(base, np.ndarray) else base)
+    plan = plan_from_asset(asset, "interactive_html")
+    return VisualResult(
+        asset=asset, plan=plan, html=html,
+        provenance={
+            "type": "compare_masks",
+            "dice_approx": dice_approx,
+            "tp_sample": tp_total,
+            "fp_sample": fp_total,
+            "fn_sample": fn_total,
+        },
+    )
