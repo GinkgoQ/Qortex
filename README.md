@@ -122,6 +122,8 @@ qortex validate data/ds000001-metadata --markdown-output validation.md
 | Artifacts | Reopen converted artifacts, inspect sample/split/source metadata, hand off to adapters |
 | ML adapters | Basic artifact bridges for Torch, Lightning, sklearn, TensorFlow, HuggingFace, Ray, Dask, and Braindecode; maturity varies by framework |
 | Catalog | Normalized OpenNeuro catalog ingestion, deep file-summary digestion, structured facets, and weighted local search backed by DuckDB or SQLite fallback |
+| Remote inspection | Demographics from API (no TSV download), NIfTI header extraction via 352-byte Range request, concurrent remote events fetch, label landscape with imbalance and ISI jitter, signal budget estimation from sidecars |
+| Dataset fitness ranking | `ResearchGoal` + `DatasetSelector` multi-dimensional scoring: modality, task, subjects, license, class balance, signal hours, community engagement |
 | CLI | Search, inspect, metadata, preview, plan, download, decision workflows, validate, local-index, EDA, convert, cache, login |
 
 ## Implementation Maturity
@@ -195,6 +197,13 @@ integration path. This avoids treating module existence as production maturity.
 | `validate(...)` | Run official BIDS Validator and return a typed `ValidationReport` |
 | `index_local(...)` | Index a local BIDS tree and reconcile it with the manifest |
 | `eda(...)` | Run EDA/QC and optionally write an HTML report |
+| `inspect()` | Fetch full metadata, ML readiness score, modality breakdown, and recommendations — no download |
+| `participants(prefer_api=True)` | Return demographics as a Polars DataFrame from API or remote participants.tsv |
+| `events(subject, session, task, run)` | Fetch a remote events TSV as a Polars DataFrame — no download |
+| `sidecar(path)` | Fetch and BIDS-merge all JSON sidecars for a file path — no download |
+| `nifti_info(path)` | Extract NIfTI shape, TR, and voxel sizes via a 352-byte HTTP Range request |
+| `label_landscape(...)` | Concurrently fetch all events files and analyze class balance, ISI jitter, and cross-subject consistency |
+| `signal_budget(...)` | Estimate total signal hours and achievable windows from remote sidecars and NIfTI headers |
 | `convert(...)` | Convert downloaded local data into an ML artifact |
 | `torch_dataset(...)` | Open a converted Parquet artifact as a Torch dataset |
 | `lightning_datamodule(...)` | Open a converted artifact as a Lightning DataModule |
@@ -486,6 +495,131 @@ Qortex has loader modules for these BIDS data categories:
 
 Loader discovery is lazy and fault-isolated. Missing optional dependencies for
 one modality do not prevent importing Qortex or using metadata-first workflows.
+
+## Advanced Remote Inspection (Zero-Download)
+
+Qortex exposes a layer of analysis that requires no local download at all. It
+uses HTTP Range requests, GraphQL API metadata, and concurrent CDN fetches to
+extract meaningful signal from OpenNeuro datasets in seconds.
+
+### Participant demographics from the API
+
+```python
+from qortex import Dataset
+
+ds = Dataset("ds000117")
+df = ds.participants()        # Polars DataFrame: participant_id, age, sex, group
+print(df["age"].mean())       # API response — no TSV downloaded
+print(df.filter(df["sex"] == "M"))
+```
+
+The API's `snapshot.summary.subjectMetadata` field returns per-subject age,
+sex, and group. Qortex falls back to fetching the CDN URL of participants.tsv
+only when the API returns no demographics.
+
+### Remote events inspection
+
+```python
+df = ds.events(subject="01", task="facerecognition")
+print(df.head())              # onset, duration, trial_type — fetched from CDN
+```
+
+### Remote sidecar inspection (BIDS inheritance)
+
+```python
+meta = ds.sidecar("sub-01/meg/sub-01_task-facerecognition_meg.fif")
+print(meta["SamplingFrequency"])   # merged from 11 candidate sidecar paths
+print(meta["RepetitionTime"])
+```
+
+### NIfTI header from 352 bytes
+
+```python
+info = ds.nifti_info("sub-01/func/sub-01_task-facerecognition_bold.nii.gz")
+print(info)
+# 4D fMRI 64×64×33×208  vox=3.00×3.00×4.05mm  TR=2.000s
+```
+
+For `.nii.gz` files, Qortex fetches the first 64 KB of compressed bytes and
+decompresses in-memory to extract the 352-byte NIfTI-1 header. A 38 MB fMRI
+volume yields full shape, TR, and voxel info using under 64 KB of network I/O.
+
+### Label landscape analysis
+
+```python
+landscape = ds.label_landscape()
+print(landscape.summary())
+# Events files: 128/128 fetched
+# Classes: 5  Total events: 12,800
+# Imbalance: 1.08x (balanced)
+# ISI jitter: task-face CV=0.03 (fixed-rate)
+# Cross-subject consistency: 96.1%
+
+print(landscape.imbalance_severity)   # "balanced"
+print(landscape.recommendations)
+```
+
+`label_landscape()` concurrently fetches all events TSVs using an async batch
+with configurable concurrency (default 24), then computes:
+
+- Trial type frequencies and per-subject profiles
+- Class imbalance ratio and severity (balanced / moderate / severe / critical)
+- Inter-stimulus interval jitter coefficient of variation per task
+- Cross-subject consistency: fraction of subjects with the full global class set
+- Actionable ML recommendations
+
+### Signal budget estimation
+
+```python
+budget = ds.signal_budget()
+print(budget.estimate_windows(window_duration_s=2.0, overlap=0.5))
+# {'meg': 183200, 'eeg': 42100}
+
+plan = budget.minimum_download_for_n_windows(target=10000, window_s=2.0)
+print(plan)
+# {'subjects_needed': 4, 'windows_achieved': 11200}
+```
+
+`signal_budget()` fetches JSON sidecars for all signal files concurrently and
+extracts `SamplingFrequency`, `RecordingDuration`, `EEGChannelCount`, TR, and
+discard volumes. For fMRI files missing TR or volume counts in the sidecar, it
+falls back to fetching the NIfTI header (352 bytes) automatically.
+
+### Dataset fitness ranking
+
+```python
+from qortex.inspect import ResearchGoal, DatasetSelector
+
+goal = ResearchGoal(
+    modality="eeg",
+    task_keywords=["motor", "imagery"],
+    min_subjects=20,
+    min_n_classes=2,
+    min_trials_per_class=50,
+    license_must_be_open=True,
+    max_size_gb=5.0,
+)
+
+selector = DatasetSelector()
+ranking = selector.find(goal, limit=10)
+for fit in ranking:
+    print(fit.summary_line())
+
+# ✓ ds004362         score=91.2/100 [A]  modality=1.00 | subject_count=0.90 | ...
+# ✓ ds003490         score=74.6/100 [B]  modality=1.00 | ...
+```
+
+`DatasetSelector` works in three lazily-escalating tiers:
+
+| Tier | Trigger | What it checks |
+| --- | --- | --- |
+| 1 — Catalog | Always | Modality, subject count, size, license (local, fast) |
+| 2 — API | Default | Full metadata, engagement, BIDS version, demographics |
+| 3 — Remote events | Optional (`tier3_events=True`) | Class count, imbalance, trials-per-class via `LabelLandscape` |
+
+Each `DatasetFitness` result carries a per-dimension breakdown with score,
+weight, observed value, target value, and grade (A–F), plus a `report()` method
+for full transparency.
 
 ## Catalog Search
 

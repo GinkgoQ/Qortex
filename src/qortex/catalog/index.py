@@ -416,9 +416,9 @@ class CatalogIndex:
 def _connect(path: Path) -> Any:
     try:
         import duckdb
+        return duckdb.connect(str(path))
     except ImportError:
         return sqlite3.connect(str(path))
-    return duckdb.connect(str(path))
 
 
 def _commit(connection: Any) -> None:
@@ -427,11 +427,31 @@ def _commit(connection: Any) -> None:
         commit()
 
 
+def _is_duckdb(connection: Any) -> bool:
+    return type(connection).__module__.startswith("duckdb")
+
+
 def _ensure_column(connection: Any, table: str, column: str, sql_type: str) -> None:
-    existing = {row[1] for row in connection.execute(f"PRAGMA table_info({table})").fetchall()}
-    if column in existing:
-        return
-    connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}")
+    """Add *column* to *table* if it does not already exist.
+
+    Uses INFORMATION_SCHEMA for DuckDB (ANSI-standard) and PRAGMA for SQLite.
+    """
+    try:
+        if _is_duckdb(connection):
+            rows = connection.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = ? AND column_name = ?",
+                [table, column],
+            ).fetchall()
+            if rows:
+                return
+        else:
+            rows = connection.execute(f"PRAGMA table_info({table})").fetchall()
+            if any(row[1] == column for row in rows):
+                return
+        connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}")
+    except Exception:
+        pass
 
 
 def _to_text(value: Any) -> str | None:
@@ -514,8 +534,13 @@ def _json_obj(value: Any) -> dict[str, Any]:
 
 def _columns(cursor: Any, connection: Any) -> list[str]:
     description = getattr(cursor, "description", None)
-    if description is None:
-        description = getattr(connection, "description", None)
+    if description:
+        return [item[0] for item in description]
+    # DuckDB returns column names directly via .columns on the relation result
+    columns = getattr(cursor, "columns", None)
+    if columns:
+        return list(columns)
+    description = getattr(connection, "description", None)
     return [item[0] for item in description or []]
 
 

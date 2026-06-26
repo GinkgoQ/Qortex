@@ -28,7 +28,7 @@ class DownloadRequest(_PydanticModel):
     subjects: Optional[list[str]] = None
     tasks: Optional[list[str]] = None
     modalities: Optional[list[str]] = None
-    exclude_derivatives: bool = False
+    include_derivatives: bool = False   # mirrors SelectionSpec.include_derivatives
     output_dir: Optional[str] = None
 
 

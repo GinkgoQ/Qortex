@@ -3,19 +3,36 @@
 All queries use the ``variables`` field of the GraphQL POST body — never
 string interpolation — so special characters in IDs/tags are handled safely.
 
-Public surface:
-    OpenNeuroClient
-        .get_dataset(dataset_id)          → DatasetRef
-        .get_snapshots(dataset_id)        → list[SnapshotRef]
-        .get_snapshot(dataset_id, tag)    → SnapshotRef
-        .get_latest_snapshot(dataset_id)  → SnapshotRef
-        .get_files(dataset_id, tag=None)  → (SnapshotRef, list[dict])
-        .search_datasets(...)             → list[DatasetRef]
+Public surface
+--------------
+OpenNeuroClient
+    .get_dataset(dataset_id)              → DatasetRef  (lightweight)
+    .get_dataset_rich(dataset_id)         → RichDatasetInfo (full metadata)
+    .get_snapshots(dataset_id)            → list[SnapshotRef]
+    .get_snapshot(dataset_id, tag)        → SnapshotRef
+    .get_latest_snapshot(dataset_id)      → SnapshotRef
+    .get_snapshot_summary(dataset_id, tag)→ SnapshotSummary (API-level, no file tree)
+    .get_files(dataset_id, tag=None)      → (SnapshotRef, list[dict])
+    .search_datasets(...)                 → list[DatasetRef]
+    .search_datasets_rich(...)            → list[RichDatasetInfo]
+
+Design notes
+------------
+* The OpenNeuro GraphQL API exposes richer metadata than we previously queried:
+  - ``snapshot.summary`` gives subjects, sessions, tasks, modalities, and
+    **subjectMetadata** (age, sex, group) directly — no participants.tsv download.
+  - ``snapshot.hexsha`` is a content hash for reliable cache invalidation.
+  - ``dataset.analytics`` provides views and download counts.
+  - ``snapshot.description`` includes Funding, References, BIDSVersion.
+  - ``stars`` and ``followers`` are list types (count via len()).
+* All of this is fetched without touching the file tree or downloading data.
 """
 
 from __future__ import annotations
 
 import json
+import logging
+from dataclasses import dataclass, field
 from typing import Any
 
 from qortex.client.auth import resolve_token
@@ -28,6 +45,189 @@ from qortex.core.exceptions import (
     ManifestError,
     SnapshotNotFoundError,
 )
+
+log = logging.getLogger(__name__)
+
+# ── Rich result types ─────────────────────────────────────────────────────────
+
+@dataclass
+class SubjectDemographic:
+    """Demographics for one participant, sourced directly from the API."""
+    participant_id: str
+    age: int | None = None
+    sex: str | None = None
+    group: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "participant_id": self.participant_id,
+            "age": self.age,
+            "sex": self.sex,
+            "group": self.group,
+        }
+
+
+@dataclass
+class SnapshotSummary:
+    """API-level BIDS summary for one snapshot — no file tree required."""
+    dataset_id: str
+    tag: str
+    hexsha: str | None
+    subjects: list[str] = field(default_factory=list)
+    sessions: list[str] = field(default_factory=list)
+    tasks: list[str] = field(default_factory=list)
+    modalities: list[str] = field(default_factory=list)
+    total_files: int = 0
+    total_size_bytes: int = 0
+    data_processed: bool = False
+    subject_demographics: list[SubjectDemographic] = field(default_factory=list)
+    bids_version: str | None = None
+    license: str | None = None
+    funding: list[str] = field(default_factory=list)
+    references: list[str] = field(default_factory=list)
+    ethics_approvals: list[str] = field(default_factory=list)
+    how_to_acknowledge: str | None = None
+
+    @property
+    def n_subjects(self) -> int:
+        return len(self.subjects)
+
+    @property
+    def n_sessions(self) -> int:
+        return len(self.sessions)
+
+    @property
+    def n_tasks(self) -> int:
+        return len(self.tasks)
+
+    @property
+    def total_size_gb(self) -> float:
+        return self.total_size_bytes / 1e9
+
+    def demographics_dataframe(self):
+        """Return subject demographics as a Polars DataFrame."""
+        import polars as pl
+        if not self.subject_demographics:
+            return pl.DataFrame(schema={"participant_id": pl.Utf8, "age": pl.Int32, "sex": pl.Utf8, "group": pl.Utf8})
+        return pl.DataFrame([d.to_dict() for d in self.subject_demographics])
+
+    def age_stats(self) -> dict[str, Any] | None:
+        """Return age distribution statistics from API-sourced demographics."""
+        ages = [d.age for d in self.subject_demographics if d.age is not None]
+        if not ages:
+            return None
+        return {
+            "n": len(ages),
+            "mean": round(sum(ages) / len(ages), 1),
+            "min": min(ages),
+            "max": max(ages),
+            "sex_distribution": _count_values(d.sex for d in self.subject_demographics if d.sex),
+            "group_distribution": _count_values(d.group for d in self.subject_demographics if d.group),
+        }
+
+
+@dataclass
+class DatasetEngagement:
+    """Community engagement metrics from the OpenNeuro platform."""
+    views: int = 0
+    downloads: int = 0
+    stars: int = 0
+    followers: int = 0
+
+    @property
+    def popularity_score(self) -> float:
+        """Composite popularity score (0-100). Higher = more community adoption."""
+        # Weighted: downloads matter most (actual use), then views, stars, followers
+        score = (
+            min(self.downloads / 500.0, 40.0)
+            + min(self.views / 50_000.0, 30.0)
+            + min(self.stars / 25.0, 20.0)
+            + min(self.followers / 10.0, 10.0)
+        )
+        return round(score, 1)
+
+
+@dataclass
+class RichDatasetInfo:
+    """Full OpenNeuro dataset metadata, sourced from the API without file tree access.
+
+    This is the richer alternative to ``DatasetRef``. Use it for inspection,
+    dataset selection, and metadata-first workflows.
+    """
+    id: str
+    name: str | None = None
+    description: str | None = None
+    doi: str | None = None
+    license: str | None = None
+    authors: list[str] = field(default_factory=list)
+    modalities: list[str] = field(default_factory=list)
+    tasks: list[str] = field(default_factory=list)
+    species: str | None = None
+    senior_author: str | None = None
+    study_domain: str | None = None
+    study_design: str | None = None
+    study_longitudinal: str | None = None
+    associated_paper_doi: str | None = None
+    openneuro_paper_doi: str | None = None
+    grant_funder: str | None = None
+    grant_id: str | None = None
+    data_processed: bool = False
+    publish_date: str | None = None
+    created: str | None = None
+    engagement: DatasetEngagement = field(default_factory=DatasetEngagement)
+    latest_snapshot_tag: str | None = None
+    latest_snapshot_hexsha: str | None = None
+    latest_snapshot_summary: SnapshotSummary | None = None
+    raw_metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dataset_ref(self) -> DatasetRef:
+        """Downcast to the lightweight DatasetRef for backwards compatibility."""
+        return DatasetRef(
+            id=self.id,
+            name=self.name,
+            description=self.description,
+            doi=self.doi,
+            license=self.license,
+            authors=self.authors,
+            modalities=self.modalities,
+            tasks=self.tasks,
+            raw_metadata=self.raw_metadata,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        snap = self.latest_snapshot_summary
+        return {
+            "id": self.id,
+            "name": self.name,
+            "doi": self.doi,
+            "license": self.license,
+            "authors": self.authors,
+            "modalities": self.modalities,
+            "tasks": self.tasks,
+            "species": self.species,
+            "senior_author": self.senior_author,
+            "study_domain": self.study_domain,
+            "study_design": self.study_design,
+            "associated_paper_doi": self.associated_paper_doi,
+            "publish_date": self.publish_date,
+            "engagement": {
+                "views": self.engagement.views,
+                "downloads": self.engagement.downloads,
+                "stars": self.engagement.stars,
+                "followers": self.engagement.followers,
+                "popularity_score": self.engagement.popularity_score,
+            },
+            "latest_snapshot": {
+                "tag": self.latest_snapshot_tag,
+                "hexsha": self.latest_snapshot_hexsha,
+                "n_subjects": snap.n_subjects if snap else None,
+                "n_tasks": snap.n_tasks if snap else None,
+                "total_files": snap.total_files if snap else None,
+                "total_size_gb": round(snap.total_size_gb, 3) if snap else None,
+                "bids_version": snap.bids_version if snap else None,
+            } if self.latest_snapshot_tag else None,
+        }
+
 
 # ── Query definitions ─────────────────────────────────────────────────────────
 
@@ -56,6 +256,70 @@ query GetDataset($datasetId: ID!) {
 }
 """
 
+_Q_DATASET_RICH = """
+query GetDatasetRich($datasetId: ID!) {
+    dataset(id: $datasetId) {
+        id
+        created
+        publishDate
+        metadata {
+            datasetName
+            modalities
+            tasksCompleted
+            dataProcessed
+            species
+            associatedPaperDOI
+            openneuroPaperDOI
+            seniorAuthor
+            studyDomain
+            studyDesign
+            studyLongitudinal
+            grantFunderName
+            grantIdentifier
+        }
+        analytics {
+            views
+            downloads
+        }
+        stars { userId }
+        followers { userId }
+        latestSnapshot {
+            id
+            tag
+            hexsha
+            created
+            size
+            description {
+                Name
+                License
+                DatasetDOI
+                Authors
+                BIDSVersion
+                Funding
+                ReferencesAndLinks
+                HowToAcknowledge
+                EthicsApprovals
+            }
+            summary {
+                modalities
+                sessions
+                subjects
+                tasks
+                size
+                totalFiles
+                dataProcessed
+                subjectMetadata {
+                    participantId
+                    age
+                    sex
+                    group
+                }
+            }
+        }
+    }
+}
+"""
+
 _Q_SNAPSHOTS = """
 query GetSnapshots($datasetId: ID!) {
     dataset(id: $datasetId) {
@@ -64,6 +328,45 @@ query GetSnapshots($datasetId: ID!) {
             tag
             created
             size
+            hexsha
+        }
+    }
+}
+"""
+
+_Q_SNAPSHOT_SUMMARY = """
+query GetSnapshotSummary($datasetId: ID!, $tag: String!) {
+    snapshot(datasetId: $datasetId, tag: $tag) {
+        id
+        tag
+        hexsha
+        created
+        size
+        description {
+            Name
+            License
+            DatasetDOI
+            Authors
+            BIDSVersion
+            Funding
+            ReferencesAndLinks
+            HowToAcknowledge
+            EthicsApprovals
+        }
+        summary {
+            modalities
+            sessions
+            subjects
+            tasks
+            size
+            totalFiles
+            dataProcessed
+            subjectMetadata {
+                participantId
+                age
+                sex
+                group
+            }
         }
     }
 }
@@ -97,6 +400,7 @@ query GetLatestFiles($datasetId: ID!) {
         latestSnapshot {
             id
             tag
+            hexsha
             description {
                 Name
                 DatasetDOI
@@ -121,17 +425,36 @@ query SearchDatasets($first: Int, $after: String) {
         edges {
             node {
                 id
+                publishDate
                 metadata {
                     datasetName
                     modalities
                     tasksCompleted
+                    species
+                    seniorAuthor
+                    studyDomain
                 }
+                analytics {
+                    views
+                    downloads
+                }
+                stars { userId }
                 latestSnapshot {
                     tag
+                    hexsha
                     size
                     description {
                         License
                         DatasetDOI
+                        Authors
+                    }
+                    summary {
+                        subjects
+                        sessions
+                        tasks
+                        modalities
+                        totalFiles
+                        dataProcessed
                     }
                 }
             }
@@ -147,7 +470,15 @@ query SearchDatasets($first: Int, $after: String) {
 # ── Client ────────────────────────────────────────────────────────────────────
 
 class OpenNeuroClient:
-    """Synchronous typed GraphQL client for the OpenNeuro API."""
+    """Synchronous typed GraphQL client for the OpenNeuro API.
+
+    Manages a persistent HTTP connection pool for the session lifetime.
+    Use as a context manager for automatic cleanup::
+
+        with OpenNeuroClient() as client:
+            info = client.get_dataset_rich("ds000117")
+            print(info.engagement.downloads)
+    """
 
     def __init__(
         self,
@@ -215,10 +546,10 @@ class OpenNeuroClient:
 
         raise APIError(f"GraphQL error: {msg}")
 
-    # ── Public API ────────────────────────────────────────────────────────
+    # ── Public API — lightweight ───────────────────────────────────────────
 
     def get_dataset(self, dataset_id: str) -> DatasetRef:
-        """Return lightweight metadata for a dataset."""
+        """Return lightweight metadata for a dataset (fast, 1 round-trip)."""
         data = self._query(_Q_DATASET, {"datasetId": dataset_id},
                            timeout=self._cfg.metadata_timeout)
         node = data.get("dataset")
@@ -229,32 +560,128 @@ class OpenNeuroClient:
             id=node["id"],
             name=meta.get("datasetName"),
             description=((node.get("latestSnapshot") or {}).get("description") or {}).get("Name"),
-            doi=_normalise_doi((node.get("latestSnapshot") or {}).get("description", {}).get("DatasetDOI")),
-            license=(node.get("latestSnapshot") or {}).get("description", {}).get("License"),
-            authors=((node.get("latestSnapshot") or {}).get("description") or {}).get("Authors") or [],
+            doi=_normalise_doi(((node.get("latestSnapshot") or {}).get("description") or {}).get("DatasetDOI")),
+            license=((node.get("latestSnapshot") or {}).get("description") or {}).get("License"),
+            authors=(((node.get("latestSnapshot") or {}).get("description") or {}).get("Authors") or []),
             modalities=meta.get("modalities") or [],
             tasks=meta.get("tasksCompleted") or [],
             raw_metadata=meta,
         )
 
+    # ── Public API — rich metadata ────────────────────────────────────────
+
+    def get_dataset_rich(self, dataset_id: str) -> RichDatasetInfo:
+        """Return the full OpenNeuro dataset profile in a single API call.
+
+        This is the primary entry point for metadata-first workflows.
+        Includes community engagement, API-level subject demographics, BIDS
+        summary, acquisition metadata, and full description fields — all
+        without downloading or iterating the file tree.
+        """
+        data = self._query(_Q_DATASET_RICH, {"datasetId": dataset_id},
+                           timeout=self._cfg.metadata_timeout)
+        node = data.get("dataset")
+        if node is None:
+            raise DatasetNotFoundError(dataset_id)
+
+        meta = node.get("metadata") or {}
+        analytics = node.get("analytics") or {}
+        snap = node.get("latestSnapshot") or {}
+        desc = snap.get("description") or {}
+        snap_summary = snap.get("summary") or {}
+
+        engagement = DatasetEngagement(
+            views=int(analytics.get("views") or 0),
+            downloads=int(analytics.get("downloads") or 0),
+            stars=len(node.get("stars") or []),
+            followers=len(node.get("followers") or []),
+        )
+
+        summary = _parse_snapshot_summary(
+            dataset_id=dataset_id,
+            snap=snap,
+            desc=desc,
+            snap_summary=snap_summary,
+        ) if snap else None
+
+        return RichDatasetInfo(
+            id=dataset_id,
+            name=meta.get("datasetName"),
+            description=desc.get("Name"),
+            doi=_normalise_doi(desc.get("DatasetDOI")),
+            license=desc.get("License"),
+            authors=desc.get("Authors") or [],
+            modalities=meta.get("modalities") or [],
+            tasks=meta.get("tasksCompleted") or [],
+            species=meta.get("species"),
+            senior_author=meta.get("seniorAuthor"),
+            study_domain=meta.get("studyDomain"),
+            study_design=meta.get("studyDesign"),
+            study_longitudinal=meta.get("studyLongitudinal"),
+            associated_paper_doi=_normalise_doi(meta.get("associatedPaperDOI")),
+            openneuro_paper_doi=_normalise_doi(meta.get("openneuroPaperDOI")),
+            grant_funder=meta.get("grantFunderName"),
+            grant_id=meta.get("grantIdentifier"),
+            data_processed=bool(meta.get("dataProcessed")),
+            publish_date=node.get("publishDate"),
+            created=node.get("created"),
+            engagement=engagement,
+            latest_snapshot_tag=snap.get("tag"),
+            latest_snapshot_hexsha=snap.get("hexsha"),
+            latest_snapshot_summary=summary,
+            raw_metadata=meta,
+        )
+
+    def get_snapshot_summary(
+        self, dataset_id: str, tag: str
+    ) -> SnapshotSummary:
+        """Return API-level BIDS summary for a specific snapshot.
+
+        This is faster than fetching the full file tree: it uses the
+        ``snapshot.summary`` field which OpenNeuro pre-computes and caches.
+        Includes subject demographics (age, sex, group), session list,
+        task list, file count, and total size — all without the file tree.
+        """
+        data = self._query(
+            _Q_SNAPSHOT_SUMMARY,
+            {"datasetId": dataset_id, "tag": tag},
+            timeout=self._cfg.metadata_timeout,
+        )
+        snap = data.get("snapshot")
+        if snap is None:
+            raise SnapshotNotFoundError(dataset_id, tag)
+
+        desc = snap.get("description") or {}
+        snap_summary = snap.get("summary") or {}
+        return _parse_snapshot_summary(
+            dataset_id=dataset_id,
+            snap=snap,
+            desc=desc,
+            snap_summary=snap_summary,
+        )
+
     def get_snapshots(self, dataset_id: str) -> list[SnapshotRef]:
-        """Return all available snapshot tags for a dataset."""
+        """Return all available snapshot tags, newest first."""
         data = self._query(_Q_SNAPSHOTS, {"datasetId": dataset_id},
                            timeout=self._cfg.metadata_timeout)
         node = data.get("dataset")
         if node is None:
             raise DatasetNotFoundError(dataset_id)
         snaps = node.get("snapshots") or []
-        return [
+        result = [
             SnapshotRef(
                 dataset_id=dataset_id,
                 tag=s["tag"],
                 id=s["id"],
                 created=s.get("created"),
                 size=s.get("size"),
+                hexsha=s.get("hexsha"),
             )
             for s in snaps
         ]
+        # Sort newest first (tags are typically semver-like)
+        result.sort(key=lambda s: s.created or "", reverse=True)
+        return result
 
     def get_snapshot(self, dataset_id: str, tag: str) -> SnapshotRef:
         """Return a specific snapshot ref (validates that the tag exists)."""
@@ -291,6 +718,10 @@ class OpenNeuroClient:
     ) -> tuple[SnapshotRef, list[dict]]:
         """Fetch the recursive file tree for a snapshot.
 
+        This fetches all file records (path, size, URLs, directory flag).
+        For lightweight metadata-only inspection, prefer
+        ``get_snapshot_summary()`` which avoids the file tree entirely.
+
         Parameters
         ----------
         tag:
@@ -299,7 +730,6 @@ class OpenNeuroClient:
         Returns
         -------
         (snapshot_ref, raw_file_dicts)
-            Raw file dicts are passed to ManifestBuilder for BIDS parsing.
         """
         if tag is None:
             data = self._query(_Q_LATEST_FILES, {"datasetId": dataset_id},
@@ -317,9 +747,12 @@ class OpenNeuroClient:
             tag=snap_raw["tag"],
             id=snap_raw["id"],
             doi=_normalise_doi(desc.get("DatasetDOI")),
+            hexsha=snap_raw.get("hexsha"),
         )
         raw_files: list[dict] = snap_raw.get("files") or []
         return snap, raw_files
+
+    # ── Search ────────────────────────────────────────────────────────────
 
     def search_datasets(
         self,
@@ -328,12 +761,73 @@ class OpenNeuroClient:
         task: str | None = None,
         limit: int = 100,
     ) -> list[DatasetRef]:
-        """Return datasets matching the given filters.
+        """Return datasets matching the given filters (client-side filtering)."""
+        refs = self._search_raw(modality=modality, task=task, limit=limit)
+        return [r.to_dataset_ref() for r in refs]
 
-        Note: the OpenNeuro GQL API has limited server-side filtering; this
-        method fetches up to *limit* datasets and applies client-side filters.
+    def search_datasets_rich(
+        self,
+        *,
+        modality: str | None = None,
+        task: str | None = None,
+        min_subjects: int | None = None,
+        min_downloads: int | None = None,
+        species: str | None = None,
+        data_processed: bool | None = None,
+        limit: int = 100,
+        sort_by: str = "downloads",
+    ) -> list[RichDatasetInfo]:
+        """Rich dataset search with engagement sorting and demographic filtering.
+
+        This is the advanced search path — it returns ``RichDatasetInfo``
+        objects with community engagement, API-level subject counts, BIDS
+        metadata and demographics from the API summary.
+
+        Parameters
+        ----------
+        sort_by:
+            ``"downloads"``, ``"views"``, ``"stars"``, ``"subjects"``,
+            ``"size"``, or ``"recent"``.
         """
-        refs: list[DatasetRef] = []
+        refs = self._search_raw(modality=modality, task=task, limit=min(limit * 3, 300))
+
+        # Apply additional filters
+        if min_subjects is not None:
+            refs = [r for r in refs
+                    if (r.latest_snapshot_summary and
+                        r.latest_snapshot_summary.n_subjects >= min_subjects)]
+        if min_downloads is not None:
+            refs = [r for r in refs if r.engagement.downloads >= min_downloads]
+        if species is not None:
+            refs = [r for r in refs
+                    if (r.species or "").lower() == species.lower()]
+        if data_processed is not None:
+            refs = [r for r in refs if r.data_processed == data_processed]
+
+        # Sort
+        sort_key = {
+            "downloads": lambda r: r.engagement.downloads,
+            "views": lambda r: r.engagement.views,
+            "stars": lambda r: r.engagement.stars,
+            "subjects": lambda r: (r.latest_snapshot_summary.n_subjects
+                                   if r.latest_snapshot_summary else 0),
+            "size": lambda r: (r.latest_snapshot_summary.total_size_bytes
+                               if r.latest_snapshot_summary else 0),
+            "recent": lambda r: r.publish_date or r.created or "",
+            "popularity": lambda r: r.engagement.popularity_score,
+        }.get(sort_by, lambda r: r.engagement.downloads)
+
+        refs.sort(key=sort_key, reverse=True)
+        return refs[:limit]
+
+    def _search_raw(
+        self,
+        modality: str | None,
+        task: str | None,
+        limit: int,
+    ) -> list[RichDatasetInfo]:
+        """Paginate through the datasets endpoint and apply client-side filters."""
+        refs: list[RichDatasetInfo] = []
         cursor: str | None = None
         fetched = 0
 
@@ -346,34 +840,26 @@ class OpenNeuroClient:
             try:
                 data = self._query(_Q_SEARCH, variables,
                                    timeout=self._cfg.metadata_timeout)
-            except APIError:
+            except APIError as exc:
+                log.warning("Search page failed: %s", exc)
                 break
 
-            edges = data.get("datasets", {}).get("edges") or []
-            page_info = data.get("datasets", {}).get("pageInfo") or {}
+            edges = (data.get("datasets") or {}).get("edges") or []
+            page_info = (data.get("datasets") or {}).get("pageInfo") or {}
 
             for edge in edges:
                 node = edge.get("node") or {}
-                meta = node.get("metadata") or {}
-                mods = meta.get("modalities") or []
-                tasks = meta.get("tasksCompleted") or []
+                info = _parse_search_node(node)
+                if info is None:
+                    continue
 
+                mods = info.modalities
+                tasks = info.tasks
                 if modality and modality.lower() not in [m.lower() for m in mods]:
                     continue
                 if task and task.lower() not in [t.lower() for t in tasks]:
                     continue
-
-                snap = node.get("latestSnapshot") or {}
-                desc = snap.get("description") or {}
-                refs.append(DatasetRef(
-                    id=node["id"],
-                    name=meta.get("datasetName"),
-                    doi=_normalise_doi(desc.get("DatasetDOI")),
-                    license=desc.get("License"),
-                    modalities=mods,
-                    tasks=tasks,
-                    raw_metadata=meta,
-                ))
+                refs.append(info)
 
             fetched += len(edges)
             if not page_info.get("hasNextPage"):
@@ -398,3 +884,100 @@ def _normalise_doi(doi: str | None) -> str | None:
     if doi is None:
         return None
     return doi.removeprefix("doi:")
+
+
+def _parse_snapshot_summary(
+    *,
+    dataset_id: str,
+    snap: dict,
+    desc: dict,
+    snap_summary: dict,
+) -> SnapshotSummary:
+    sub_meta_raw = snap_summary.get("subjectMetadata") or []
+    subject_demographics = [
+        SubjectDemographic(
+            participant_id=m.get("participantId") or "",
+            age=m.get("age"),
+            sex=m.get("sex"),
+            group=m.get("group"),
+        )
+        for m in sub_meta_raw
+        if m.get("participantId")
+    ]
+
+    funding = desc.get("Funding") or []
+    refs = desc.get("ReferencesAndLinks") or []
+    ethics = desc.get("EthicsApprovals") or []
+
+    return SnapshotSummary(
+        dataset_id=dataset_id,
+        tag=snap.get("tag") or "",
+        hexsha=snap.get("hexsha"),
+        subjects=snap_summary.get("subjects") or [],
+        sessions=snap_summary.get("sessions") or [],
+        tasks=snap_summary.get("tasks") or [],
+        modalities=snap_summary.get("modalities") or [],
+        total_files=int(snap_summary.get("totalFiles") or 0),
+        total_size_bytes=int(snap_summary.get("size") or snap.get("size") or 0),
+        data_processed=bool(snap_summary.get("dataProcessed")),
+        subject_demographics=subject_demographics,
+        bids_version=desc.get("BIDSVersion"),
+        license=desc.get("License"),
+        funding=funding if isinstance(funding, list) else [funding] if funding else [],
+        references=refs if isinstance(refs, list) else [refs] if refs else [],
+        ethics_approvals=ethics if isinstance(ethics, list) else [ethics] if ethics else [],
+        how_to_acknowledge=desc.get("HowToAcknowledge"),
+    )
+
+
+def _parse_search_node(node: dict) -> RichDatasetInfo | None:
+    dataset_id = node.get("id")
+    if not dataset_id:
+        return None
+
+    meta = node.get("metadata") or {}
+    analytics = node.get("analytics") or {}
+    snap = node.get("latestSnapshot") or {}
+    desc = snap.get("description") or {}
+    snap_summary = snap.get("summary") or {}
+
+    engagement = DatasetEngagement(
+        views=int(analytics.get("views") or 0),
+        downloads=int(analytics.get("downloads") or 0),
+        stars=len(node.get("stars") or []),
+    )
+
+    summary = _parse_snapshot_summary(
+        dataset_id=dataset_id,
+        snap=snap,
+        desc=desc,
+        snap_summary=snap_summary,
+    ) if snap else None
+
+    return RichDatasetInfo(
+        id=dataset_id,
+        name=meta.get("datasetName"),
+        doi=_normalise_doi(desc.get("DatasetDOI")),
+        license=desc.get("License"),
+        authors=desc.get("Authors") or [],
+        modalities=meta.get("modalities") or [],
+        tasks=meta.get("tasksCompleted") or [],
+        species=meta.get("species"),
+        senior_author=meta.get("seniorAuthor"),
+        study_domain=meta.get("studyDomain"),
+        data_processed=bool(snap_summary.get("dataProcessed")),
+        publish_date=node.get("publishDate"),
+        engagement=engagement,
+        latest_snapshot_tag=snap.get("tag"),
+        latest_snapshot_hexsha=snap.get("hexsha"),
+        latest_snapshot_summary=summary,
+        raw_metadata=meta,
+    )
+
+
+def _count_values(values) -> dict[str, int]:
+    """Count occurrences of each value in an iterable."""
+    counts: dict[str, int] = {}
+    for v in values:
+        counts[str(v)] = counts.get(str(v), 0) + 1
+    return dict(sorted(counts.items(), key=lambda x: -x[1]))

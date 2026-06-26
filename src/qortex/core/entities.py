@@ -60,6 +60,9 @@ class SnapshotRef(_Frozen):
     created: datetime | None = None
     file_count: int | None = None
     size: int | None = None
+    # Content-addressed hash — stable across re-publishes with identical content.
+    # Use for reliable cache invalidation: if hexsha unchanged, file tree is unchanged.
+    hexsha: str | None = None
 
     @model_validator(mode="before")
     @classmethod

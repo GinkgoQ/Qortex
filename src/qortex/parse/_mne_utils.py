@@ -179,10 +179,10 @@ def read_raw_with_bids_fallback(
 ) -> tuple:
     """Attempt MNE-BIDS read with full sidecar inheritance; fall back to plain MNE.
 
-    Returns (raw, bids_root, channels_meta).
+    MNE-BIDS is tried only when available; the function works with plain MNE
+    alone. Returns (raw, bids_root, channels_meta).
     """
     mne = require_mne()
-    mne_bids = require_mne_bids()
     ents = file.entities
 
     bids_root = resolve_bids_root(file, local_path)
@@ -192,6 +192,7 @@ def read_raw_with_bids_fallback(
     if bids_root is not None:
         channels_meta = load_channels_tsv(bids_root, file)
         try:
+            import mne_bids
             bids_path = mne_bids.BIDSPath(
                 subject=ents.subject,
                 session=ents.session,
@@ -206,6 +207,8 @@ def read_raw_with_bids_fallback(
             extra.pop("preload", None)
             raw = mne_bids.read_raw_bids(bids_path, preload=preload, **extra)
             log.debug("MNE-BIDS read succeeded: %s", local_path)
+        except ImportError:
+            log.debug("mne-bids not installed, using plain MNE for: %s", local_path)
         except Exception as exc:
             log.debug("MNE-BIDS read failed (%s), falling back to plain MNE: %s", exc, local_path)
             raw = None

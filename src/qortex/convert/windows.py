@@ -15,8 +15,9 @@ class WindowSpec:
     """Parameters for a sliding or event-aligned window."""
 
     duration_s: float
-    overlap: float = 0.0  # fraction of window that overlaps with previous
-    tmin: float = 0.0     # for event-aligned: seconds before event onset
+    overlap: float = 0.0       # fraction of window that overlaps with previous (fixed only)
+    tmin: float = 0.0          # seconds before event onset (event-aligned only; negative = baseline)
+    event_aligned: bool = False  # when True, use event_aligned_windows() instead of fixed_windows()
 
 
 def fixed_windows(

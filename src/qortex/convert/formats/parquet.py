@@ -66,7 +66,7 @@ class ParquetWriter:
                 "onset": s.onset,
                 "duration": s.duration,
                 "split": s.split,
-                "source_path": s.provenance.get("source_path"),
+                "source_path": s.provenance.get("source_path") or s.provenance.get("source"),
             }
             arr = _numeric_array_or_none(s.data, np)
             if arr is not None:

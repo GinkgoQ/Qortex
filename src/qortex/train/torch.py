@@ -68,8 +68,9 @@ class QortexTorchDataset:
             item["signal"] = None
         return item
 
-    def from_dir(self, data_dir: Path, split: str | None = None) -> "QortexTorchDataset":
-        return QortexTorchDataset(data_dir, split)
+    @classmethod
+    def from_dir(cls, data_dir: Path, split: str | None = None) -> "QortexTorchDataset":
+        return cls(data_dir, split)
 
 
 class QortexIterableTorchDataset:
@@ -122,7 +123,8 @@ class QortexIterableTorchDataset:
                     item["signal"] = None
                 yield item
 
+    @classmethod
     def from_dir(
-        self, data_dir: Path, split: str | None = None
+        cls, data_dir: Path, split: str | None = None
     ) -> "QortexIterableTorchDataset":
-        return QortexIterableTorchDataset(data_dir, split)
+        return cls(data_dir, split)

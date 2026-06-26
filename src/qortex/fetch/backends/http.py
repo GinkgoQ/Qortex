@@ -32,7 +32,16 @@ _CHUNK = 65_536  # 64 KiB read chunk
 
 
 class _RetryableError(Exception):
-    """Internal signal: this attempt failed but should be retried."""
+    """Internal signal: this attempt failed but should be retried.
+
+    Carry an optional ``retry_after`` seconds hint from the server's
+    Retry-After header so the outer loop can honour the server's backoff
+    preference instead of using pure exponential backoff.
+    """
+
+    def __init__(self, message: str, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 class HTTPBackend:
@@ -89,7 +98,11 @@ class HTTPBackend:
             except _RetryableError as exc:
                 retries += 1
                 if attempt < cfg.max_retries:
-                    await asyncio.sleep(backoff)
+                    # Honour server's Retry-After header when present;
+                    # otherwise use exponential backoff capped to configured max.
+                    sleep_for = exc.retry_after if exc.retry_after is not None else backoff
+                    sleep_for = min(sleep_for, cfg.retry_backoff_max)
+                    await asyncio.sleep(sleep_for)
                     backoff = min(backoff * 2, cfg.retry_backoff_max)
                     continue
                 raise DownloadError(
@@ -167,7 +180,14 @@ class HTTPBackend:
                     "GET", url, headers=headers
                 ) as response:
                     if response.status_code == 429:
-                        raise _RetryableError("HTTP 429") from None
+                        retry_after: float | None = None
+                        ra_header = response.headers.get("Retry-After", "")
+                        if ra_header:
+                            try:
+                                retry_after = float(ra_header)
+                            except ValueError:
+                                pass
+                        raise _RetryableError("HTTP 429", retry_after=retry_after) from None
                     if response.status_code in RETRYABLE_CODES:
                         raise _RetryableError(f"HTTP {response.status_code}") from None
                     if response.is_error:

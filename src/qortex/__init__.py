@@ -32,6 +32,7 @@ from qortex.core.entities import (
     ValidationDiff,
     ValidationReport,
 )
+from qortex.catalog.search import DatasetQuery, PagedResults, facets, live_search, search
 from qortex.core.exceptions import QortexError
 from qortex.decision import (
     CanTrainReport,
@@ -47,6 +48,8 @@ from qortex.decision import (
     read_recipe,
     write_recipe,
 )
+from qortex.inspect.dataset import DatasetInspector, DatasetProfile
+from qortex.inspect.selector import DatasetFitness, DatasetSelector, ResearchGoal
 
 
 class Dataset:
@@ -156,6 +159,31 @@ class Dataset:
         """Return essential metadata and lightweight sidecar/table files."""
         return self.files(metadata_only=True)
 
+    def inspect(self) -> "DatasetProfile":
+        """Fetch full metadata and return a DatasetProfile — no download needed.
+
+        Queries the OpenNeuro API for the complete recursive file tree and
+        analyses it in-memory to produce modality breakdown, subject/session/
+        task structure, companion coverage, ML readiness score, and actionable
+        recommendations — all without writing any data bytes to disk.
+
+        Returns
+        -------
+        DatasetProfile
+            Rich inspection report.  Call ``.summary()`` for a compact view or
+            ``.report()`` for the full modality-level report.
+
+        Examples
+        --------
+        >>> ds = Dataset("ds000117")
+        >>> profile = ds.inspect()
+        >>> print(profile.summary())
+        >>> print(profile.ml_readiness.grade)
+        >>> print(profile.recommendations)
+        """
+        inspector = DatasetInspector(token=self._token)
+        return inspector.inspect(self.dataset_id, tag=self.snapshot)
+
     # ── Download ──────────────────────────────────────────────────────────
 
     def download(
@@ -181,8 +209,8 @@ class Dataset:
         ----------
         subjects / sessions / tasks / modalities:
             Filter which files to download.  ``None`` means include all.
-        exclude_derivatives:
-            Skip the ``derivatives/`` subdirectory.
+        include_derivatives:
+            Include the ``derivatives/`` subdirectory (default False).
         include / exclude:
             Gitignore-style glob patterns applied on top of entity filters.
         output_dir:
@@ -428,8 +456,12 @@ class Dataset:
         output_format: str = "parquet",
         window_duration: float | None = None,
         window_overlap: float = 0.0,
+        window_tmin: float = 0.0,
+        event_aligned: bool = False,
         split_strategy: str = "subject",
+        stratify_by_label: bool = True,
         shard_size: int = 1000,
+        skip_missing: bool = True,
     ) -> ConversionResult:
         """Convert a downloaded dataset into an ML-ready artifact.
 
@@ -447,10 +479,23 @@ class Dataset:
             per file).
         window_overlap:
             Fraction of window overlap for fixed sliding windows (0–1).
+            Only used when event_aligned=False.
+        window_tmin:
+            Seconds before event onset for event-aligned windows (default 0.0).
+            A negative value captures a pre-stimulus baseline.
+        event_aligned:
+            When True, use event_aligned_windows() instead of fixed_windows().
+            Requires an events TSV to be present for each signal file.
         split_strategy:
             One of ``subject``, ``random``, ``stratified``.
+        stratify_by_label:
+            When split_strategy="subject", also stratify on majority label per
+            subject to preserve class balance.
         shard_size:
             Number of samples per output shard.
+        skip_missing:
+            If True (default), files that fail to load are skipped and counted
+            in ConversionResult.warnings rather than aborting the pipeline.
         """
         from qortex.convert.pipeline import ConversionPipeline
         from qortex.convert.splits import SplitSpec
@@ -467,7 +512,12 @@ class Dataset:
         dest = output_dir or default_out
 
         win_spec = (
-            WindowSpec(duration_s=window_duration, overlap=window_overlap)
+            WindowSpec(
+                duration_s=window_duration,
+                overlap=window_overlap if not event_aligned else 0.0,
+                tmin=window_tmin,
+                event_aligned=event_aligned,
+            )
             if window_duration else None
         )
 
@@ -477,8 +527,12 @@ class Dataset:
             output_dir=dest,
             output_format=output_format,
             window_spec=win_spec,
-            split_spec=SplitSpec(strategy=split_strategy),
+            split_spec=SplitSpec(
+                strategy=split_strategy,
+                stratify_by_label=stratify_by_label,
+            ),
             shard_size=shard_size,
+            skip_missing=skip_missing,
         )
         return pipeline.run()
 
@@ -644,6 +698,284 @@ class Dataset:
         """Alias for plan(); returns an explainable DownloadPlan."""
         return self.plan(**kwargs)
 
+    # ── Remote inspection (no download needed) ────────────────────────────
+
+    def participants(self, *, prefer_api: bool = True):
+        """Return participant demographics as a Polars DataFrame.
+
+        Tries the OpenNeuro API first (``snapshot.summary.subjectMetadata``)
+        which gives age, sex, and group without downloading participants.tsv.
+        Falls back to fetching participants.tsv via CDN if the API returns no
+        demographics.
+
+        Parameters
+        ----------
+        prefer_api:
+            When True (default), try the API before the remote TSV. Set False
+            to always read directly from the CDN file.
+
+        Returns
+        -------
+        polars.DataFrame
+            Columns: participant_id, age (int | null), sex (str | null),
+            group (str | null).  Additional columns from the TSV are included
+            when the fallback path is taken.
+
+        Examples
+        --------
+        >>> df = Dataset("ds000117").participants()
+        >>> df.filter(pl.col("sex") == "M")["age"].mean()
+        """
+        import polars as pl
+        from qortex.client.graphql import OpenNeuroClient
+
+        if prefer_api:
+            with OpenNeuroClient(token=self._token) as client:
+                try:
+                    snap_tag = self.snapshot or client.get_latest_snapshot(self.dataset_id).tag
+                    summary = client.get_snapshot_summary(self.dataset_id, snap_tag)
+                    if summary.subject_demographics:
+                        return summary.demographics_dataframe()
+                except Exception:
+                    pass
+
+        # Fallback: fetch participants.tsv via CDN
+        manifest = self.manifest()
+        from qortex.client.remote import RemoteFileGateway, best_url_for_path
+        gateway = RemoteFileGateway()
+        url = best_url_for_path(manifest, "participants.tsv")
+        if url is None:
+            return pl.DataFrame(schema={"participant_id": pl.Utf8, "age": pl.Int64, "sex": pl.Utf8, "group": pl.Utf8})
+        return gateway.fetch_tsv(url)
+
+    def events(
+        self,
+        subject: str | None = None,
+        session: str | None = None,
+        task: str | None = None,
+        run: str | None = None,
+    ):
+        """Fetch a remote events TSV as a Polars DataFrame without downloading.
+
+        All parameters are optional; when None, the first matching events file
+        in the manifest is used.
+
+        Parameters
+        ----------
+        subject / session / task / run:
+            BIDS entity filters.  Partial matches are accepted — e.g. just
+            ``task="rest"`` will find any events file for the rest task.
+
+        Returns
+        -------
+        polars.DataFrame
+            Columns from the events TSV: onset, duration, trial_type, …
+
+        Examples
+        --------
+        >>> df = Dataset("ds000117").events(subject="01", task="facerecognition")
+        >>> df.head()
+        """
+        manifest = self.manifest()
+        matches = [
+            fr for fr in manifest.files
+            if fr.suffix == "events"
+            and (subject is None or fr.subject == subject)
+            and (session is None or fr.session == session)
+            and (task is None or fr.task == task)
+            and (run is None or fr.run == run)
+        ]
+        if not matches:
+            raise FileNotFoundError(
+                f"No events file found in manifest for "
+                f"sub={subject!r} ses={session!r} task={task!r} run={run!r}"
+            )
+        fr = matches[0]
+        from qortex.client.remote import RemoteFileGateway, _pick_url
+        gateway = RemoteFileGateway()
+        url = _pick_url(fr)
+        if not url:
+            raise FileNotFoundError(f"No URL for events file {fr.path!r}")
+        return gateway.fetch_tsv(url)
+
+    def sidecar(self, path: str):
+        """Fetch and merge BIDS JSON sidecars for a file path, without downloading.
+
+        Follows BIDS inheritance: most-general (dataset root) sidecar values
+        are overridden by more-specific ones (subject → session → file-level).
+
+        Parameters
+        ----------
+        path:
+            BIDS-relative path, e.g. ``"sub-01/eeg/sub-01_task-rest_eeg.set"``.
+
+        Returns
+        -------
+        dict
+            Merged JSON sidecar key-value pairs.
+
+        Examples
+        --------
+        >>> meta = Dataset("ds004130").sidecar("sub-01/eeg/sub-01_task-rest_eeg.set")
+        >>> meta["SamplingFrequency"]
+        256
+        """
+        manifest = self.manifest()
+        from qortex.client.remote import RemoteFileGateway, _pick_url
+        from qortex.manifest.sidecar import SidecarResolver
+
+        # Find the target file in the manifest
+        target = next((fr for fr in manifest.files if fr.path == path), None)
+        if target is None:
+            raise FileNotFoundError(f"Path {path!r} not found in manifest")
+
+        resolver = SidecarResolver(manifest)
+        sidecar_records = resolver.resolve(target)
+
+        gateway = RemoteFileGateway()
+        merged: dict = {}
+        for fr in sidecar_records:
+            url = _pick_url(fr)
+            if url:
+                try:
+                    data = gateway.fetch_json(url)
+                    merged.update(data)
+                except Exception:
+                    pass
+        return merged
+
+    def nifti_info(self, path: str):
+        """Extract NIfTI header info remotely using an HTTP Range request.
+
+        Fetches only 352 bytes (NIfTI-1) or up to 64 KB (NIfTI-2 / gzip)
+        to determine image shape, voxel sizes, TR, and number of volumes.
+
+        Parameters
+        ----------
+        path:
+            BIDS-relative path to a .nii or .nii.gz file.
+
+        Returns
+        -------
+        NIfTIHeader
+            Shape, voxel sizes in mm, TR in seconds, number of volumes.
+
+        Examples
+        --------
+        >>> info = Dataset("ds000117").nifti_info(
+        ...     "sub-01/func/sub-01_task-facerecognition_bold.nii.gz"
+        ... )
+        >>> print(info)
+        4D fMRI 64×64×33×208 vox=3.00×3.00×4.05mm TR=2.000s
+        """
+        manifest = self.manifest()
+        from qortex.client.remote import RemoteFileGateway, _pick_url
+
+        target = next((fr for fr in manifest.files if fr.path == path), None)
+        if target is None:
+            raise FileNotFoundError(f"Path {path!r} not found in manifest")
+
+        url = _pick_url(target)
+        if not url:
+            raise FileNotFoundError(f"No URL available for {path!r}")
+
+        gateway = RemoteFileGateway()
+        return gateway.fetch_nifti_header(url)
+
+    def label_landscape(
+        self,
+        *,
+        label_column: str | None = None,
+        concurrency: int = 24,
+        max_events_files: int | None = None,
+    ):
+        """Analyse all events TSVs remotely and return a LabelLandscape.
+
+        Concurrently fetches all events.tsv files from CDN URLs, auto-detects
+        the label column, and computes trial-type statistics, class balance,
+        inter-stimulus interval jitter, cross-subject consistency, and
+        actionable ML recommendations — with zero bytes downloaded to disk.
+
+        Parameters
+        ----------
+        label_column:
+            Column to use as the class label (e.g. ``"trial_type"``).  When
+            None, auto-detected from the first events file.
+        concurrency:
+            Number of parallel CDN requests.
+        max_events_files:
+            Cap for number of events files to fetch (useful for large datasets).
+
+        Returns
+        -------
+        LabelLandscape
+            Rich label analysis.  Call ``.summary()`` for a compact report.
+
+        Examples
+        --------
+        >>> landscape = Dataset("ds000117").label_landscape()
+        >>> print(landscape.summary())
+        >>> landscape.imbalance_severity   # "balanced" | "moderate" | ...
+        """
+        from qortex.client.remote import RemoteFileGateway
+        from qortex.inspect.label_landscape import LabelLandscapeAnalyzer
+
+        manifest = self.manifest()
+        gateway = RemoteFileGateway()
+        analyzer = LabelLandscapeAnalyzer(gateway)
+        return analyzer.analyze(
+            manifest,
+            label_column=label_column,
+            concurrency=concurrency,
+            max_events_files=max_events_files,
+        )
+
+    def signal_budget(
+        self,
+        *,
+        concurrency: int = 24,
+        include_nifti_headers: bool = True,
+    ):
+        """Estimate total signal hours and achievable windows without downloading.
+
+        Fetches JSON sidecars remotely for all signal files, extracting
+        SamplingFrequency, RecordingDuration, EEGChannelCount, etc.  For fMRI
+        files with missing TR or volume counts, fetches the NIfTI header
+        (352 bytes via HTTP Range) to fill the gaps.
+
+        Parameters
+        ----------
+        concurrency:
+            Parallel CDN connections.
+        include_nifti_headers:
+            Whether to fetch NIfTI headers for fMRI files missing TR info.
+
+        Returns
+        -------
+        SignalBudget
+            Per-modality recording hours and window estimates.  Call
+            ``budget.estimate_windows(2.0)`` for a 2-second window breakdown.
+
+        Examples
+        --------
+        >>> budget = Dataset("ds000117").signal_budget()
+        >>> budget.estimate_windows(window_duration_s=2.0, overlap=0.5)
+        {'meg': 183200, 'eeg': 42100}
+        >>> budget.minimum_download_for_n_windows(10000, window_s=2.0)
+        {'subjects_needed': 4, 'windows_achieved': 11200}
+        """
+        from qortex.client.remote import RemoteFileGateway
+        from qortex.inspect.signal_budget import SignalBudgetEstimator
+
+        manifest = self.manifest()
+        gateway = RemoteFileGateway()
+        estimator = SignalBudgetEstimator(gateway)
+        return estimator.estimate(
+            manifest,
+            concurrency=concurrency,
+            include_nifti_headers=include_nifti_headers,
+        )
+
     # ── Repr ─────────────────────────────────────────────────────────────
 
     def __repr__(self) -> str:
@@ -694,11 +1026,24 @@ __all__ = [
     "search",
     "refresh_catalog",
     "refresh_catalog_dataset",
+    # Inspect
+    "DatasetInspector",
+    "DatasetProfile",
+    "DatasetSelector",
+    "DatasetFitness",
+    "ResearchGoal",
+    # Catalog
+    "DatasetQuery",
+    "PagedResults",
+    "live_search",
+    "facets",
+    # Core entities
     "LocalIndexReport",
     "EventLabelSummary",
     "FilePreview",
     "ValidationDiff",
     "ValidationReport",
+    # Decision
     "DecisionFinding",
     "DoctorReport",
     "MinimumPlanReport",

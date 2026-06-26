@@ -86,7 +86,7 @@ class FNIRSLoader:
         bids_root = resolve_bids_root(file, local_path)
         if bids_root is not None:
             try:
-                mne_bids = require_mne_bids()
+                import mne_bids
                 ents = file.entities
                 bids_path = mne_bids.BIDSPath(
                     subject=ents.subject,

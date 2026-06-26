@@ -17,8 +17,9 @@ log = logging.getLogger(__name__)
 
 _FMRI_EXTENSIONS = frozenset({".nii", ".nii.gz"})
 
-# Suffixes that indicate a BOLD / BOLD-like acquisition
-_FMRI_SUFFIXES = frozenset({"bold", "cbv", "phase", "sbref", "events", "physio"})
+# Suffixes that indicate a 4D BOLD-family NIfTI acquisition.
+# "events" and "physio" are .tsv files handled by BehaviorLoader — not here.
+_FMRI_SUFFIXES = frozenset({"bold", "cbv", "phase", "sbref"})
 
 
 class FMRILoader:

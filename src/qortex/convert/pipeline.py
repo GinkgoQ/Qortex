@@ -1,4 +1,21 @@
-"""ConversionPipeline — orchestrates load → window → split → write."""
+"""ConversionPipeline — orchestrates load → window → split → write.
+
+Key design decisions
+--------------------
+* **Streaming-first**: the pipeline never holds all loaded arrays in memory at
+  once.  When split_spec is None the stream goes straight from loader →
+  windower → writer.  When split_spec is set, a two-pass approach is used:
+  pass-1 collects only lightweight metadata (subject, label, source) to assign
+  splits; pass-2 reloads and streams to the writer with split labels attached.
+
+* **Failure tracking**: every load / sample-extraction failure is counted and
+  reported in ConversionResult.  Users can see exactly how many files were
+  skipped and why, rather than getting a silent partial artifact.
+
+* **Event-aligned windowing**: when window_spec.event_aligned=True and an
+  events EventsRecord is available for the file, event_aligned_windows() is
+  used; otherwise falls back to fixed_windows().
+"""
 
 from __future__ import annotations
 
@@ -6,6 +23,7 @@ import logging
 import json
 import hashlib
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterator
 
@@ -18,10 +36,19 @@ from qortex.core.entities import (
 from qortex.convert.formats import get_writer
 from qortex.convert.provenance import build_provenance, save_provenance
 from qortex.convert.splits import SplitSpec, apply_split
-from qortex.convert.windows import WindowSpec, fixed_windows
+from qortex.convert.windows import WindowSpec, event_aligned_windows, fixed_windows
 from qortex.parse._registry import LoaderRegistry
 
 log = logging.getLogger(__name__)
+
+
+@dataclass
+class _LoadStats:
+    n_loaded: int = 0
+    n_skipped_no_loader: int = 0
+    n_skipped_missing: int = 0
+    n_failed: int = 0
+    failed_files: list[str] = field(default_factory=list)
 
 
 class ConversionPipeline:
@@ -42,8 +69,7 @@ class ConversionPipeline:
         ``"parquet"`` | ``"zarr"`` | ``"hdf5"`` | ``"webdataset"`` |
         ``"huggingface"`` | ``"tfrecord"``.
     window_spec:
-        Fixed-stride sliding window config.  ``None`` = no windowing (one
-        SampleRecord per file, full signal).
+        Fixed-stride or event-aligned window config.  ``None`` = full signal.
     split_spec:
         Train / val / test split strategy.  ``None`` = no split column set.
     shard_size:
@@ -51,8 +77,8 @@ class ConversionPipeline:
     loader_registry:
         Override the global loader registry (useful for testing).
     skip_missing:
-        If True (default), silently skip files that have no loader or fail
-        to load.  If False, raise on first failure.
+        If True (default), failed files are logged and counted but do not abort
+        the pipeline.  Set False to raise on first failure.
     """
 
     def __init__(
@@ -82,50 +108,27 @@ class ConversionPipeline:
         else:
             self._registry = loader_registry
 
+        self._stats = _LoadStats()
+
     # ── Public API ────────────────────────────────────────────────────────
 
     def run(self) -> ConversionResult:
         t0 = time.monotonic()
+        self._stats = _LoadStats()
 
-        # 1. Load → (optional) window
-        samples = list(self._load_all())
-        log.info("Loaded %d samples from %s", len(samples), self.data_dir)
-
-        # 2. Window
-        if self.window_spec is not None:
-            samples = list(self._apply_windows(samples))
-            log.info("After windowing: %d samples", len(samples))
-
-        # 3. Split
-        split_counts: dict[str, int] = {}
-        if self.split_spec is not None:
-            train, val, test = apply_split(samples, self.split_spec)
-            split_counts = {
-                "train": len(train),
-                "val": len(val),
-                "test": len(test),
-            }
-            samples = train + val + test
-            log.info("Split: %s", split_counts)
-
-        n_samples = len(samples)
-        n_subjects = len({s.subject for s in samples if s.subject})
-        source_files = sorted({
-            src
-            for s in samples
-            for src in [
-                s.provenance.get("source_path"),
-                s.provenance.get("source"),
-            ]
-            if isinstance(src, str) and src
-        })
-
-        # 4. Write
         self.output_dir.mkdir(parents=True, exist_ok=True)
         writer = get_writer(self.output_format)
-        writer.write(iter(samples), self.output_dir, shard_size=self.shard_size)
 
-        # 5. Provenance
+        if self.split_spec is not None:
+            # Two-pass: collect metadata first, assign splits, stream with labels.
+            n_samples, n_subjects, split_counts, source_files = (
+                self._run_with_split(writer)
+            )
+        else:
+            # Single streaming pass: load → window → write.
+            n_samples, n_subjects, source_files = self._run_streaming(writer)
+            split_counts = {}
+
         prov = build_provenance(
             dataset_id=self.manifest.dataset_id,
             snapshot=self.manifest.snapshot or "latest",
@@ -147,9 +150,23 @@ class ConversionPipeline:
         )
 
         elapsed = time.monotonic() - t0
+        s = self._stats
+        warnings: list[str] = []
+        if s.n_failed:
+            warnings.append(
+                f"{s.n_failed} file(s) failed to load: {', '.join(s.failed_files[:5])}"
+                + (" …" if len(s.failed_files) > 5 else "")
+            )
+        if s.n_skipped_no_loader:
+            warnings.append(
+                f"{s.n_skipped_no_loader} file(s) had no registered loader."
+            )
+
         log.info(
-            "ConversionPipeline finished: %d samples, %d subjects in %.1fs",
+            "ConversionPipeline finished: %d samples, %d subjects in %.1fs "
+            "(%d failed, %d no-loader, %d missing-local)",
             n_samples, n_subjects, elapsed,
+            s.n_failed, s.n_skipped_no_loader, s.n_skipped_missing,
         )
 
         return ConversionResult(
@@ -161,7 +178,101 @@ class ConversionPipeline:
             elapsed=elapsed,
             provenance=prov,
             artifact_manifest=artifact_manifest,
+            warnings=warnings,
         )
+
+    # ── Streaming run (no split) ──────────────────────────────────────────
+
+    def _run_streaming(
+        self, writer
+    ) -> tuple[int, int, list[str]]:
+        """Single-pass: stream load → window → write without buffering arrays."""
+        sample_stream = self._sample_stream()
+        windowed = self._apply_windows_streaming(sample_stream)
+
+        subjects: set[str] = set()
+        source_files: set[str] = set()
+        n_samples = 0
+
+        def _annotate(stream: Iterator[SampleRecord]) -> Iterator[SampleRecord]:
+            nonlocal n_samples
+            for s in stream:
+                if s.subject:
+                    subjects.add(s.subject)
+                src = s.provenance.get("source_path") or s.provenance.get("source")
+                if src:
+                    source_files.add(src)
+                n_samples += 1
+                yield s
+
+        writer.write(_annotate(windowed), self.output_dir, shard_size=self.shard_size)
+        return n_samples, len(subjects), sorted(source_files)
+
+    # ── Two-pass run (with split) ─────────────────────────────────────────
+
+    def _run_with_split(
+        self, writer
+    ) -> tuple[int, int, dict[str, int], list[str]]:
+        """Two-pass: pass-1 builds split map; pass-2 streams with split labels."""
+        # Pass 1: collect lightweight metadata (no signal arrays stored).
+        meta_samples: list[SampleRecord] = []
+        for sample in self._apply_windows_streaming(self._sample_stream()):
+            # Replace large data array with a sentinel to avoid RAM explosion.
+            meta = SampleRecord(
+                data=None,
+                label=sample.label,
+                label_name=sample.label_name,
+                subject=sample.subject,
+                session=sample.session,
+                task=sample.task,
+                run=sample.run,
+                modality=sample.modality,
+                onset=sample.onset,
+                duration=sample.duration,
+                sfreq=sample.sfreq,
+                provenance=sample.provenance,
+            )
+            meta_samples.append(meta)
+
+        # Assign splits using lightweight metadata.
+        train, val, test = apply_split(meta_samples, self.split_spec)  # type: ignore[arg-type]
+        split_map: dict[str, str] = {}
+        for part, label in [(train, "train"), (val, "val"), (test, "test")]:
+            for s in part:
+                src = s.provenance.get("source_path") or s.provenance.get("source") or ""
+                key = f"{src}|{s.onset or 0:.6f}|{s.subject or ''}"
+                split_map[key] = label
+
+        split_counts = {
+            "train": len(train),
+            "val": len(val),
+            "test": len(test),
+        }
+        log.info("Split assignment: %s", split_counts)
+
+        # Pass 2: re-stream with split labels injected.
+        subjects: set[str] = set()
+        source_files: set[str] = set()
+        n_samples = 0
+
+        def _with_split(stream: Iterator[SampleRecord]) -> Iterator[SampleRecord]:
+            nonlocal n_samples
+            for s in stream:
+                src = s.provenance.get("source_path") or s.provenance.get("source") or ""
+                key = f"{src}|{s.onset or 0:.6f}|{s.subject or ''}"
+                s.split = split_map.get(key)
+                if s.subject:
+                    subjects.add(s.subject)
+                if src:
+                    source_files.add(src)
+                n_samples += 1
+                yield s
+
+        windowed2 = self._apply_windows_streaming(self._sample_stream())
+        writer.write(_with_split(windowed2), self.output_dir, shard_size=self.shard_size)
+        return n_samples, len(subjects), split_counts, sorted(source_files)
+
+    # ── Artifact manifest ─────────────────────────────────────────────────
 
     def _write_artifact_manifest(
         self,
@@ -171,6 +282,7 @@ class ConversionPipeline:
         split_counts: dict[str, int],
         source_files: list[str],
     ) -> ArtifactManifest:
+        s = self._stats
         payload = {
             "dataset_id": self.manifest.dataset_id,
             "snapshot": self.manifest.snapshot,
@@ -201,78 +313,171 @@ class ConversionPipeline:
                 "label": "any | null",
             },
         )
+        manifest_dict = manifest.model_dump()
+        manifest_dict["n_failed_files"] = s.n_failed
+        manifest_dict["n_skipped_files"] = s.n_skipped_no_loader + s.n_skipped_missing
+        manifest_dict["failed_files"] = s.failed_files
         (self.output_dir / "artifact_manifest.json").write_text(
-            manifest.model_dump_json(indent=2),
+            json.dumps(manifest_dict, indent=2, default=str),
             encoding="utf-8",
         )
         return manifest
 
     # ── Internal helpers ──────────────────────────────────────────────────
 
-    def _load_all(self) -> Iterator[SampleRecord]:
-        """Load each data file using its resolved loader.
-
-        Lifecycle per file:
-        1. resolve loader from registry
-        2. call loader.load(file_rec, local_path)  → AnyRecord
-        3. call loader.to_sample_records(record)   → Iterator[SampleRecord]
-        """
-        n_loaded = n_skipped = n_failed = 0
-
+    def _sample_stream(self) -> Iterator[SampleRecord]:
+        """Stream SampleRecords from all loadable files in the manifest."""
         for file_rec in self.manifest.files:
             if file_rec.is_dir:
                 continue
 
             local_path = self.data_dir / file_rec.path
             if not local_path.exists():
-                n_skipped += 1
+                self._stats.n_skipped_missing += 1
                 log.debug("File not found locally, skipping: %s", file_rec.path)
                 continue
 
             loader = self._registry.resolve(file_rec)
             if loader is None:
-                n_skipped += 1
+                self._stats.n_skipped_no_loader += 1
                 log.debug("No loader for file: %s", file_rec.path)
                 continue
 
             try:
                 record = loader.load(file_rec, local_path)
             except Exception as exc:
-                if self.skip_missing:
-                    n_failed += 1
-                    log.warning("Load failed for %s: %s", file_rec.path, exc)
-                    continue
-                raise
+                self._stats.n_failed += 1
+                self._stats.failed_files.append(file_rec.path)
+                log.warning("Load failed for %s: %s", file_rec.path, exc)
+                if not self.skip_missing:
+                    raise
+                continue
 
             try:
                 count = 0
                 for sample in loader.to_sample_records(record):
-                    yield sample
+                    self._stats.n_loaded += 1
                     count += 1
-                n_loaded += count
+                    yield sample
                 log.debug("Loaded %d samples from %s", count, file_rec.path)
             except Exception as exc:
-                if self.skip_missing:
-                    n_failed += 1
-                    log.warning("to_sample_records failed for %s: %s", file_rec.path, exc)
-                    continue
-                raise
+                self._stats.n_failed += 1
+                self._stats.failed_files.append(file_rec.path)
+                log.warning("to_sample_records failed for %s: %s", file_rec.path, exc)
+                if not self.skip_missing:
+                    raise
 
-        log.info(
-            "_load_all: %d samples from %d files (%d skipped, %d failed)",
-            n_loaded, n_loaded + n_skipped + n_failed, n_skipped, n_failed,
-        )
-
-    def _apply_windows(
-        self, samples: list[SampleRecord]
+    def _apply_windows_streaming(
+        self, stream: Iterator[SampleRecord]
     ) -> Iterator[SampleRecord]:
-        assert self.window_spec is not None
+        """Apply windowing to each sample as it arrives — no buffering.
+
+        When spec.event_aligned=True, the events companion file is looked up
+        from the manifest by BIDS entities (subject/session/task/run) and the
+        events TSV is loaded on first access (cached per unique key).
+        Falls back to fixed_windows() when no events file is found.
+        """
+        if self.window_spec is None:
+            yield from stream
+            return
+
+        import numpy as np
         spec = self.window_spec
-        for sample in samples:
-            if sample.sfreq is not None and sample.data is not None:
-                import numpy as np
-                arr = np.asarray(sample.data)
-                if arr.ndim == 2:
+
+        if spec.event_aligned:
+            yield from self._apply_event_aligned_streaming(stream, spec)
+            return
+
+        for sample in stream:
+            if sample.data is None or sample.sfreq is None:
+                yield sample
+                continue
+            arr = np.asarray(sample.data)
+            if arr.ndim == 2:
+                yield from fixed_windows(sample, spec)
+            else:
+                # 3D or 4D volumes — pass through; no fixed-stride windowing.
+                yield sample
+
+    def _apply_event_aligned_streaming(
+        self, stream: Iterator[SampleRecord], spec: WindowSpec
+    ) -> Iterator[SampleRecord]:
+        """Event-aligned windowing with lazy per-key events loading."""
+        from qortex.core.entities import FileRecord
+        from qortex.convert.windows import event_aligned_windows, fixed_windows
+
+        # Build BIDS-entity index: (subject, session, task, run) → events FileRecord
+        events_index: dict[tuple, FileRecord] = {}
+        for fr in self.manifest.files:
+            if fr.is_dir or fr.suffix != "events":
+                continue
+            key = (fr.subject, fr.session, fr.task, fr.run)
+            events_index[key] = fr
+
+        # Cache of loaded EventsRecord keyed by events file path
+        events_cache: dict[str, object] = {}
+
+        for sample in stream:
+            if sample.data is None or sample.sfreq is None:
+                yield sample
+                continue
+
+            import numpy as np
+            arr = np.asarray(sample.data)
+            if arr.ndim != 2:
+                yield sample
+                continue
+
+            # Look up events by BIDS entities matching the sample's provenance
+            sub = sample.subject
+            sess = sample.session
+            task = sample.task
+            run = sample.run
+
+            events_fr = events_index.get((sub, sess, task, run))
+            if events_fr is None:
+                # Partial key fallback: try without session, then without run
+                events_fr = (
+                    events_index.get((sub, None, task, run))
+                    or events_index.get((sub, sess, task, None))
+                    or events_index.get((sub, None, task, None))
+                )
+
+            if events_fr is None:
+                log.debug(
+                    "No events file found for sample %s (sub=%s ses=%s task=%s run=%s); "
+                    "falling back to fixed_windows.",
+                    sample.provenance.get("source", ""),
+                    sub, sess, task, run,
+                )
+                yield from fixed_windows(sample, spec)
+                continue
+
+            events_path = events_fr.path
+            if events_path not in events_cache:
+                local_events = self.data_dir / events_path
+                if not local_events.exists():
+                    log.debug("Events file not found locally: %s; falling back.", events_path)
                     yield from fixed_windows(sample, spec)
                     continue
-            yield sample
+                try:
+                    from qortex.parse.behavior import BehaviorLoader
+                    loader = BehaviorLoader()
+                    events_cache[events_path] = loader.load(events_fr, local_events)
+                except Exception as exc:
+                    log.warning("Failed to load events %s: %s; falling back.", events_path, exc)
+                    events_cache[events_path] = None
+
+            events_record = events_cache[events_path]
+            if events_record is None:
+                yield from fixed_windows(sample, spec)
+                continue
+
+            windows = list(event_aligned_windows(sample, events_record, spec))
+            if not windows:
+                log.debug(
+                    "event_aligned_windows produced 0 windows for %s "
+                    "(window_duration=%.2fs may exceed signal length or all events OOB).",
+                    sample.provenance.get("source", ""), spec.duration_s,
+                )
+            yield from windows
