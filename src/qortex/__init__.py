@@ -32,7 +32,7 @@ from qortex.core.entities import (
     ValidationDiff,
     ValidationReport,
 )
-from qortex.catalog.search import DatasetQuery, PagedResults, facets, live_search, search
+from qortex.catalog.search import DatasetQuery, PagedResults, facets, live_search
 from qortex.core.exceptions import QortexError
 from qortex.decision import (
     CanTrainReport,
@@ -1101,7 +1101,7 @@ class Dataset:
         >>> report = ds.visualize(suffixes=["T1w"])
         >>> report.show()
         """
-        from qortex.visualize._audit import run_visual_audit, VisualAuditReport
+        from qortex.visualize._audit import run_visual_audit_with_manifest
 
         root = Path(local_path) if local_path else self._resolve_data_dir()
         if not root.exists():
@@ -1111,57 +1111,15 @@ class Dataset:
             )
 
         manifest = self.manifest()
-        _VIZ_EXTS = frozenset({".nii.gz", ".nii", ".mgz", ".mgh", ".edf", ".fif", ".bdf", ".set"})
-
-        def _is_viz(fr) -> bool:
-            # Prefer structured extension field; fall back to path inspection
-            ext = getattr(fr, "extension", None)
-            if ext is not None:
-                return ext.lower() in _VIZ_EXTS
-            name = fr.path.lower()
-            return any(name.endswith(e) for e in _VIZ_EXTS)
-
-        candidates = [fr for fr in manifest.files if _is_viz(fr)]
-
-        if subjects is not None:
-            sub_set = {s.lstrip("sub-") if s.startswith("sub-") else s for s in subjects}
-            candidates = [
-                fr for fr in candidates
-                if (getattr(fr, "subject", None) or _extract_subject(fr.path)) in sub_set
-            ]
-        if datatypes is not None:
-            dt_set = set(datatypes)
-            candidates = [
-                fr for fr in candidates
-                if (getattr(fr, "datatype", None) in dt_set or
-                    any(("/" + dt + "/") in fr.path for dt in dt_set))
-            ]
-        if suffixes is not None:
-            suf_set = set(suffixes)
-            candidates = [
-                fr for fr in candidates
-                if (getattr(fr, "suffix", None) in suf_set or
-                    _bids_suffix(fr.path) in suf_set)
-            ]
-
-        # Group by BIDS suffix for n_per_suffix sampling, preferring the structured field
-        from collections import defaultdict
-        by_suffix: dict[str, list] = defaultdict(list)
-        for fr in candidates:
-            suf = getattr(fr, "suffix", None) or _bids_suffix(fr.path)
-            by_suffix[suf].append(fr)
-
-        selected: list = []
-        for suf_files in sorted(by_suffix.values(), key=len, reverse=True):
-            suf_files_sorted = sorted(suf_files, key=lambda f: f.path)
-            selected.extend(suf_files_sorted[:n_per_suffix])
-        selected = selected[:max_files]
-
-        report = run_visual_audit(
+        report = run_visual_audit_with_manifest(
             dataset_id=self.dataset_id,
-            file_records=selected,
+            manifest_files=manifest.files,
             local_root=root,
+            subjects=subjects,
+            suffixes=suffixes,
+            datatypes=datatypes,
             max_files=max_files,
+            n_per_suffix=n_per_suffix,
         )
 
         if output_dir is not None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import random
 from pathlib import Path
 from typing import Any
 
@@ -86,7 +87,7 @@ class Artifact:
         """
         try:
             import plotly.graph_objects as go
-            import polars as pl
+            import polars  # noqa: F401
         except ImportError:
             raise ImportError("visualize_sample() requires plotly and polars: pip install plotly polars")
 
@@ -99,30 +100,10 @@ class Artifact:
         if not shards:
             raise FileNotFoundError(f"No Parquet shards found in {self.path}")
 
-        # Read enough rows to reach the requested index (no full-shard load)
-        row_cursor = 0
-        target_row = None
-        for shard in shards:
-            df = pl.read_parquet(shard)
-            n = len(df)
-            if row_cursor + n > index:
-                target_row = df.row(index - row_cursor, named=True)
-                break
-            row_cursor += n
-
-        if target_row is None:
-            raise IndexError(
-                f"Sample index {index} out of range "
-                f"(split '{split}' has {row_cursor} samples)"
-            )
+        target_row = _read_artifact_row(shards, index)
 
         # Detect and render the data column
-        data_col = next(
-            (k for k in target_row if k not in ("label", "subject", "session",
-                                                  "task", "split", "source_path")
-             and isinstance(target_row[k], (list, bytes))),
-            None,
-        )
+        data_col = _artifact_data_column(target_row, self.manifest)
 
         meta_rows = "".join(
             f'<tr><td style="color:#888;padding:2px 12px 2px 0">{k}</td>'
@@ -173,6 +154,7 @@ class Artifact:
         *,
         split: str = "train",
         n: int = 16,
+        seed: int | None = 0,
     ):
         """Render thumbnails for *n* random samples from the artifact.
 
@@ -187,7 +169,7 @@ class Artifact:
             Number of samples to render.
         """
         try:
-            import polars as pl
+            import polars  # noqa: F401
             import plotly.io as pio
         except ImportError:
             raise ImportError("visual_audit() requires plotly and polars: pip install plotly polars")
@@ -200,15 +182,7 @@ class Artifact:
         if not shards:
             raise FileNotFoundError(f"No Parquet shards found for split={split!r} in {self.path}")
 
-        # Collect samples across shards (no full load)
-        samples = []
-        for shard in shards:
-            df = pl.read_parquet(shard)
-            take = min(max(1, n // len(shards) + 1), len(df))
-            samples.extend(df.head(take).to_dicts())
-            if len(samples) >= n:
-                break
-        samples = samples[:n]
+        samples = _sample_artifact_rows(shards, n=n, seed=seed)
 
         entries: list[AuditEntry] = []
         n_rendered = 0
@@ -221,22 +195,16 @@ class Artifact:
             asset = VisualAsset(path=self.path / f"sample_{i}", family="array",
                                 intent="artifact_sample", modality="signal")
             try:
-                data_col = next(
-                    (k for k in row if k not in ("label", "subject", "session", "task", "split", "source_path")
-                     and isinstance(row[k], list)),
-                    None,
-                )
+                data_col = _artifact_data_column(row, self.manifest)
                 thumb_b64 = None
                 if data_col and row[data_col]:
                     arr = _pl_to_array(row[data_col])
                     if arr.ndim >= 2:
-                        import plotly.graph_objects as go
                         fig = _plot_volume_slice(arr, f"Sample {i}") if arr.ndim >= 3 else _plot_signal_2d(arr, f"Sample {i}")
                         png_bytes = pio.to_image(fig, format="png", width=300, height=180)
                         import base64
                         thumb_b64 = base64.b64encode(png_bytes).decode()
                     elif arr.ndim == 1:
-                        import plotly.graph_objects as go
                         fig = _plot_signal_1d(arr, f"Sample {i}")
                         png_bytes = pio.to_image(fig, format="png", width=300, height=180)
                         import base64
@@ -260,6 +228,7 @@ class Artifact:
         *,
         n: int = 8,
         splits: list[str] | None = None,
+        seed: int | None = 0,
     ):
         """Render *n* random samples from each split side-by-side for comparison.
 
@@ -280,7 +249,7 @@ class Artifact:
             manifest (``["train", "val", "test"]`` filtered by what exists on disk).
         """
         try:
-            import polars as pl
+            import polars  # noqa: F401
             import plotly.io as pio
         except ImportError:
             raise ImportError("compare_splits() requires plotly and polars: pip install plotly polars")
@@ -309,16 +278,7 @@ class Artifact:
             if not shards:
                 continue
 
-            # Collect n samples across shards — minimal row reads
-            rows_needed = n
-            samples: list[dict] = []
-            for shard in shards:
-                if len(samples) >= rows_needed:
-                    break
-                df = pl.read_parquet(shard)
-                take = min(max(1, rows_needed // max(1, len(shards)) + 1), len(df))
-                samples.extend(df.head(take).to_dicts())
-            samples = samples[:rows_needed]
+            samples = _sample_artifact_rows(shards, n=n, seed=None if seed is None else seed + len(all_entries))
 
             for i, row in enumerate(samples):
                 label = str(row.get("label", "?"))
@@ -335,16 +295,10 @@ class Artifact:
                     modality="signal",
                 )
                 try:
-                    data_col = next(
-                        (k for k in row
-                         if k not in ("label", "subject", "session", "task", "split", "source_path")
-                         and isinstance(row[k], list)),
-                        None,
-                    )
+                    data_col = _artifact_data_column(row, self.manifest)
                     thumb_b64 = None
                     if data_col and row[data_col]:
                         arr = _pl_to_array(row[data_col])
-                        import plotly.graph_objects as go
                         if arr.ndim >= 3:
                             fig = _plot_volume_slice(arr, f"{split_name}/{i}")
                         elif arr.ndim == 2 and arr.shape[0] < arr.shape[1]:
@@ -375,6 +329,86 @@ class Artifact:
 
 
 # ── Helpers for visualize_sample / visual_audit ───────────────────────────────
+
+_META_COLUMNS = {
+    "label", "subject", "session", "task", "split", "source_path",
+    "dataset_id", "snapshot", "trial_type", "onset", "duration",
+}
+
+
+def _read_artifact_row(shards: list[Path], index: int) -> dict[str, Any]:
+    import polars as pl
+
+    if index < 0:
+        raise IndexError("Sample index must be non-negative")
+    row_cursor = 0
+    for shard in shards:
+        n_rows = _parquet_n_rows(shard)
+        if row_cursor + n_rows > index:
+            local_idx = index - row_cursor
+            frame = pl.scan_parquet(shard).slice(local_idx, 1).collect()
+            return frame.row(0, named=True)
+        row_cursor += n_rows
+    raise IndexError(f"Sample index {index} out of range ({row_cursor} samples)")
+
+
+def _sample_artifact_rows(shards: list[Path], *, n: int, seed: int | None) -> list[dict[str, Any]]:
+    import polars as pl
+
+    if n <= 0:
+        return []
+    counts = [(shard, _parquet_n_rows(shard)) for shard in shards]
+    total = sum(count for _, count in counts)
+    if total == 0:
+        return []
+    rng = random.Random(seed)
+    wanted = sorted(rng.sample(range(total), k=min(n, total)))
+    out: list[dict[str, Any]] = []
+    cursor = 0
+    wanted_i = 0
+    for shard, count in counts:
+        if wanted_i >= len(wanted):
+            break
+        local_offsets = []
+        while wanted_i < len(wanted) and cursor <= wanted[wanted_i] < cursor + count:
+            local_offsets.append(wanted[wanted_i] - cursor)
+            wanted_i += 1
+        cursor += count
+        for offset in local_offsets:
+            frame = pl.scan_parquet(shard).slice(offset, 1).collect()
+            out.append(frame.row(0, named=True))
+    return out
+
+
+def _parquet_n_rows(shard: Path) -> int:
+    import polars as pl
+
+    return int(pl.scan_parquet(shard).select(pl.len()).collect().item())
+
+
+def _artifact_data_column(row: dict[str, Any], manifest: ArtifactManifest) -> str | None:
+    schema = manifest.data_schema or {}
+    candidates: list[str] = []
+    for key in ("data_column", "signal_column", "image_column", "array_column", "feature_column"):
+        value = schema.get(key)
+        if isinstance(value, str):
+            candidates.append(value)
+    columns = schema.get("columns")
+    if isinstance(columns, dict):
+        for name, spec in columns.items():
+            if isinstance(spec, dict) and spec.get("role") in {"data", "signal", "image", "features"}:
+                candidates.append(str(name))
+    for col in candidates:
+        if col in row and isinstance(row[col], (list, bytes)):
+            return col
+    return next(
+        (
+            k for k, value in row.items()
+            if k not in _META_COLUMNS and isinstance(value, (list, bytes))
+        ),
+        None,
+    )
+
 
 def _pl_to_array(value) -> "np.ndarray":
     import numpy as np

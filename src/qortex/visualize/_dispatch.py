@@ -637,6 +637,9 @@ def _render_volume(asset: VisualAsset, plan: VisualPlan, **kwargs) -> VisualResu
         )
 
         if plan.mode == "summary":
+            if asset.intent == INTENT_BOLD and viewer._lazy is not None and len(viewer._lazy.shape) == 4:
+                fig = viewer.fmri_summary(title=kwargs.get("title", ""))
+                return VisualResult(asset=asset, plan=plan, figures=[fig], warnings=list(asset.warnings))
             return _render_summary_only(asset, plan)
 
         elif plan.mode == "thumbnail":

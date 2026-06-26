@@ -36,7 +36,8 @@ def _try_mne():
     try:
         import mne
         return mne
-    except ImportError:
+    except Exception as exc:
+        log.debug("MNE import unavailable: %s", exc)
         return None
 
 
@@ -307,6 +308,12 @@ class TimeSeriesViewer:
         ch_names: list[str] | None = None,
         ch_types: list[str] | None = None,
     ) -> _SignalBundle:
+        # numpy array
+        if isinstance(source, np.ndarray):
+            if sfreq is None:
+                raise ValueError("sfreq required when source is a numpy array")
+            return _from_ndarray(source, sfreq, ch_names=ch_names, ch_types=ch_types)
+
         mne = _try_mne()
 
         # MNE Raw object
@@ -322,12 +329,6 @@ class TimeSeriesViewer:
                     "bads": list(source.info.get("bads", [])),
                 },
             )
-
-        # numpy array
-        if isinstance(source, np.ndarray):
-            if sfreq is None:
-                raise ValueError("sfreq required when source is a numpy array")
-            return _from_ndarray(source, sfreq, ch_names=ch_names, ch_types=ch_types)
 
         path = Path(source)
         if not path.exists():

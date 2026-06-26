@@ -101,6 +101,7 @@ class DWIViewer:
         from qortex.visualize.volume import _LazyNIfTI
         self._lazy = _LazyNIfTI(self._path)
         self._shape = self._lazy.shape  # (nx, ny, nz, n_vols)
+        self._warnings = self._validate_companions()
 
     # ── Properties ────────────────────────────────────────────────────────
 
@@ -135,6 +136,11 @@ class DWIViewer:
         for b in rounded:
             shells[int(b)] = shells.get(int(b), 0) + 1
         return dict(sorted(shells.items()))
+
+    @property
+    def warnings(self) -> list[str]:
+        """Companion-file and gradient-table validation warnings."""
+        return list(self._warnings)
 
     # ── Panel rendering ───────────────────────────────────────────────────
 
@@ -453,6 +459,17 @@ class DWIViewer:
             height=560,
             legend=dict(font=dict(color="#aaa"), bgcolor="#1a1a1a"),
         )
+        if self._warnings:
+            fig.add_annotation(
+                text="Warnings: " + "; ".join(self._warnings),
+                xref="paper",
+                yref="paper",
+                x=0,
+                y=-0.08,
+                showarrow=False,
+                align="left",
+                font=dict(size=10, color="#f9b"),
+            )
         return fig
 
     def contact_sheet(
@@ -563,6 +580,34 @@ class DWIViewer:
         if str(shell).lower() in {"high", "high-b", "max"}:
             return f"high-b ({len(self.high_b_indices)} vol{'s' if len(self.high_b_indices) != 1 else ''})"
         return f"b≈{shell}"
+
+    def _validate_companions(self) -> list[str]:
+        warnings: list[str] = []
+        n_vols = self.n_volumes
+        if self._bvals is None:
+            warnings.append("missing bval companion")
+        elif len(self._bvals) != n_vols:
+            warnings.append(f"bval length mismatch: {len(self._bvals)} values for {n_vols} volumes")
+        elif not any(float(b) < 50.0 for b in self._bvals):
+            warnings.append("no b0 volumes found (b<50)")
+
+        if self._bvecs is None:
+            warnings.append("missing bvec companion")
+        elif self._bvecs.shape[1] != n_vols:
+            warnings.append(f"bvec length mismatch: {self._bvecs.shape[1]} vectors for {n_vols} volumes")
+        else:
+            norms = np.linalg.norm(self._bvecs, axis=0)
+            if self._bvals is not None and len(self._bvals) == len(norms):
+                diffusion = self._bvals >= 50.0
+            else:
+                diffusion = norms > 1e-6
+            abnormal = diffusion & ((norms < 0.95) | (norms > 1.05))
+            if np.any(abnormal):
+                warnings.append(f"abnormal bvec norms in {int(abnormal.sum())} diffusion directions")
+            b0_like = ~diffusion
+            if np.any(b0_like & (norms > 0.1)):
+                warnings.append("b0 volumes have non-zero bvec directions")
+        return warnings
 
     def __repr__(self) -> str:
         shape_str = "×".join(str(s) for s in self._shape)

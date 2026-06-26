@@ -89,8 +89,8 @@ __all__ = [
     "overlay_mask", "overlay_labelmap", "overlay_stat", "overlay_pet",
     # ML overlay comparison
     "overlay_contour", "overlay_edges", "compare_masks",
-    # DWI
-    "DWIViewer", "dwi_summary",
+    # fMRI / DWI
+    "fmri_summary", "DWIViewer", "dwi_summary",
     # Explicit viewers
     "volume", "timeseries",
     # Viewer classes (lazy)
@@ -130,6 +130,10 @@ def _volume_cls():
 def _ts_cls():
     from qortex.visualize.timeseries import TimeSeriesViewer
     return TimeSeriesViewer
+
+def _dwi_cls():
+    from qortex.visualize.dwi import DWIViewer
+    return DWIViewer
 
 
 # ── Core language re-exports (lazy) ──────────────────────────────────────────
@@ -352,9 +356,10 @@ def dwi_summary(dwi_path: Any, bval_path: Any = None, bvec_path: Any = None, **k
     return _fn(dwi_path, bval_path=bval_path, bvec_path=bvec_path, **kwargs)
 
 
-def _dwi_cls():
-    from qortex.visualize.dwi import DWIViewer
-    return DWIViewer
+def fmri_summary(bold_path: Any, **kwargs) -> Any:
+    """fMRI QC summary: mean EPI, std, tSNR, global signal, framewise map."""
+    from qortex.visualize.fmri import fmri_summary as _fn
+    return _fn(bold_path, **kwargs)
 
 
 # ── Explicit viewers ──────────────────────────────────────────────────────────

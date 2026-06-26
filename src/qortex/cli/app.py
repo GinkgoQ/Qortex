@@ -1052,7 +1052,7 @@ def visualize_openneuro_cmd(
       qortex visualize-openneuro ds004130 --datatype func --suffix bold -o bold.html
     """
     from qortex import Dataset
-    from qortex.visualize._audit import run_visual_audit
+    from qortex.visualize._audit import run_visual_audit, select_visual_files
 
     sub_list = [subject] if subject else None
     suf_list = [suffix] if suffix else None
@@ -1067,40 +1067,19 @@ def visualize_openneuro_cmd(
         typer.echo(f"Could not fetch manifest: {exc}", err=True)
         raise typer.Exit(1)
 
-    _VIZ_EXTS = (".nii.gz", ".nii", ".mgz", ".mgh", ".edf", ".fif", ".bdf", ".set")
+    selected = select_visual_files(
+        manifest.files,
+        subjects=sub_list,
+        suffixes=suf_list,
+        datatypes=dt_list,
+        max_size_mb=max_size_mb,
+        n_per_suffix=n_per_suffix,
+    )
 
-    def _is_viz(fr) -> bool:
-        name = fr.path.lower()
-        return any(name.endswith(ext) for ext in _VIZ_EXTS)
-
-    def _suffix_match(path: str, sfx: str) -> bool:
-        return f"_{sfx}." in path or f"_{sfx}_" in path
-
-    candidates = [fr for fr in manifest.files if _is_viz(fr)]
-    if sub_list:
-        sub_set = {f"sub-{s}" if not s.startswith("sub-") else s for s in sub_list}
-        candidates = [
-            fr for fr in candidates
-            if any(fr.path.startswith(s + "/") or ("/" + s + "/") in fr.path for s in sub_set)
-        ]
-    if dt_list:
-        candidates = [fr for fr in candidates
-                      if any(("/" + dt + "/") in fr.path for dt in dt_list)]
-    if suf_list:
-        candidates = [fr for fr in candidates if _suffix_match(fr.path, suf_list[0])]
-
-    # Skip very large files
-    candidates = [
-        fr for fr in candidates
-        if not hasattr(fr, "size") or (fr.size or 0) <= max_size_mb * 1e6
-    ]
-
-    if not candidates:
+    if not selected:
         typer.echo("No matching files found in the dataset manifest.", err=True)
         raise typer.Exit(1)
 
-    # Take up to n_per_suffix per BIDS suffix for variety
-    selected = candidates[:n_per_suffix]
     typer.echo(f"Downloading {len(selected)} file(s)…")
     try:
         ds.download_paths([fr.path for fr in selected])
@@ -1116,17 +1095,15 @@ def visualize_openneuro_cmd(
         max_files=n_per_suffix,
     )
 
-    if len(report.entries) == 1 and report.entries[0].asset.family == "nifti":
-        # Single file — use full interactive viewer
-        from qortex.visualize._dispatch import render_asset
+    if len(report.entries) == 1:
         asset = report.entries[0].asset
         try:
-            result = render_asset(asset, mode=mode)
+            result = _render_modality_specific(asset, mode=mode)
             if output:
-                result.to_html(output)
+                _write_visual_output(result, output)
                 typer.echo(f"Visualization saved to {output}")
             elif open_browser:
-                result.show()
+                _show_visual_output(result)
             else:
                 typer.echo(
                     f"Rendered {asset.intent} [{asset.modality}]. "
@@ -1186,6 +1163,50 @@ def _write_model_json(model, path: Path | None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(model.model_dump_json(indent=2), encoding="utf-8")
     typer.echo(f"\nJSON report saved to {path}")
+
+
+def _render_modality_specific(asset, *, mode: str):
+    """Render one visual asset with modality-specific QC when available."""
+    from qortex.visualize._asset import INTENT_BOLD, INTENT_DWI, INTENT_RAW_SIGNAL
+    from qortex.visualize._dispatch import render_asset
+
+    if asset.intent == INTENT_BOLD and asset.family == "nifti":
+        from qortex.visualize.fmri import fmri_summary
+        return fmri_summary(asset.path, title=f"fMRI QC — {asset.path.name}")
+    if asset.intent == INTENT_DWI and asset.family == "nifti":
+        from qortex.visualize.dwi import dwi_summary
+        return dwi_summary(asset.path, title=f"DWI QC — {asset.path.name}")
+    if asset.intent == INTENT_RAW_SIGNAL or asset.family == "eeg":
+        from qortex.visualize.timeseries import TimeSeriesViewer
+        return TimeSeriesViewer(asset.path).dashboard(title=f"Signal QC — {asset.path.name}")
+    return render_asset(asset, mode=mode)
+
+
+def _write_visual_output(rendered, output: Path) -> None:
+    if hasattr(rendered, "to_html"):
+        rendered.to_html(output)
+        return
+    if isinstance(rendered, str):
+        output.write_text(rendered, encoding="utf-8")
+        return
+    import plotly.io as pio
+    output.write_text(pio.to_html(rendered, include_plotlyjs="cdn", full_html=True), encoding="utf-8")
+
+
+def _show_visual_output(rendered) -> None:
+    if hasattr(rendered, "show"):
+        rendered.show()
+        return
+    import tempfile
+    import webbrowser
+    if isinstance(rendered, str):
+        html = rendered
+    else:
+        import plotly.io as pio
+        html = pio.to_html(rendered, include_plotlyjs="cdn", full_html=True)
+    with tempfile.NamedTemporaryFile(suffix=".html", delete=False, mode="w", encoding="utf-8") as fh:
+        fh.write(html)
+        webbrowser.open(f"file://{fh.name}")
 
 
 def _profile_text(profile: dict[str, Any]) -> str:

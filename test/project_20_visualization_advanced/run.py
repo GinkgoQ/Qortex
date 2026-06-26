@@ -30,6 +30,12 @@ Test catalogue
 23.  fMRI summary companions — events and confounds become explicit QC traces
 24.  Pathless VisualResult.to_png — clear error for non-file-backed NIfTI result
 25.  Visualization edge cases — robust BIDS suffix, smooth aspect resize, empty Dice
+26.  Public fMRI wrapper — qortex.visualize.fmri_summary returns the QC figure
+27.  Dataset.visualize — manifest-aware completeness at the high-level API
+28.  CLI single-file renderer — modality-specific fMRI/DWI dispatch
+29.  DWI companion warnings — bval/bvec mismatch and abnormal norms
+30.  compare_masks exact/per-slice metrics — evaluation-grade provenance
+31.  Artifact visualization — schema-aware lazy Parquet sample reads
 
 All tests use synthetic in-memory or temp-file data.
 nibabel, plotly, and MNE are each skipped gracefully when absent.
@@ -1229,6 +1235,180 @@ def test_25_visualization_edge_cases():
     print_kv("empty_mask_dice", dice)
 
 
+def test_26_public_fmri_summary_wrapper():
+    banner("26 — Public fMRI wrapper: qortex.visualize.fmri_summary")
+    nib = _try_import("nibabel")
+    plotly = _try_import("plotly")
+    if nib is None or plotly is None:
+        print("  SKIP: nibabel or plotly not installed")
+        return
+
+    from qortex import visualize
+
+    with tempfile.TemporaryDirectory() as tmp:
+        bold_path = _write_synthetic_nifti(
+            Path(tmp) / "sub-01_task-rest_bold.nii.gz",
+            (18, 18, 8, 12),
+            modality="bold",
+        )
+        fig = visualize.fmri_summary(bold_path, max_frames=10, title="Public fMRI QC")
+
+    names = [getattr(trace, "name", "") for trace in fig.data]
+    require("Global signal" in names, "Public fMRI summary missing global signal")
+    require("Public fMRI QC" in (fig.layout.title.text or ""), "Public fMRI title missing")
+    print_kv("n_traces", len(fig.data))
+    print_kv("title", fig.layout.title.text)
+
+
+def test_27_dataset_visualize_manifest_aware():
+    banner("27 — Dataset.visualize(): manifest-aware local completeness")
+    nib = _try_import("nibabel")
+    if nib is None:
+        print("  SKIP: nibabel not installed")
+        return
+
+    from types import SimpleNamespace
+    from qortex import Dataset
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "sub-01" / "anat").mkdir(parents=True)
+        _write_synthetic_nifti(root / "sub-01" / "anat" / "sub-01_T1w.nii.gz", (20, 20, 10))
+        files = [
+            SimpleNamespace(path="sub-01/anat/sub-01_T1w.nii.gz", subject="01", datatype="anat", suffix="T1w", size=1000),
+            SimpleNamespace(path="sub-02/anat/sub-02_T1w.nii.gz", subject="02", datatype="anat", suffix="T1w", size=1000),
+        ]
+        ds = Dataset("ds-visual-test", data_dir=root)
+        ds._manifest = SimpleNamespace(files=files)
+        report = ds.visualize(suffixes=["T1w"], max_files=10, n_per_suffix=10)
+
+    require(report.n_expected == 2, f"Expected 2 manifest files, got {report.n_expected}")
+    require(report.n_local_present == 1, f"Expected 1 local file, got {report.n_local_present}")
+    require(report.n_missing_local == 1, f"Expected 1 missing file, got {report.n_missing_local}")
+    print_kv("n_expected", report.n_expected)
+    print_kv("n_local_present", report.n_local_present)
+    print_kv("n_missing_local", report.n_missing_local)
+
+
+def test_28_cli_modality_specific_renderer():
+    banner("28 — CLI renderer: modality-specific single-file output")
+    nib = _try_import("nibabel")
+    plotly = _try_import("plotly")
+    if nib is None or plotly is None:
+        print("  SKIP: nibabel or plotly not installed")
+        return
+
+    from qortex.cli.app import _render_modality_specific
+    from qortex.visualize._dispatch import inspect_file
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        bold_path = _write_synthetic_nifti(root / "sub-01_task-rest_bold.nii.gz", (18, 18, 8, 10), modality="bold")
+        dwi_path = _write_synthetic_nifti(root / "sub-01_dwi.nii.gz", (18, 18, 8, 5), modality="dwi")
+        _write_bval(root / "sub-01_dwi.bval", [0, 1000, 1000, 2000, 2000])
+        _write_bvec(root / "sub-01_dwi.bvec", 5)
+
+        bold_fig = _render_modality_specific(inspect_file(bold_path), mode="auto")
+        dwi_fig = _render_modality_specific(inspect_file(dwi_path), mode="auto")
+
+    require("fMRI QC" in (bold_fig.layout.title.text or ""), "CLI bold renderer did not use fMRI QC")
+    require("DWI QC" in (dwi_fig.layout.title.text or ""), "CLI dwi renderer did not use DWI QC")
+    print_kv("bold_title", bold_fig.layout.title.text)
+    print_kv("dwi_title", dwi_fig.layout.title.text)
+
+
+def test_29_dwi_companion_warnings():
+    banner("29 — DWI companion warnings: mismatch/no-b0/abnormal norms")
+    nib = _try_import("nibabel")
+    if nib is None:
+        print("  SKIP: nibabel not installed")
+        return
+
+    from qortex.visualize.dwi import DWIViewer
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        dwi_path = _write_synthetic_nifti(root / "sub-01_dwi.nii.gz", (12, 12, 6, 4), modality="dwi")
+        bval_path = _write_bval(root / "bad.bval", [1000, 1000, 1000])
+        bvec_path = root / "bad.bvec"
+        bvec_path.write_text("2 0 0 0\n0 2 0 0\n0 0 2 0\n", encoding="utf-8")
+        viewer = DWIViewer(dwi_path, bval_path=bval_path, bvec_path=bvec_path)
+
+    warnings = viewer.warnings
+    require(any("bval length mismatch" in w for w in warnings), f"Missing bval warning: {warnings}")
+    require(any("abnormal bvec norms" in w for w in warnings), f"Missing bvec norm warning: {warnings}")
+    print_kv("warnings", warnings)
+
+
+def test_30_compare_masks_exact_metrics():
+    banner("30 — compare_masks(): exact Dice and per-slice Dice provenance")
+    from qortex.visualize.overlay import compare_masks
+
+    base = np.ones((10, 10, 6), dtype=np.float32)
+    pred = np.zeros_like(base)
+    truth = np.zeros_like(base)
+    pred[2:6, 2:6, 2:4] = 1
+    truth[3:7, 2:6, 2:4] = 1
+    result = compare_masks(base, pred, truth, exact=True, per_slice=True)
+    prov = result.provenance
+    require(prov["dice_exact"] is not None, "Exact Dice missing")
+    require(0.0 < prov["dice_exact"] < 1.0, f"Exact Dice should be partial overlap, got {prov['dice_exact']}")
+    require(prov["exact_counts"]["tp"] > 0, "Exact TP count missing")
+    require(len(prov["per_slice_dice"]) > 0, "Per-slice Dice missing")
+    print_kv("dice_exact", f"{prov['dice_exact']:.3f}")
+    print_kv("exact_counts", prov["exact_counts"])
+    print_kv("n_per_slice", len(prov["per_slice_dice"]))
+
+
+def test_31_artifact_lazy_schema_visualization():
+    banner("31 — Artifact visualization: schema-aware lazy Parquet sample reads")
+    polars = _try_import("polars")
+    plotly = _try_import("plotly")
+    if polars is None or plotly is None:
+        print("  SKIP: polars or plotly not installed")
+        return
+
+    import polars as pl
+    from qortex.artifact import Artifact
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        train = root / "train"
+        train.mkdir()
+        for shard_i in range(2):
+            rows = []
+            for i in range(5):
+                rows.append({
+                    "label": f"c{(i + shard_i) % 2}",
+                    "subject": f"0{i + 1}",
+                    "signal": (np.sin(np.linspace(0, np.pi, 64)) + i).astype(np.float32).tolist(),
+                })
+            pl.DataFrame(rows).write_parquet(train / f"shard_{shard_i:02d}.parquet")
+        manifest = {
+            "artifact_id": "art-lazy-schema-test",
+            "dataset_id": "ds-test",
+            "snapshot": "1.0.0",
+            "output_format": "parquet",
+            "output_path": str(root),
+            "n_samples": 10,
+            "n_subjects": 5,
+            "splits": {"train": 10},
+            "source_files": [],
+            "data_schema": {"data_column": "signal"},
+        }
+        (root / "artifact_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+        artifact = Artifact(root)
+        fig = artifact.visualize_sample(index=6, split="train")
+        report = artifact.visual_audit(split="train", n=3, seed=42)
+
+    require(hasattr(fig, "data"), "visualize_sample() did not return a figure")
+    require(report.n_files_inspected == 3, f"Expected 3 sampled entries, got {report.n_files_inspected}")
+    require(report.n_failed == 0, f"Artifact visual audit failed entries: {report.n_failed}")
+    print_kv("sample_traces", len(fig.data))
+    print_kv("audit_entries", report.n_files_inspected)
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -1257,6 +1437,12 @@ def main() -> None:
     test_23_fmri_summary_events_confounds()
     test_24_pathless_nifti_png_error()
     test_25_visualization_edge_cases()
+    test_26_public_fmri_summary_wrapper()
+    test_27_dataset_visualize_manifest_aware()
+    test_28_cli_modality_specific_renderer()
+    test_29_dwi_companion_warnings()
+    test_30_compare_masks_exact_metrics()
+    test_31_artifact_lazy_schema_visualization()
     passed("project_20_visualization_advanced")
 
 

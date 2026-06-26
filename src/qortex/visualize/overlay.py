@@ -717,6 +717,8 @@ def compare_masks(
     title: str = "Mask Comparison (TP / FP / FN)",
     resample: bool = False,
     allow_affine_mismatch: bool = False,
+    exact: bool = False,
+    per_slice: bool = False,
 ) -> VisualResult:
     """Compare a predicted binary mask against a ground-truth mask.
 
@@ -728,7 +730,9 @@ def compare_masks(
     * Transparent — True Negative (pred=0, truth=0) — background unchanged
 
     Dice similarity and voxel counts are embedded in the HTML report header.
-    All three volumes are read lazily — only the displayed slices are loaded.
+    By default the metrics are sampled from axial slices to preserve lazy
+    behaviour. Pass ``exact=True`` to materialize pred/truth masks and compute
+    full-volume Dice/counts.
 
     Parameters
     ----------
@@ -763,14 +767,32 @@ def compare_masks(
     n_z_sample = max(5, nz // 8)
     sample_z = np.round(np.linspace(0, nz - 1, n_z_sample)).astype(int)
     tp_total = fp_total = fn_total = 0
+    per_slice_dice: list[dict[str, float | int]] = []
     for z in sample_z:
         p = _get_slice(pred_h, 2, int(z)).ravel() > 0.5
         t = _get_slice(truth_h, 2, int(z)).ravel() > 0.5
-        tp_total += int((p & t).sum())
-        fp_total += int((p & ~t).sum())
-        fn_total += int((~p & t).sum())
+        tp = int((p & t).sum())
+        fp = int((p & ~t).sum())
+        fn = int((~p & t).sum())
+        tp_total += tp
+        fp_total += fp
+        fn_total += fn
+        if per_slice:
+            denom_z = 2 * tp + fp + fn
+            per_slice_dice.append({"z": int(z), "dice": (2 * tp / denom_z) if denom_z > 0 else 1.0})
     denom = 2 * tp_total + fp_total + fn_total
     dice_approx = (2 * tp_total / denom) if denom > 0 else 1.0
+    dice_exact = None
+    exact_counts = None
+    if exact:
+        pred_full = _force_load(pred_h) > 0.5
+        truth_full = _force_load(truth_h) > 0.5
+        tp_exact = int((pred_full & truth_full).sum())
+        fp_exact = int((pred_full & ~truth_full).sum())
+        fn_exact = int((~pred_full & truth_full).sum())
+        denom_exact = 2 * tp_exact + fp_exact + fn_exact
+        dice_exact = (2 * tp_exact / denom_exact) if denom_exact > 0 else 1.0
+        exact_counts = {"tp": tp_exact, "fp": fp_exact, "fn": fn_exact}
 
     MAX_SLICES = 80
 
@@ -807,10 +829,12 @@ def compare_masks(
     slices_y, si_y = _render_axis(1, ny)
     slices_z, si_z = _render_axis(2, nz)
 
-    dice_str = f"{dice_approx:.3f}" if not (dice_approx != dice_approx) else "N/A"
+    dice_for_label = dice_exact if dice_exact is not None else dice_approx
+    dice_label = "Dice" if dice_exact is not None else "Dice ≈"
+    dice_str = f"{dice_for_label:.3f}" if not (dice_for_label != dice_for_label) else "N/A"
     legend = (
         "🟢 TP (correct) &nbsp;🔴 FP (over-seg) &nbsp;🔵 FN (under-seg)"
-        f" &nbsp;·&nbsp; Dice ≈ {dice_str}"
+        f" &nbsp;·&nbsp; {dice_label} {dice_str}"
         f" &nbsp;(sampled from {n_z_sample} slices)"
     )
 
@@ -831,8 +855,11 @@ def compare_masks(
         provenance={
             "type": "compare_masks",
             "dice_approx": dice_approx,
+            "dice_exact": dice_exact,
             "tp_sample": tp_total,
             "fp_sample": fp_total,
             "fn_sample": fn_total,
+            "exact_counts": exact_counts,
+            "per_slice_dice": per_slice_dice,
         },
     )
