@@ -303,12 +303,12 @@ def _nifti_thumbnail(asset: Any, local_path: Path) -> str | None:
 
 
 def _eeg_thumbnail(asset: Any, local_path: Path) -> str | None:
-    """Mini plotly chart for a short EEG/MEG segment — encoded as static PNG."""
+    """Mini butterfly plot for a short EEG/MEG segment — encoded as static PNG."""
     try:
         import plotly.io as pio
         from qortex.visualize.timeseries import TimeSeriesViewer
         viewer = TimeSeriesViewer(local_path)
-        fig = viewer.plot(max_channels=4, max_seconds=10.0)
+        fig = viewer.butterfly(tmax=10.0, max_channels=4, show_envelope=True)
         png_bytes = pio.to_image(fig, format="png", width=400, height=200)
         return base64.b64encode(png_bytes).decode()
     except Exception as exc:

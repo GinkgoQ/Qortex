@@ -171,6 +171,44 @@ class _LazyNIfTI:
             return np.array([float(self._proxy[x, y, z])], dtype=np.float32)
         return np.asarray(self._proxy[x, y, z, :]).astype(np.float32)
 
+    def tsnr_volume(self, max_frames: int = 50) -> np.ndarray:
+        """Compute temporal SNR (mean/std) using Welford's online algorithm.
+
+        Streams one 3D frame at a time — peak memory is 3 × one-frame cost,
+        regardless of how many timepoints exist.  Returns a 3D float32 array
+        of the same spatial shape.  For 3D images returns an all-ones array.
+
+        Parameters
+        ----------
+        max_frames:
+            Maximum number of frames to sample.  Linearly sub-samples when
+            the volume has more timepoints.
+        """
+        shape = self._proxy.shape
+        if len(shape) == 3:
+            return np.ones(shape[:3], dtype=np.float32)
+
+        n_t = shape[3]
+        step = max(1, n_t // max_frames)
+        frame_idxs = list(range(0, n_t, step))
+
+        # Welford's one-pass online variance (numerically stable)
+        mean = np.zeros(shape[:3], dtype=np.float64)
+        M2 = np.zeros(shape[:3], dtype=np.float64)
+        for n_seen, t in enumerate(frame_idxs, start=1):
+            frame = np.asarray(self._proxy[..., t], dtype=np.float64)
+            delta = frame - mean
+            mean += delta / n_seen
+            delta2 = frame - mean
+            M2 += delta * delta2
+
+        variance = M2 / max(1, len(frame_idxs) - 1)
+        std = np.sqrt(variance)
+        std[std < 1e-6] = 1e-6
+        tsnr = (mean / std).astype(np.float32)
+        np.clip(tsnr, 0, 500, out=tsnr)
+        return tsnr
+
 
 # ── VolumeViewer ──────────────────────────────────────────────────────────────
 
@@ -358,24 +396,51 @@ class VolumeViewer:
         colormap: str = "hot",
         alpha: float = 0.6,
     ) -> "VolumeViewer":
-        """Add a statistical map overlay (z-map, t-map, or any volume)."""
+        """Register a statistical or functional overlay on this viewer.
+
+        For path-based inputs the overlay is stored as a lazy proxy — no full
+        volume is loaded.  The window is estimated from sampled slices only.
+        Blending happens per-displayed-slice when the viewer renders.
+
+        Parameters
+        ----------
+        stat_map:
+            Path to a NIfTI file, or a (H, W, D) numpy array.
+        threshold:
+            Voxels with |value| < threshold are transparent.
+        colormap:
+            Colormap applied to suprathreshold voxels.
+        alpha:
+            Blending opacity (0 = transparent, 1 = opaque).
+        """
         if isinstance(stat_map, (str, Path)):
-            lazy = _LazyNIfTI(Path(stat_map))
-            stat_arr = lazy.mean_volume()
+            self._overlay = _LazyNIfTI(Path(stat_map))
+            ov_vmin, ov_vmax = self._overlay.sample_window("mri")
         elif isinstance(stat_map, np.ndarray):
-            stat_arr = stat_map
+            self._overlay = stat_map
+            finite = stat_map[np.isfinite(stat_map)]
+            ov_vmin = float(np.percentile(finite, 1.0)) if finite.size > 0 else 0.0
+            ov_vmax = float(np.percentile(finite, 99.5)) if finite.size > 0 else 1.0
         else:
             raise TypeError(f"Unsupported stat_map type: {type(stat_map)}")
 
-        self._overlay = stat_arr
         self._overlay_params = {
             "threshold": threshold,
             "colormap": colormap,
             "alpha": alpha,
-            "vmin": float(np.percentile(stat_arr[np.isfinite(stat_arr)], 1)),
-            "vmax": float(np.percentile(stat_arr[np.isfinite(stat_arr)], 99.5)),
+            "vmin": ov_vmin,
+            "vmax": ov_vmax,
         }
         return self
+
+    def _get_overlay_slice(self, axis: int, idx: int) -> np.ndarray | None:
+        """Return one 2D overlay slice, reading lazily or from the array."""
+        if self._overlay is None:
+            return None
+        if isinstance(self._overlay, _LazyNIfTI):
+            return self._overlay.slice_along(axis, idx)
+        # Eager numpy array
+        return np.take(self._overlay, min(idx, self._overlay.shape[axis] - 1), axis=axis)
 
     def mean_volume(self) -> "VolumeViewer":
         """Return a new VolumeViewer containing only the temporal mean (for 4D)."""
