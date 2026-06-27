@@ -169,3 +169,66 @@ class DatasetNotDownloadedError(QortexError):
             f"Dataset {dataset_id!r}{snap_str} is not downloaded. "
             f"Run `ds.download()` or `qortex download {dataset_id}` first."
         )
+
+
+# ── NeuroAI Runtime ───────────────────────────────────────────────────────────
+
+class CompatibilityError(QortexError):
+    """Raised when a source cannot satisfy a model's input contract."""
+
+    def __init__(self, source_id: str, model_id: str, blockers: list | None = None) -> None:
+        self.source_id = source_id
+        self.model_id = model_id
+        self.blockers = blockers or []
+        blocker_str = "\n  ".join(self.blockers) if self.blockers else "see CompatibilityReport"
+        super().__init__(
+            f"Source {source_id!r} is incompatible with model {model_id!r}.\n"
+            f"Blockers:\n  {blocker_str}"
+        )
+
+
+class SourceAdapterError(QortexError):
+    """Raised when a source adapter cannot probe or stream data."""
+
+    def __init__(self, message: str, source_type: str | None = None, path: str | None = None) -> None:
+        self.source_type = source_type
+        self.path = path
+        ctx = (f" [type={source_type!r}]" if source_type else "") + (f" [path={path!r}]" if path else "")
+        super().__init__(f"SourceAdapter error{ctx}: {message}")
+
+
+class ModelAdapterError(QortexError):
+    """Raised when a model adapter cannot inspect, load, or run inference."""
+
+    def __init__(self, message: str, model_id: str | None = None, provider: str | None = None) -> None:
+        self.model_id = model_id
+        self.provider = provider
+        ctx = (f" [provider={provider!r}]" if provider else "") + (f" [model={model_id!r}]" if model_id else "")
+        super().__init__(f"ModelAdapter error{ctx}: {message}")
+
+
+class PreprocessPlanningError(QortexError):
+    """Raised when the preprocessing planner cannot build a valid transform chain."""
+
+
+class OutputAdapterError(QortexError):
+    """Raised when an output adapter cannot open, write, or close its destination."""
+
+    def __init__(self, message: str, output_type: str | None = None, path: str | None = None) -> None:
+        self.output_type = output_type
+        self.path = path
+        ctx = (f" [type={output_type!r}]" if output_type else "") + (f" [path={path!r}]" if path else "")
+        super().__init__(f"OutputAdapter error{ctx}: {message}")
+
+
+class RuntimeExecutionError(QortexError):
+    """Raised when the NeuroAI runtime encounters a fatal execution error."""
+
+
+class ContractValidationError(QortexError):
+    """Raised when a contract fails validation."""
+
+    def __init__(self, contract_type: str, violations: list) -> None:
+        self.contract_type = contract_type
+        self.violations = violations
+        super().__init__(f"{contract_type} validation failed:\n  " + "\n  ".join(violations))

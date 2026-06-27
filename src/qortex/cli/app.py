@@ -1433,3 +1433,280 @@ def _fetch_files(client, dataset_id: str, snapshot: str | None):
         snap_ref = client.get_latest_snapshot(dataset_id)
     snap_ref, raw_files = client.get_files(dataset_id, snap_ref.tag)
     return snap_ref, raw_files
+
+
+# ── neuroai subcommands ────────────────────────────────────────────────────────
+
+neuroai_app = typer.Typer(
+    name="neuroai",
+    help="NeuroAI runtime — declarative source→model→output pipelines.",
+    no_args_is_help=True,
+)
+app.add_typer(neuroai_app, name="neuroai")
+
+
+@neuroai_app.command("check")
+def neuroai_check(
+    pipeline: Path = typer.Argument(..., help="Path to pipeline YAML"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show full transform list"),
+) -> None:
+    """Check source-model compatibility without loading weights.
+
+    Probes the source and model, verifies modality/channel/rate/shape/dtype
+    compatibility, and lists required preprocessing transforms and any blockers.
+
+    Exit code 0 = compatible (possibly with transforms).
+    Exit code 1 = incompatible or uncertain.
+    """
+    try:
+        from qortex.neuroai import Pipeline
+    except ImportError as e:
+        typer.echo(f"NeuroAI runtime requires additional dependencies: {e}", err=True)
+        raise typer.Exit(1)
+
+    try:
+        pipe = Pipeline.from_yaml(pipeline)
+        report = pipe.check()
+    except Exception as exc:
+        typer.echo(f"[ERROR] {exc}", err=True)
+        raise typer.Exit(1)
+
+    typer.echo(report.summary())
+
+    if verbose and pipe.preprocess_plan:
+        typer.echo("\n" + pipe.preprocess_plan.summary())
+
+    status = report.status.value if hasattr(report.status, "value") else str(report.status)
+    if status == "incompatible":
+        raise typer.Exit(1)
+    elif status == "uncertain":
+        raise typer.Exit(2)
+
+
+@neuroai_app.command("run")
+def neuroai_run(
+    pipeline: Path = typer.Argument(..., help="Path to pipeline YAML"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Check only; do not execute"),
+) -> None:
+    """Run a NeuroAI pipeline: source → preprocess → model → outputs.
+
+    Automatically checks compatibility before loading model weights.
+    Writes provenance sidecar alongside each output file.
+    """
+    try:
+        from qortex.neuroai import Pipeline
+    except ImportError as e:
+        typer.echo(f"NeuroAI runtime requires additional dependencies: {e}", err=True)
+        raise typer.Exit(1)
+
+    try:
+        pipe = Pipeline.from_yaml(pipeline)
+        report = pipe.check()
+    except Exception as exc:
+        typer.echo(f"[ERROR] check failed: {exc}", err=True)
+        raise typer.Exit(1)
+
+    typer.echo(report.summary())
+
+    status = report.status.value if hasattr(report.status, "value") else str(report.status)
+    if status == "incompatible":
+        typer.echo("[BLOCKED] Pipeline is incompatible. Fix blockers before running.", err=True)
+        raise typer.Exit(1)
+
+    if dry_run:
+        typer.echo("[DRY RUN] Check passed. Use without --dry-run to execute.")
+        return
+
+    typer.echo("Running pipeline…")
+    try:
+        run_report = pipe.run()
+    except Exception as exc:
+        typer.echo(f"[ERROR] run failed: {exc}", err=True)
+        raise typer.Exit(1)
+
+    if run_report.latency_report:
+        typer.echo("\n" + run_report.latency_report.summary())
+
+    if run_report.errors:
+        typer.echo(f"\nErrors ({len(run_report.errors)}):")
+        for err in run_report.errors[:10]:
+            typer.echo(f"  • {err}")
+
+    exit_code = 0 if run_report.success else 1
+    raise typer.Exit(exit_code)
+
+
+@neuroai_app.command("benchmark")
+def neuroai_benchmark(
+    pipeline: Path = typer.Argument(..., help="Path to pipeline YAML"),
+    n_windows: int = typer.Option(20, "--windows", "-n", help="Number of windows to time"),
+) -> None:
+    """Benchmark pipeline latency without writing real outputs.
+
+    Loads the model and runs N windows through source → preprocess → inference,
+    reporting p50/p95/p99 latency and whether the latency budget is met.
+    """
+    try:
+        from qortex.neuroai import Pipeline
+    except ImportError as e:
+        typer.echo(f"NeuroAI runtime requires additional dependencies: {e}", err=True)
+        raise typer.Exit(1)
+
+    try:
+        pipe = Pipeline.from_yaml(pipeline)
+        typer.echo(f"Benchmarking {n_windows} windows…")
+        report = pipe.benchmark(n_windows=n_windows)
+    except Exception as exc:
+        typer.echo(f"[ERROR] {exc}", err=True)
+        raise typer.Exit(1)
+
+    typer.echo(report.summary())
+
+    if report.status == "FAIL":
+        raise typer.Exit(1)
+
+
+@neuroai_app.command("replay")
+def neuroai_replay(
+    pipeline: Path = typer.Argument(..., help="Path to pipeline YAML"),
+    source: Path = typer.Argument(..., help="Recorded session file (XDF, EDF, …)"),
+    speed: float = typer.Option(1.0, "--speed", help="Playback speed multiplier"),
+    output_dir: Optional[Path] = typer.Option(None, "--output-dir", help="Override output directory"),
+) -> None:
+    """Replay a recorded session through the pipeline.
+
+    Useful for debugging closed-loop workflows without live hardware.
+    Same preprocessing and model as the live pipeline.
+    """
+    try:
+        from qortex.neuroai import Pipeline
+    except ImportError as e:
+        typer.echo(f"NeuroAI runtime requires additional dependencies: {e}", err=True)
+        raise typer.Exit(1)
+
+    try:
+        pipe = Pipeline.from_yaml(pipeline)
+        pipe.check()
+        typer.echo(f"Replaying {source.name} at {speed}× speed…")
+        report = pipe.replay(source, speed=speed, output_dir=output_dir)
+    except Exception as exc:
+        typer.echo(f"[ERROR] {exc}", err=True)
+        raise typer.Exit(1)
+
+    if report.latency_report:
+        typer.echo(report.latency_report.summary())
+
+    exit_code = 0 if report.success else 1
+    raise typer.Exit(exit_code)
+
+
+@neuroai_app.command("inspect-source")
+def neuroai_inspect_source(
+    source: Path = typer.Argument(..., help="Local file or BIDS directory to inspect"),
+    modality: Optional[str] = typer.Option(None, "--modality", "-m"),
+    suffix: Optional[str] = typer.Option(None, "--suffix"),
+) -> None:
+    """Probe a local data source and print its SourceProfile.
+
+    No model required.  Useful for verifying what channels, sampling rate,
+    shape, and coordinate frame a source exposes before building a pipeline.
+    """
+    try:
+        from qortex.neuroai.sources._registry import make_source_adapter
+        from qortex.neuroai.spec import SourceSpec
+    except ImportError as e:
+        typer.echo(f"NeuroAI runtime requires additional dependencies: {e}", err=True)
+        raise typer.Exit(1)
+
+    src_type = "bids" if source.is_dir() else "local_file"
+    spec = SourceSpec(type=src_type, path=str(source), modality=modality, suffix=suffix)
+    try:
+        adapter = make_source_adapter(spec)
+        profile = adapter.probe()
+    except Exception as exc:
+        typer.echo(f"[ERROR] {exc}", err=True)
+        raise typer.Exit(1)
+
+    lines = [
+        f"Source      : {profile.source_id}",
+        f"Type        : {profile.source_type}",
+        f"Modality    : {profile.modality}",
+        f"Abstraction : {profile.abstraction}",
+    ]
+    if profile.n_channels is not None:
+        lines.append(f"Channels    : {profile.n_channels}")
+    if profile.sampling_rate_hz is not None:
+        lines.append(f"Sampling Hz : {profile.sampling_rate_hz:.1f}")
+    if profile.duration_s is not None:
+        lines.append(f"Duration    : {profile.duration_s:.1f}s")
+    if profile.spatial_shape:
+        lines.append(f"Shape       : {profile.spatial_shape}")
+    if profile.voxel_sizes_mm:
+        sizes = "×".join(f"{v:.2f}" for v in profile.voxel_sizes_mm)
+        lines.append(f"Voxel (mm)  : {sizes}")
+    if profile.n_subjects:
+        lines.append(f"Subjects    : {profile.n_subjects}")
+    lines.append(f"Evidence    : {profile.evidence_status}")
+    if profile.warnings:
+        lines.append(f"Warnings    : {len(profile.warnings)}")
+        for w in profile.warnings:
+            lines.append(f"  ⚠ {w.message}")
+    typer.echo("\n".join(lines))
+
+
+@neuroai_app.command("inspect-model")
+def neuroai_inspect_model(
+    model_id: str = typer.Argument(..., help="Model ID or path (e.g. hf://org/model or model.onnx)"),
+    provider: str = typer.Option("huggingface", "--provider", "-p"),
+    task: Optional[str] = typer.Option(None, "--task"),
+) -> None:
+    """Inspect a model and print its ModelProfile + InputContract.
+
+    Does not load model weights.  Shows expected channels, sampling rate,
+    input shape, dtype, and output schema.
+    """
+    try:
+        from qortex.neuroai.models._registry import make_model_adapter
+        from qortex.neuroai.spec import ModelSpec
+    except ImportError as e:
+        typer.echo(f"NeuroAI runtime requires additional dependencies: {e}", err=True)
+        raise typer.Exit(1)
+
+    # Handle hf:// prefix
+    model_path = model_id.removeprefix("hf://")
+    spec = ModelSpec(provider=provider, id=model_path, task=task)
+    try:
+        adapter = make_model_adapter(spec)
+        profile = adapter.inspect()
+    except Exception as exc:
+        typer.echo(f"[ERROR] {exc}", err=True)
+        raise typer.Exit(1)
+
+    lines = [
+        f"Model       : {profile.model_id}",
+        f"Provider    : {profile.provider}",
+        f"Task        : {profile.task}",
+        f"License     : {profile.license}",
+        f"Revision    : {profile.revision}",
+    ]
+    if profile.input_contract:
+        ic = profile.input_contract
+        lines.append(f"Input modality  : {ic.modality}")
+        lines.append(f"Input axes      : {ic.axis_convention}")
+        if ic.n_channels:
+            lines.append(f"Required channels: {ic.n_channels}")
+        if ic.sampling_rate_hz:
+            lines.append(f"Required Fs Hz  : {ic.sampling_rate_hz}")
+        if ic.spatial_shape:
+            lines.append(f"Required shape  : {ic.spatial_shape}")
+        lines.append(f"Input dtype     : {ic.dtype}")
+        lines.append(f"Evidence        : {ic.evidence_status}")
+    if profile.output_contract:
+        oc = profile.output_contract
+        lines.append(f"Output type     : {oc.output_type}")
+        if oc.classes:
+            lines.append(f"Classes ({oc.n_classes}): {', '.join(oc.classes[:10])}")
+    if profile.warnings:
+        for w in profile.warnings:
+            lines.append(f"  ⚠ [{w.severity}] {w.message}")
+    typer.echo("\n".join(lines))

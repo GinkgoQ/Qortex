@@ -302,7 +302,7 @@ class CompatibilityEngine:
                 warnings.append(WarningItem(
                     code="CHANNEL_SELECT_REQUIRED",
                     message=f"Source has {src_n} channels; model expects {req_n}. "
-                            "First {req_n} channels will be selected.",
+                            f"First {req_n} channels will be selected.",
                     severity="warning",
                 ))
             elif src_n < req_n:
