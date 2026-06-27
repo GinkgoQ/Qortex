@@ -37,7 +37,8 @@ hdf5   = ["h5py>=3.11"]
 torch  = ["torch>=2.2"]
 lightning = ["lightning>=2.3", "torch>=2.2"]
 tf     = ["tensorflow>=2.16"]
-hf     = ["datasets>=2.19", "huggingface-hub>=0.23"]
+hf     = ["datasets>=2.19", "huggingface-hub>=0.23", "transformers>=4.40"]
+huggingface = ["datasets>=2.19", "huggingface-hub>=0.23", "transformers>=4.40"]
 ray    = ["ray>=2.20"]
 dask   = ["dask>=2024.5"]
 braindecode = ["braindecode>=0.8", "mne>=1.7"]
@@ -45,19 +46,37 @@ sklearn = ["scikit-learn>=1.5"]
 validation = ["pybids>=0.22"]
 dashboard = ["fastapi>=0.111", "uvicorn>=0.30", "streamlit>=1.36", "plotly>=6.1.1"]
 visual    = ["nibabel>=5.2", "plotly>=6.1.1"]
-dicom     = ["pydicom>=2.4"]
-dicom-full = ["pydicom>=2.4", "SimpleITK>=2.4; python_version>='3.9'"]
+dicom     = ["pydicom>=2.4", "highdicom>=0.22"]
+dicom-full = ["pydicom>=2.4", "highdicom>=0.22", "SimpleITK>=2.4; python_version>='3.9'"]
+dicomweb  = ["dicomweb-client>=0.59"]
+nwb       = ["pynwb>=2.6"]
+lsl       = ["pylsl>=1.16"]
+brainflow = ["brainflow>=5.11"]
+onnx      = ["onnxruntime>=1.18"]
+onnx-gpu  = ["onnxruntime-gpu>=1.18"]
+ultralytics = ["ultralytics>=8.2"]
+monai     = ["monai>=1.3"]
 visual-export = ["plotly>=6.1.1", "kaleido>=0.2"]
 visual-all = [
   "nibabel>=5.2",
   "plotly>=6.1.1",
   "pydicom>=2.4",
+  "highdicom>=0.22",
   "SimpleITK>=2.4; python_version>='3.10'",
   "mne>=1.7",
   "kaleido>=0.2",
 ]
+neuroai = [
+  "mne>=1.7",
+  "pynwb>=2.6",
+  "pyxdf>=1.16",
+  "pylsl>=1.16",
+  "onnxruntime>=1.18",
+  "huggingface-hub>=0.23",
+  "transformers>=4.40",
+]
 all = [
-  "qortex[eeg,mri,dwi,zarr,hdf5,torch,lightning,hf,ray,dask,braindecode,sklearn,validation,dashboard,visual-all]"
+  "qortex[eeg,mri,dwi,zarr,hdf5,torch,lightning,hf,ray,dask,braindecode,sklearn,validation,dashboard,visual-all,nwb,lsl,brainflow,onnx,ultralytics,monai,dicom-full,dicomweb]"
 ]
 
 [project.scripts]
@@ -88,6 +107,15 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/qortex"]
+
+# ── Rust extension (optional) ─────────────────────────────────────────────────
+# The qortex_rs ring buffer is a pure-optional performance extension.
+# Build it with:  cd src/qortex_rs && maturin develop --release
+# Without it, _ring_buffer.py falls back to the pure-Python implementation.
+#
+# To build a wheel that includes the Rust extension:
+#   pip install maturin
+#   maturin build --manifest-path src/qortex_rs/Cargo.toml --release
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP"]

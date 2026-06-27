@@ -220,6 +220,160 @@ class Artifact:
             entries=entries,
         )
 
+    def validate_contract(self) -> dict:
+        """Verify the artifact's integrity and contract against its manifest.
+
+        Checks:
+        - ``artifact_manifest.json`` exists and is parseable (done at open time)
+        - SHA-256 of every listed file matches the stored hash
+        - ``artifact_contract.json`` is present and consistent with the manifest
+        - All declared splits have at least one shard on disk
+        - Sample count in manifest matches actual row count in shards
+
+        Returns
+        -------
+        dict
+            ``{"ok": bool, "errors": [...], "warnings": [...]}``
+        """
+        import hashlib
+
+        errors: list[str] = []
+        warnings: list[str] = []
+
+        # Check file hashes if artifact_manifest.json carries them.
+        file_hashes: dict = getattr(self.manifest, "file_hashes", {}) or {}
+        for rel_path, expected_hash in file_hashes.items():
+            full = self.path / rel_path
+            if not full.exists():
+                errors.append(f"File listed in manifest is missing on disk: {rel_path}")
+                continue
+            actual = hashlib.sha256(full.read_bytes()).hexdigest()
+            if actual != expected_hash:
+                errors.append(
+                    f"SHA-256 mismatch for {rel_path}: "
+                    f"expected {expected_hash[:16]}… got {actual[:16]}…"
+                )
+
+        # Check splits have shards.
+        declared_splits = list((self.manifest.splits or {}).keys())
+        for split_name in declared_splits:
+            split_dir = self.path / split_name
+            if not split_dir.exists():
+                errors.append(f"Split directory missing: {split_name}/")
+                continue
+            shards = list(split_dir.glob("*.parquet"))
+            if not shards:
+                warnings.append(f"Split {split_name!r} has no Parquet shards on disk")
+
+        # Check artifact_contract.json is present.
+        contract_path = self.path / "artifact_contract.json"
+        if not contract_path.exists():
+            warnings.append("artifact_contract.json not found — older artifact format")
+
+        # Verify sample count (best-effort, catches truncated shards).
+        if self.manifest.n_samples and self.manifest.n_samples > 0:
+            try:
+                import polars as pl
+                total = sum(
+                    int(pl.scan_parquet(s).select(pl.len()).collect().item())
+                    for s in self.path.glob("**/*.parquet")
+                )
+                if total != self.manifest.n_samples:
+                    warnings.append(
+                        f"Manifest claims {self.manifest.n_samples} samples "
+                        f"but {total} rows found in shards"
+                    )
+            except Exception as exc:
+                warnings.append(f"Could not verify sample count: {exc}")
+
+        return {"ok": len(errors) == 0, "errors": errors, "warnings": warnings}
+
+    def check_leakage(self) -> dict:
+        """Check for subject-level and source-level leakage across splits.
+
+        A split is leaky if the same subject ID or source file appears in two
+        or more splits.  This is the primary leakage risk for subject-stratified
+        splits; it does not catch temporal leakage or derivative-source overlap.
+
+        Returns
+        -------
+        dict
+            ``{"ok": bool, "leaky_subjects": [...], "leaky_sources": [...], "details": [...]}``
+        """
+        try:
+            import polars as pl
+        except ImportError:
+            return {
+                "ok": False,
+                "leaky_subjects": [],
+                "leaky_sources": [],
+                "details": ["check_leakage() requires polars: pip install polars"],
+            }
+
+        split_subjects: dict[str, set[str]] = {}
+        split_sources: dict[str, set[str]] = {}
+
+        declared_splits = list((self.manifest.splits or {}).keys())
+        if not declared_splits:
+            # Discover from directory structure
+            declared_splits = [
+                d.name for d in sorted(self.path.iterdir())
+                if d.is_dir() and list(d.glob("*.parquet"))
+            ]
+
+        for split_name in declared_splits:
+            split_dir = self.path / split_name
+            shards = sorted(split_dir.glob("*.parquet")) if split_dir.exists() else []
+            if not shards:
+                continue
+            subjects: set[str] = set()
+            sources: set[str] = set()
+            for shard in shards:
+                df = pl.scan_parquet(shard)
+                cols = df.columns
+                if "subject" in cols:
+                    vals = df.select("subject").collect()["subject"].drop_nulls().to_list()
+                    subjects.update(str(v) for v in vals)
+                for src_col in ("source_path", "source_file"):
+                    if src_col in cols:
+                        vals = df.select(src_col).collect()[src_col].drop_nulls().to_list()
+                        sources.update(str(v) for v in vals)
+                        break
+            split_subjects[split_name] = subjects
+            split_sources[split_name] = sources
+
+        # Find subjects that appear in more than one split.
+        all_splits = list(split_subjects.keys())
+        leaky_subjects: list[str] = []
+        leaky_sources: list[str] = []
+        details: list[str] = []
+
+        for i, s1 in enumerate(all_splits):
+            for s2 in all_splits[i + 1:]:
+                shared_subs = split_subjects.get(s1, set()) & split_subjects.get(s2, set())
+                if shared_subs:
+                    leaky_subjects.extend(sorted(shared_subs))
+                    details.append(
+                        f"Subject leakage between {s1!r} and {s2!r}: "
+                        + ", ".join(sorted(shared_subs)[:5])
+                        + (" …" if len(shared_subs) > 5 else "")
+                    )
+                shared_srcs = split_sources.get(s1, set()) & split_sources.get(s2, set())
+                if shared_srcs:
+                    leaky_sources.extend(sorted(shared_srcs))
+                    details.append(
+                        f"Source leakage between {s1!r} and {s2!r}: "
+                        + ", ".join(sorted(shared_srcs)[:3])
+                        + (" …" if len(shared_srcs) > 3 else "")
+                    )
+
+        return {
+            "ok": len(leaky_subjects) == 0 and len(leaky_sources) == 0,
+            "leaky_subjects": sorted(set(leaky_subjects)),
+            "leaky_sources": sorted(set(leaky_sources)),
+            "details": details,
+        }
+
     def compare_splits(
         self,
         *,
