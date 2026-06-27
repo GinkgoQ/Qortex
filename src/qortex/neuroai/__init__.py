@@ -58,6 +58,11 @@ from qortex.neuroai.contracts import (
     PreprocessPlan,
     QortexTimeSeries,
     QortexVolume,
+    QortexImageSeries,
+    QortexVideo,
+    QortexEmbeddingTable,
+    QortexClinicalContext,
+    QortexStream,
     SourceProfile,
     TransformDescriptor,
     TransformKind,
@@ -68,7 +73,21 @@ from qortex.neuroai.preprocess import PreprocessPlanner, TransformExecutor
 from qortex.neuroai.benchmark import PipelineProfiler
 from qortex.neuroai.sources import SourceAdapter, make_source_adapter
 from qortex.neuroai.models import ModelAdapter, ModelOutput, make_model_adapter
-from qortex.neuroai.outputs import OutputAdapter, make_output_adapter
+from qortex.neuroai.outputs import (
+    OutputAdapter,
+    make_output_adapter,
+    ClassificationOutput,
+    DetectionOutput,
+    SegmentationOutput,
+    RegressionOutput,
+    EmbeddingOutput,
+    TimeSeriesPredictionOutput,
+    EventMarkerOutput,
+    VolumePredictionOutput,
+    ReportOutput,
+    BoundingBox,
+)
+from qortex.neuroai.artifact import ArtifactWriter
 
 
 def check(
@@ -155,6 +174,24 @@ __all__ = [
     # Abstractions
     "QortexTimeSeries",
     "QortexVolume",
+    "QortexImageSeries",
+    "QortexVideo",
+    "QortexEmbeddingTable",
+    "QortexClinicalContext",
+    "QortexStream",
+    # Canonical output types
+    "ClassificationOutput",
+    "DetectionOutput",
+    "SegmentationOutput",
+    "RegressionOutput",
+    "EmbeddingOutput",
+    "TimeSeriesPredictionOutput",
+    "EventMarkerOutput",
+    "VolumePredictionOutput",
+    "ReportOutput",
+    "BoundingBox",
+    # Artifact system
+    "ArtifactWriter",
     # Engines
     "CompatibilityEngine",
     "PreprocessPlanner",

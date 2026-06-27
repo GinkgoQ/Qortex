@@ -614,14 +614,100 @@ class PipelineRunReport(BaseModel if _PYDANTIC else object):
     outputs: list[dict[str, Any]] = Field(default_factory=list) if _PYDANTIC else []
     errors: list[str] = Field(default_factory=list) if _PYDANTIC else []
     warnings: list[WarningItem] = Field(default_factory=list) if _PYDANTIC else []
+    n_outputs_written: int = 0
+    n_windows_processed: int = 0
 
     if not _PYDANTIC:
         def __init__(self, **kwargs):
             self.outputs = []
             self.errors = []
             self.warnings = []
+            self.n_outputs_written = 0
+            self.n_windows_processed = 0
             for k, v in kwargs.items():
                 setattr(self, k, v)
 
         def model_dump(self):
             return self.__dict__.copy()
+
+
+# ── Additional internal data abstractions ─────────────────────────────────────
+
+from dataclasses import dataclass as _dataclass, field as _dc_field
+
+
+@_dataclass
+class QortexImageSeries:
+    """Ordered sequence of 2D images (e.g., video frames, repeated scans)."""
+    frames: Any                          # numpy [N, H, W, C] or [N, H, W]
+    n_frames: int
+    fps: float | None                    # None if not temporal
+    frame_timestamps: list | None        # Unix epoch per frame
+    shape: tuple                         # (n_frames, H, W, C) or (n_frames, H, W)
+    axes: str                            # "nhwc" | "nchw" | "nhw"
+    dtype: str                           # "uint8" | "float32" etc.
+    units: str                           # "pixel_intensity" | "HU" etc.
+    coordinate_frame: str | None         # None for 2D
+    provenance: dict = _dc_field(default_factory=dict)
+
+
+@_dataclass
+class QortexVideo:
+    """Video data stream with metadata."""
+    frames: Any                          # numpy [N, H, W, C]
+    n_frames: int
+    fps: float
+    duration_s: float
+    width: int
+    height: int
+    n_channels: int                      # 1=gray, 3=RGB, 4=RGBA
+    codec: str | None
+    shape: tuple
+    axes: str = "nhwc"
+    dtype: str = "uint8"
+    units: str = "pixel_intensity"
+    provenance: dict = _dc_field(default_factory=dict)
+
+
+@_dataclass
+class QortexEmbeddingTable:
+    """Collection of embedding vectors with metadata."""
+    vectors: Any                         # numpy [N, D]
+    n_items: int
+    dimensionality: int
+    item_ids: list = _dc_field(default_factory=list)
+    model_id: str | None = None
+    layer: str | None = None
+    dtype: str = "float32"
+    axes: str = "nd"
+    units: str = "embedding_dim"
+    provenance: dict = _dc_field(default_factory=dict)
+
+
+@_dataclass
+class QortexClinicalContext:
+    """Clinical metadata context (FHIR/DICOM-derived, PHI-scrubbed)."""
+    patient_id: str = ""                 # anonymized/pseudonymized
+    study_date: str | None = None        # YYYYMMDD
+    modality: str | None = None
+    institution: str | None = None
+    clinical_indication: str | None = None
+    structured_reports: list = _dc_field(default_factory=list)
+    measurements: dict = _dc_field(default_factory=dict)
+    phi_redacted: bool = True
+    provenance: dict = _dc_field(default_factory=dict)
+
+
+@_dataclass
+class QortexStream:
+    """Live data stream descriptor (not the data itself)."""
+    stream_id: str = ""
+    stream_type: str = ""                # "eeg" | "markers" | "video" etc.
+    source_type: str = ""                # "lsl" | "brainflow" | "websocket"
+    n_channels: int = 0
+    sampling_rate_hz: float | None = None
+    channel_names: list = _dc_field(default_factory=list)
+    channel_units: list = _dc_field(default_factory=list)
+    is_live: bool = True
+    buffer_size_s: float = 5.0
+    provenance: dict = _dc_field(default_factory=dict)

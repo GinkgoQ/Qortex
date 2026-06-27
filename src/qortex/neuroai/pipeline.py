@@ -165,9 +165,33 @@ class Pipeline:
         self._checked = True
         return self._compat_report
 
+    # ── Plan preprocessing ────────────────────────────────────────────────────
+
+    def plan_preprocessing(self) -> PreprocessPlan:
+        """Return the deterministic preprocessing plan for this pipeline.
+
+        Runs ``check()`` if not already done.  Returns the full transform
+        chain with documentation of each step, why it is required, and whether
+        it is reversible.
+
+        Returns
+        -------
+        PreprocessPlan
+            Ordered list of transforms with explanations.
+
+        Examples
+        --------
+        >>> plan = pipe.plan_preprocessing()
+        >>> for t in plan.transforms:
+        ...     print(f"  {t.kind.value}: {t.required_by}")
+        """
+        if not self._checked:
+            self.check()
+        return self._preprocess_plan
+
     # ── Run ───────────────────────────────────────────────────────────────────
 
-    def run(self) -> PipelineRunReport:
+    def run(self, *, artifact_dir: str | Path | None = None) -> PipelineRunReport:
         """Execute the full pipeline: source → preprocess → model → outputs.
 
         ``check()`` is automatically called if not already done.
@@ -222,6 +246,22 @@ class Pipeline:
             self._model_adapter.unload()
 
         _write_artifact_sidecar(self._spec, report)
+
+        if artifact_dir is not None:
+            try:
+                from qortex.neuroai.artifact import ArtifactWriter
+                writer = ArtifactWriter(artifact_dir, pipeline_ref=pipeline_ref)
+                writer.write(
+                    spec=self._spec,
+                    compat_report=self._compat_report,
+                    preprocess_plan=self._preprocess_plan,
+                    run_report=report,
+                    source_profile=self._source_profile,
+                    model_profile=self._model_profile,
+                )
+            except Exception as exc:
+                log.warning("ArtifactWriter failed (non-fatal): %s", exc)
+
         return report
 
     # ── Benchmark ─────────────────────────────────────────────────────────────

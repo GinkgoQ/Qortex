@@ -1710,3 +1710,133 @@ def neuroai_inspect_model(
         for w in profile.warnings:
             lines.append(f"  ⚠ [{w.severity}] {w.message}")
     typer.echo("\n".join(lines))
+
+
+@neuroai_app.command("suggest-models")
+def neuroai_suggest_models(
+    source: str = typer.Argument(..., help="Path to source file or BIDS directory"),
+    task: str = typer.Option(..., "--task", "-t", help="Task type: classification, segmentation, detection, regression, embedding"),
+    modality: str | None = typer.Option(None, "--modality", "-m", help="Modality hint: eeg, mri, ct, image, video"),
+    top_k: int = typer.Option(5, "--top-k", "-k", help="Number of models to suggest"),
+    provider: str = typer.Option("huggingface", "--provider", "-p", help="Model provider to search"),
+) -> None:
+    """Suggest compatible models for a given source file and task.
+
+    Probes the source, builds a SourceProfile, then searches for models
+    that are likely compatible.  Results are ranked: compatible >
+    compatible_with_transforms > uncertain > incompatible.
+
+    Examples::
+
+        qortex neuroai suggest-models data.edf --task classification
+        qortex neuroai suggest-models bids_dir/ --task segmentation --modality mri
+    """
+    import traceback
+    try:
+        from qortex.neuroai.sources._registry import make_source_adapter
+        from qortex.neuroai.spec import SourceSpec
+        from qortex.neuroai.compatibility import CompatibilityEngine
+        from qortex.neuroai.models._registry import make_model_adapter
+        from qortex.neuroai.spec import ModelSpec
+    except ImportError as exc:
+        typer.echo(f"Error importing NeuroAI modules: {exc}", err=True)
+        raise typer.Exit(2)
+
+    # 1. Probe source
+    try:
+        src_spec = SourceSpec(type="auto", path=source)
+        src_adapter = make_source_adapter(src_spec)
+        src_profile = src_adapter.probe()
+        typer.echo(f"Source: {src_profile.source_id} | modality={src_profile.modality} | "
+                   f"channels={src_profile.n_channels} | Fs={src_profile.sampling_rate_hz} Hz")
+    except Exception as exc:
+        typer.echo(f"Could not probe source {source!r}: {exc}", err=True)
+        raise typer.Exit(1)
+
+    detected_modality = modality or src_profile.modality or "unknown"
+
+    # 2. Build candidate model list
+    candidates = _build_candidate_list(task, detected_modality, provider, top_k * 3)
+
+    # 3. Score by compatibility
+    engine = CompatibilityEngine()
+    scored: list[tuple[int, dict, str]] = []  # (score, info, status)
+
+    for cand in candidates:
+        try:
+            m_spec = ModelSpec(provider=cand.get("provider", provider), id=cand["id"], task=task)
+            m_adapter = make_model_adapter(m_spec)
+            m_profile = m_adapter.inspect()
+            report = engine.check(src_profile, m_profile, None)
+            status = report.status.value
+            score = {"compatible": 4, "compatible_with_transforms": 3,
+                     "uncertain": 2, "incompatible": 0}.get(status, 1)
+        except Exception:
+            status = "unknown"
+            score = 1
+        scored.append((score, cand, status))
+
+    # Sort and limit
+    scored.sort(key=lambda x: x[0], reverse=True)
+    scored = scored[:top_k]
+
+    typer.echo(f"\nTop {len(scored)} model suggestions for task={task!r}, modality={detected_modality!r}:\n")
+    typer.echo(f"{'Model ID':<45} {'Provider':<14} {'Compatibility':<28} {'Notes'}")
+    typer.echo("-" * 110)
+    for score, cand, status in scored:
+        notes = cand.get("notes", "")
+        typer.echo(f"{cand['id']:<45} {cand.get('provider', provider):<14} {status:<28} {notes}")
+
+    if not scored:
+        typer.echo("No candidate models found. Try a different task or provider.")
+
+
+# Curated model registry for offline / fallback use
+_KNOWN_MODELS: list[dict] = [
+    {"id": "braindecode/EEGNet_8_2", "provider": "braindecode", "task": "eeg_classification", "modality": "eeg", "notes": "EEGNet — BCI baseline"},
+    {"id": "braindecode/ShallowFBCSPNet", "provider": "braindecode", "task": "eeg_classification", "modality": "eeg", "notes": "FBCSP — BCI motor imagery"},
+    {"id": "braindecode/Deep4Net", "provider": "braindecode", "task": "eeg_classification", "modality": "eeg", "notes": "Deep ConvNet for EEG"},
+    {"id": "openai/whisper-base", "provider": "huggingface", "task": "audio_classification", "modality": "audio", "notes": "Audio transcription"},
+    {"id": "microsoft/resnet-50", "provider": "huggingface", "task": "image_classification", "modality": "image", "notes": "ResNet-50 ImageNet"},
+    {"id": "ultralytics/yolov8n", "provider": "ultralytics", "task": "detection", "modality": "image", "notes": "YOLOv8 nano — fast detection"},
+    {"id": "ultralytics/yolov8n-seg", "provider": "ultralytics", "task": "segmentation", "modality": "image", "notes": "YOLOv8 segmentation"},
+    {"id": "google/vit-base-patch16-224", "provider": "huggingface", "task": "image_classification", "modality": "image", "notes": "ViT image classifier"},
+    {"id": "facebook/detr-resnet-50", "provider": "huggingface", "task": "detection", "modality": "image", "notes": "DETR object detection"},
+]
+
+_TASK_MODALITY_HF_TAGS: dict[tuple[str, str], dict] = {
+    ("classification", "eeg"): {"task": "audio-classification", "search_terms": ["eeg", "bci"]},
+    ("segmentation", "mri"): {"task": "image-segmentation", "search_terms": ["medical", "mri", "brain"]},
+    ("segmentation", "ct"): {"task": "image-segmentation", "search_terms": ["medical", "ct", "lung"]},
+    ("detection", "image"): {"task": "object-detection", "search_terms": []},
+    ("classification", "image"): {"task": "image-classification", "search_terms": []},
+    ("segmentation", "image"): {"task": "image-segmentation", "search_terms": []},
+}
+
+
+def _build_candidate_list(task: str, modality: str, provider: str, limit: int) -> list[dict]:
+    """Build candidate model list from HuggingFace Hub or fallback registry."""
+    candidates: list[dict] = []
+
+    # Filter known models
+    for m in _KNOWN_MODELS:
+        if task.lower() in m.get("task", "") or modality.lower() in m.get("modality", ""):
+            candidates.append(m)
+
+    # Try HuggingFace Hub
+    if provider in ("huggingface", "hf"):
+        try:
+            from huggingface_hub import list_models
+            tags_cfg = _TASK_MODALITY_HF_TAGS.get(
+                (task.lower(), modality.lower()),
+                {"task": task.replace("_", "-"), "search_terms": []},
+            )
+            hf_task = tags_cfg["task"]
+            results = list(list_models(task=hf_task, limit=limit, sort="downloads", direction=-1))
+            for m in results:
+                if m.modelId not in {c["id"] for c in candidates}:
+                    candidates.append({"id": m.modelId, "provider": "huggingface", "task": task})
+        except Exception:
+            pass  # Fall back to curated list
+
+    return candidates[:limit]

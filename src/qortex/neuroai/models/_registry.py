@@ -26,8 +26,13 @@ def make_model_adapter(spec: ModelSpec) -> ModelAdapter:
         from qortex.neuroai.models.onnx import ONNXModelAdapter
         return ONNXModelAdapter(spec)
 
-    if provider in ("torch", "pytorch", "torchscript"):
+    if provider in ("torch", "pytorch"):
         from qortex.neuroai.models.torch import TorchModelAdapter
+        return TorchModelAdapter(spec)
+
+    if provider in ("torchscript", "ts"):
+        from qortex.neuroai.models.torch import TorchModelAdapter
+        # provider hint is used inside the adapter to decide jit.load vs torch.load
         return TorchModelAdapter(spec)
 
     if provider in ("monai", "monai_bundle"):
@@ -42,7 +47,12 @@ def make_model_adapter(spec: ModelSpec) -> ModelAdapter:
         from qortex.neuroai.models.ultralytics import UltralyticsAdapter
         return UltralyticsAdapter(spec)
 
+    if provider in ("plugin", "custom"):
+        from qortex.neuroai.models.plugin import CustomPluginAdapter
+        return CustomPluginAdapter(spec)
+
     raise ValueError(
         f"Unknown model provider: {provider!r}. "
-        f"Supported: 'huggingface', 'onnx', 'torch', 'monai', 'braindecode', 'ultralytics'."
+        f"Supported: 'huggingface', 'onnx', 'torch', 'torchscript', "
+        f"'monai', 'braindecode', 'ultralytics', 'plugin'."
     )
