@@ -2937,6 +2937,28 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        readme
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#validation-issues" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        validation-issues
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#preview" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3844,6 +3866,28 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        readme
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#validation-issues" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        validation-issues
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#preview" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4403,165 +4447,173 @@
 <p>Print dataset metadata: dataset_description.json, participants.tsv, or a specific sidecar.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>qortex<span class="w"> </span>metadata<span class="w"> </span>DATASET_ID<span class="w"> </span><span class="o">[</span>FILE_PATH<span class="o">]</span><span class="w"> </span><span class="o">[</span>--participants<span class="o">]</span><span class="w"> </span><span class="o">[</span>--snapshots<span class="o">]</span><span class="w"> </span><span class="o">[</span>--json<span class="o">]</span>
 </code></pre></div>
+<h3 id="readme">readme<a class="headerlink" href="#readme" title="Permanent link">&para;</a></h3>
+<p>Fetch and print the README / description text for a dataset.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>qortex<span class="w"> </span>readme<span class="w"> </span>DATASET_ID<span class="w"> </span><span class="o">[</span>--snapshot<span class="w"> </span>VER<span class="o">]</span>
+</code></pre></div>
+<h3 id="validation-issues">validation-issues<a class="headerlink" href="#validation-issues" title="Permanent link">&para;</a></h3>
+<p>Print BIDS validation issues for a snapshot.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>qortex<span class="w"> </span>validation-issues<span class="w"> </span>DATASET_ID<span class="w"> </span>--snapshot<span class="w"> </span>VER<span class="w"> </span><span class="o">[</span>--errors-only<span class="o">]</span><span class="w"> </span><span class="o">[</span>--json<span class="o">]</span>
+</code></pre></div>
 <h3 id="preview">preview<a class="headerlink" href="#preview" title="Permanent link">&para;</a></h3>
 <p>Show the first N rows of a tabular file.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>qortex<span class="w"> </span>preview<span class="w"> </span>DATASET_ID<span class="w"> </span>FILE_PATH<span class="w"> </span><span class="o">[</span>--n<span class="w"> </span><span class="m">10</span><span class="o">]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>qortex<span class="w"> </span>preview<span class="w"> </span>DATASET_ID<span class="w"> </span>FILE_PATH<span class="w"> </span><span class="o">[</span>--n<span class="w"> </span><span class="m">10</span><span class="o">]</span>
 </code></pre></div>
 <h2 id="readiness-commands">Readiness commands<a class="headerlink" href="#readiness-commands" title="Permanent link">&para;</a></h2>
 <h3 id="doctor">doctor<a class="headerlink" href="#doctor" title="Permanent link">&para;</a></h3>
 <p>Full readiness report: subjects, modalities, events, label coverage, split feasibility.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>qortex<span class="w"> </span>doctor<span class="w"> </span>DATASET_ID<span class="w"> </span><span class="o">[</span>--snapshot<span class="w"> </span>VER<span class="o">]</span><span class="w"> </span><span class="o">[</span>--local<span class="o">]</span><span class="w"> </span><span class="o">[</span>--data-dir<span class="w"> </span>DIR<span class="o">]</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">              </span><span class="o">[</span>--recipe<span class="w"> </span>NAME<span class="o">]</span><span class="w"> </span><span class="o">[</span>--json<span class="o">]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>qortex<span class="w"> </span>doctor<span class="w"> </span>DATASET_ID<span class="w"> </span><span class="o">[</span>--snapshot<span class="w"> </span>VER<span class="o">]</span><span class="w"> </span><span class="o">[</span>--local<span class="o">]</span><span class="w"> </span><span class="o">[</span>--data-dir<span class="w"> </span>DIR<span class="o">]</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">              </span><span class="o">[</span>--recipe<span class="w"> </span>NAME<span class="o">]</span><span class="w"> </span><span class="o">[</span>--json<span class="o">]</span>
 </code></pre></div>
 <h3 id="minimum">minimum<a class="headerlink" href="#minimum" title="Permanent link">&para;</a></h3>
 <p>Compute the smallest download for a given goal.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>qortex<span class="w"> </span>minimum<span class="w"> </span>DATASET_ID<span class="w"> </span>--goal<span class="w"> </span><span class="o">{</span>first-batch,label-check,validation,metadata<span class="o">}</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">               </span><span class="o">[</span>--download<span class="o">]</span><span class="w"> </span><span class="o">[</span>--data-dir<span class="w"> </span>DIR<span class="o">]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>qortex<span class="w"> </span>minimum<span class="w"> </span>DATASET_ID<span class="w"> </span>--goal<span class="w"> </span><span class="o">{</span>first-batch,label-check,validation,metadata<span class="o">}</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">               </span><span class="o">[</span>--download<span class="o">]</span><span class="w"> </span><span class="o">[</span>--data-dir<span class="w"> </span>DIR<span class="o">]</span>
 </code></pre></div>
 <h3 id="can-train">can-train<a class="headerlink" href="#can-train" title="Permanent link">&para;</a></h3>
 <p>Binary label readiness check.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>qortex<span class="w"> </span>can-train<span class="w"> </span>DATASET_ID<span class="w"> </span>--label<span class="w"> </span>COL<span class="w"> </span><span class="o">[</span>--min-classes<span class="w"> </span>N<span class="o">]</span><span class="w"> </span><span class="o">[</span>--min-per-class<span class="w"> </span>N<span class="o">]</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">                 </span><span class="o">[</span>--min-subjects<span class="w"> </span>N<span class="o">]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>qortex<span class="w"> </span>can-train<span class="w"> </span>DATASET_ID<span class="w"> </span>--label<span class="w"> </span>COL<span class="w"> </span><span class="o">[</span>--min-classes<span class="w"> </span>N<span class="o">]</span><span class="w"> </span><span class="o">[</span>--min-per-class<span class="w"> </span>N<span class="o">]</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">                 </span><span class="o">[</span>--min-subjects<span class="w"> </span>N<span class="o">]</span>
 </code></pre></div>
 <h3 id="first-batch">first-batch<a class="headerlink" href="#first-batch" title="Permanent link">&para;</a></h3>
 <p>Download minimum subjects and run a full pipeline pass.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>qortex<span class="w"> </span>first-batch<span class="w"> </span>DATASET_ID<span class="w"> </span>--label<span class="w"> </span>COL<span class="w"> </span><span class="o">[</span>--data-dir<span class="w"> </span>DIR<span class="o">]</span><span class="w"> </span><span class="o">[</span>--format<span class="w"> </span>FMT<span class="o">]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>qortex<span class="w"> </span>first-batch<span class="w"> </span>DATASET_ID<span class="w"> </span>--label<span class="w"> </span>COL<span class="w"> </span><span class="o">[</span>--data-dir<span class="w"> </span>DIR<span class="o">]</span><span class="w"> </span><span class="o">[</span>--format<span class="w"> </span>FMT<span class="o">]</span>
 </code></pre></div>
 <h3 id="leakage-check">leakage-check<a class="headerlink" href="#leakage-check" title="Permanent link">&para;</a></h3>
 <p>Verify no subject appears in two splits of a converted artifact.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>qortex<span class="w"> </span>leakage-check<span class="w"> </span>DATASET_ID<span class="w"> </span>--artifact<span class="w"> </span>DIR<span class="w"> </span><span class="o">[</span>--level<span class="w"> </span><span class="o">{</span>subject,session<span class="o">}]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>qortex<span class="w"> </span>leakage-check<span class="w"> </span>DATASET_ID<span class="w"> </span>--artifact<span class="w"> </span>DIR<span class="w"> </span><span class="o">[</span>--level<span class="w"> </span><span class="o">{</span>subject,session<span class="o">}]</span>
 </code></pre></div>
 <h3 id="content-status">content-status<a class="headerlink" href="#content-status" title="Permanent link">&para;</a></h3>
 <p>Check local files for LFS pointers and incomplete downloads.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>qortex<span class="w"> </span>content-status<span class="w"> </span>DATASET_ID<span class="w"> </span>--data-dir<span class="w"> </span>DIR
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>qortex<span class="w"> </span>content-status<span class="w"> </span>DATASET_ID<span class="w"> </span>--data-dir<span class="w"> </span>DIR
 </code></pre></div>
 <h3 id="make-recipe">make-recipe<a class="headerlink" href="#make-recipe" title="Permanent link">&para;</a></h3>
 <p>Create a readiness recipe file from parameters.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>qortex<span class="w"> </span>make-recipe<span class="w"> </span>RECIPE_NAME<span class="w"> </span><span class="o">[</span>--modality<span class="w"> </span>MOD<span class="o">]</span><span class="w"> </span><span class="o">[</span>--label<span class="w"> </span>COL<span class="o">]</span>
-<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">                   </span><span class="o">[</span>--min-subjects<span class="w"> </span>N<span class="o">]</span><span class="w"> </span><span class="o">[</span>--output<span class="w"> </span>FILE<span class="o">]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>qortex<span class="w"> </span>make-recipe<span class="w"> </span>RECIPE_NAME<span class="w"> </span><span class="o">[</span>--modality<span class="w"> </span>MOD<span class="o">]</span><span class="w"> </span><span class="o">[</span>--label<span class="w"> </span>COL<span class="o">]</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">                   </span><span class="o">[</span>--min-subjects<span class="w"> </span>N<span class="o">]</span><span class="w"> </span><span class="o">[</span>--output<span class="w"> </span>FILE<span class="o">]</span>
 </code></pre></div>
 <h3 id="run-recipe">run-recipe<a class="headerlink" href="#run-recipe" title="Permanent link">&para;</a></h3>
 <p>Run a recipe file against a dataset.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>qortex<span class="w"> </span>run-recipe<span class="w"> </span>RECIPE_FILE<span class="w"> </span>--dataset<span class="w"> </span>DATASET_ID<span class="w"> </span><span class="o">[</span>--data-dir<span class="w"> </span>DIR<span class="o">]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>qortex<span class="w"> </span>run-recipe<span class="w"> </span>RECIPE_FILE<span class="w"> </span>--dataset<span class="w"> </span>DATASET_ID<span class="w"> </span><span class="o">[</span>--data-dir<span class="w"> </span>DIR<span class="o">]</span>
 </code></pre></div>
 <h2 id="download-commands">Download commands<a class="headerlink" href="#download-commands" title="Permanent link">&para;</a></h2>
 <h3 id="plan">plan<a class="headerlink" href="#plan" title="Permanent link">&para;</a></h3>
 <p>Show what would be downloaded without downloading.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>qortex<span class="w"> </span>plan<span class="w"> </span>DATASET_ID<span class="w"> </span><span class="o">[</span>--subjects<span class="w"> </span>S<span class="w"> </span><span class="o">[</span>S<span class="w"> </span>...<span class="o">]]</span><span class="w"> </span><span class="o">[</span>--tasks<span class="w"> </span>T<span class="w"> </span><span class="o">[</span>T<span class="w"> </span>...<span class="o">]]</span>
-<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">            </span><span class="o">[</span>--suffixes<span class="w"> </span>SUF<span class="w"> </span><span class="o">[</span>SUF<span class="w"> </span>...<span class="o">]]</span><span class="w"> </span><span class="o">[</span>--output<span class="w"> </span>FILE<span class="o">]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>qortex<span class="w"> </span>plan<span class="w"> </span>DATASET_ID<span class="w"> </span><span class="o">[</span>--subjects<span class="w"> </span>S<span class="w"> </span><span class="o">[</span>S<span class="w"> </span>...<span class="o">]]</span><span class="w"> </span><span class="o">[</span>--tasks<span class="w"> </span>T<span class="w"> </span><span class="o">[</span>T<span class="w"> </span>...<span class="o">]]</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">            </span><span class="o">[</span>--suffixes<span class="w"> </span>SUF<span class="w"> </span><span class="o">[</span>SUF<span class="w"> </span>...<span class="o">]]</span><span class="w"> </span><span class="o">[</span>--output<span class="w"> </span>FILE<span class="o">]</span>
 </code></pre></div>
 <h3 id="download">download<a class="headerlink" href="#download" title="Permanent link">&para;</a></h3>
 <p>Download files from OpenNeuro.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>qortex<span class="w"> </span>download<span class="w"> </span>DATASET_ID<span class="w"> </span><span class="o">[</span>--subjects<span class="w"> </span>S<span class="w"> </span><span class="o">[</span>S<span class="w"> </span>...<span class="o">]]</span><span class="w"> </span><span class="o">[</span>--tasks<span class="w"> </span>T<span class="w"> </span><span class="o">[</span>T<span class="w"> </span>...<span class="o">]]</span>
-<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">                </span><span class="o">[</span>--suffixes<span class="w"> </span>SUF<span class="w"> </span><span class="o">[</span>SUF<span class="w"> </span>...<span class="o">]]</span><span class="w"> </span><span class="o">[</span>--datatypes<span class="w"> </span>D<span class="w"> </span><span class="o">[</span>D<span class="w"> </span>...<span class="o">]]</span>
-<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="w">                </span><span class="o">[</span>--metadata-only<span class="o">]</span><span class="w"> </span><span class="o">[</span>--min-goal<span class="w"> </span>GOAL<span class="o">]</span>
-<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="w">                </span><span class="o">[</span>--data-dir<span class="w"> </span>DIR<span class="o">]</span><span class="w"> </span><span class="o">[</span>--snapshot<span class="w"> </span>VER<span class="o">]</span>
-<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="w">                </span><span class="o">[</span>--max-size<span class="w"> </span>GB<span class="o">]</span><span class="w"> </span><span class="o">[</span>--concurrency<span class="w"> </span>N<span class="o">]</span><span class="w"> </span><span class="o">[</span>--force<span class="o">]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>qortex<span class="w"> </span>download<span class="w"> </span>DATASET_ID<span class="w"> </span><span class="o">[</span>--subjects<span class="w"> </span>S<span class="w"> </span><span class="o">[</span>S<span class="w"> </span>...<span class="o">]]</span><span class="w"> </span><span class="o">[</span>--tasks<span class="w"> </span>T<span class="w"> </span><span class="o">[</span>T<span class="w"> </span>...<span class="o">]]</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="w">                </span><span class="o">[</span>--suffixes<span class="w"> </span>SUF<span class="w"> </span><span class="o">[</span>SUF<span class="w"> </span>...<span class="o">]]</span><span class="w"> </span><span class="o">[</span>--datatypes<span class="w"> </span>D<span class="w"> </span><span class="o">[</span>D<span class="w"> </span>...<span class="o">]]</span>
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="w">                </span><span class="o">[</span>--metadata-only<span class="o">]</span><span class="w"> </span><span class="o">[</span>--min-goal<span class="w"> </span>GOAL<span class="o">]</span>
+<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="w">                </span><span class="o">[</span>--data-dir<span class="w"> </span>DIR<span class="o">]</span><span class="w"> </span><span class="o">[</span>--snapshot<span class="w"> </span>VER<span class="o">]</span>
+<a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a><span class="w">                </span><span class="o">[</span>--max-size<span class="w"> </span>GB<span class="o">]</span><span class="w"> </span><span class="o">[</span>--concurrency<span class="w"> </span>N<span class="o">]</span><span class="w"> </span><span class="o">[</span>--force<span class="o">]</span>
 </code></pre></div>
 <h3 id="validate">validate<a class="headerlink" href="#validate" title="Permanent link">&para;</a></h3>
 <p>Run BIDS Validator on a local directory.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>qortex<span class="w"> </span>validate<span class="w"> </span>DIR<span class="w"> </span><span class="o">[</span>--dataset-id<span class="w"> </span>ID<span class="o">]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>qortex<span class="w"> </span>validate<span class="w"> </span>DIR<span class="w"> </span><span class="o">[</span>--dataset-id<span class="w"> </span>ID<span class="o">]</span>
 </code></pre></div>
 <h3 id="local-index">local-index<a class="headerlink" href="#local-index" title="Permanent link">&para;</a></h3>
 <p>Scan a local BIDS directory and build a local manifest.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>qortex<span class="w"> </span>local-index<span class="w"> </span>DIR<span class="w"> </span>--dataset-id<span class="w"> </span>ID
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>qortex<span class="w"> </span>local-index<span class="w"> </span>DIR<span class="w"> </span>--dataset-id<span class="w"> </span>ID
 </code></pre></div>
 <h2 id="conversion-commands">Conversion commands<a class="headerlink" href="#conversion-commands" title="Permanent link">&para;</a></h2>
 <h3 id="eda">eda<a class="headerlink" href="#eda" title="Permanent link">&para;</a></h3>
 <p>Exploratory data analysis: signal statistics and label landscape.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>qortex<span class="w"> </span>eda<span class="w"> </span>DATASET_ID<span class="w"> </span><span class="o">[</span>--data-dir<span class="w"> </span>DIR<span class="o">]</span><span class="w"> </span><span class="o">[</span>--label<span class="w"> </span>COL<span class="o">]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>qortex<span class="w"> </span>eda<span class="w"> </span>DATASET_ID<span class="w"> </span><span class="o">[</span>--data-dir<span class="w"> </span>DIR<span class="o">]</span><span class="w"> </span><span class="o">[</span>--label<span class="w"> </span>COL<span class="o">]</span>
 </code></pre></div>
 <h3 id="convert">convert<a class="headerlink" href="#convert" title="Permanent link">&para;</a></h3>
 <p>Convert a local BIDS dataset to an ML artifact.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>qortex<span class="w"> </span>convert<span class="w"> </span>DATASET_ID<span class="w"> </span><span class="o">[</span>--data-dir<span class="w"> </span>DIR<span class="o">]</span><span class="w"> </span>--output<span class="w"> </span>DIR
-<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="w">               </span><span class="o">[</span>--format<span class="w"> </span><span class="o">{</span>parquet,zarr,hdf5,webdataset,huggingface,tfrecord<span class="o">}]</span>
-<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="w">               </span><span class="o">[</span>--window<span class="w"> </span>SECONDS<span class="o">]</span><span class="w"> </span><span class="o">[</span>--overlap<span class="w"> </span>FRAC<span class="o">]</span>
-<a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="w">               </span><span class="o">[</span>--event-aligned<span class="o">]</span><span class="w"> </span><span class="o">[</span>--tmin<span class="w"> </span>SECONDS<span class="o">]</span>
-<a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a><span class="w">               </span><span class="o">[</span>--label<span class="w"> </span>COL<span class="o">]</span><span class="w"> </span><span class="o">[</span>--subjects<span class="w"> </span>S<span class="w"> </span><span class="o">[</span>S<span class="w"> </span>...<span class="o">]]</span>
-<a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a><span class="w">               </span><span class="o">[</span>--val-frac<span class="w"> </span>F<span class="o">]</span><span class="w"> </span><span class="o">[</span>--test-frac<span class="w"> </span>F<span class="o">]</span><span class="w"> </span><span class="o">[</span>--seed<span class="w"> </span>N<span class="o">]</span>
-<a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a><span class="w">               </span><span class="o">[</span>--workers<span class="w"> </span>N<span class="o">]</span><span class="w"> </span><span class="o">[</span>--overwrite<span class="o">]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>qortex<span class="w"> </span>convert<span class="w"> </span>DATASET_ID<span class="w"> </span><span class="o">[</span>--data-dir<span class="w"> </span>DIR<span class="o">]</span><span class="w"> </span>--output<span class="w"> </span>DIR
+<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="w">               </span><span class="o">[</span>--format<span class="w"> </span><span class="o">{</span>parquet,zarr,hdf5,webdataset,huggingface,tfrecord<span class="o">}]</span>
+<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="w">               </span><span class="o">[</span>--window<span class="w"> </span>SECONDS<span class="o">]</span><span class="w"> </span><span class="o">[</span>--overlap<span class="w"> </span>FRAC<span class="o">]</span>
+<a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="w">               </span><span class="o">[</span>--event-aligned<span class="o">]</span><span class="w"> </span><span class="o">[</span>--tmin<span class="w"> </span>SECONDS<span class="o">]</span>
+<a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a><span class="w">               </span><span class="o">[</span>--label<span class="w"> </span>COL<span class="o">]</span><span class="w"> </span><span class="o">[</span>--subjects<span class="w"> </span>S<span class="w"> </span><span class="o">[</span>S<span class="w"> </span>...<span class="o">]]</span>
+<a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a><span class="w">               </span><span class="o">[</span>--val-frac<span class="w"> </span>F<span class="o">]</span><span class="w"> </span><span class="o">[</span>--test-frac<span class="w"> </span>F<span class="o">]</span><span class="w"> </span><span class="o">[</span>--seed<span class="w"> </span>N<span class="o">]</span>
+<a id="__codelineno-19-7" name="__codelineno-19-7" href="#__codelineno-19-7"></a><span class="w">               </span><span class="o">[</span>--workers<span class="w"> </span>N<span class="o">]</span><span class="w"> </span><span class="o">[</span>--overwrite<span class="o">]</span>
 </code></pre></div>
 <h2 id="cache-commands">Cache commands<a class="headerlink" href="#cache-commands" title="Permanent link">&para;</a></h2>
 <h3 id="cache-info">cache info<a class="headerlink" href="#cache-info" title="Permanent link">&para;</a></h3>
 <p>Show total cache size.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>qortex<span class="w"> </span>cache<span class="w"> </span>info
+<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>qortex<span class="w"> </span>cache<span class="w"> </span>info
 </code></pre></div>
 <h3 id="cache-list">cache list<a class="headerlink" href="#cache-list" title="Permanent link">&para;</a></h3>
 <p>List cached datasets.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>qortex<span class="w"> </span>cache<span class="w"> </span>list<span class="w"> </span><span class="o">[</span>DATASET_ID<span class="o">]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>qortex<span class="w"> </span>cache<span class="w"> </span>list<span class="w"> </span><span class="o">[</span>DATASET_ID<span class="o">]</span>
 </code></pre></div>
 <h3 id="cache-remove">cache remove<a class="headerlink" href="#cache-remove" title="Permanent link">&para;</a></h3>
 <p>Remove a dataset from cache.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>qortex<span class="w"> </span>cache<span class="w"> </span>remove<span class="w"> </span>DATASET_ID<span class="w"> </span><span class="o">[</span>--snapshot<span class="w"> </span>VER<span class="o">]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>qortex<span class="w"> </span>cache<span class="w"> </span>remove<span class="w"> </span>DATASET_ID<span class="w"> </span><span class="o">[</span>--snapshot<span class="w"> </span>VER<span class="o">]</span>
 </code></pre></div>
 <h3 id="cache-clear">cache clear<a class="headerlink" href="#cache-clear" title="Permanent link">&para;</a></h3>
 <p>Remove all cached data.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>qortex<span class="w"> </span>cache<span class="w"> </span>clear<span class="w"> </span><span class="o">[</span>--yes<span class="o">]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>qortex<span class="w"> </span>cache<span class="w"> </span>clear<span class="w"> </span><span class="o">[</span>--yes<span class="o">]</span>
 </code></pre></div>
 <h2 id="authentication">Authentication<a class="headerlink" href="#authentication" title="Permanent link">&para;</a></h2>
 <h3 id="login">login<a class="headerlink" href="#login" title="Permanent link">&para;</a></h3>
 <p>Store an OpenNeuro API token for private dataset access.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>qortex<span class="w"> </span>login<span class="w"> </span><span class="o">[</span>--token<span class="w"> </span>TOKEN<span class="o">]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>qortex<span class="w"> </span>login<span class="w"> </span><span class="o">[</span>--token<span class="w"> </span>TOKEN<span class="o">]</span>
 </code></pre></div>
 <h2 id="catalog-commands">Catalog commands<a class="headerlink" href="#catalog-commands" title="Permanent link">&para;</a></h2>
 <h3 id="catalog-refresh">catalog-refresh<a class="headerlink" href="#catalog-refresh" title="Permanent link">&para;</a></h3>
 <p>Pull the latest catalog index from OpenNeuro.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>qortex<span class="w"> </span>catalog-refresh
+<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>qortex<span class="w"> </span>catalog-refresh
 </code></pre></div>
 <h3 id="catalog-profile">catalog-profile<a class="headerlink" href="#catalog-profile" title="Permanent link">&para;</a></h3>
 <p>Show catalog statistics.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>qortex<span class="w"> </span>catalog-profile
+<div class="highlight"><pre><span></span><code><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a>qortex<span class="w"> </span>catalog-profile
 </code></pre></div>
 <h2 id="visualization-commands">Visualization commands<a class="headerlink" href="#visualization-commands" title="Permanent link">&para;</a></h2>
 <h3 id="visualize">visualize<a class="headerlink" href="#visualize" title="Permanent link">&para;</a></h3>
 <p>Render figures for local files.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>qortex<span class="w"> </span>visualize<span class="w"> </span>DATASET_ID<span class="w"> </span><span class="o">[</span>--subject<span class="w"> </span>S<span class="o">]</span><span class="w"> </span><span class="o">[</span>--suffix<span class="w"> </span>SUF<span class="o">]</span>
-<a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a><span class="w">                 </span><span class="o">[</span>--data-dir<span class="w"> </span>DIR<span class="o">]</span><span class="w"> </span><span class="o">[</span>--output<span class="w"> </span>DIR<span class="o">]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a>qortex<span class="w"> </span>visualize<span class="w"> </span>DATASET_ID<span class="w"> </span><span class="o">[</span>--subject<span class="w"> </span>S<span class="o">]</span><span class="w"> </span><span class="o">[</span>--suffix<span class="w"> </span>SUF<span class="o">]</span>
+<a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a><span class="w">                 </span><span class="o">[</span>--data-dir<span class="w"> </span>DIR<span class="o">]</span><span class="w"> </span><span class="o">[</span>--output<span class="w"> </span>DIR<span class="o">]</span>
 </code></pre></div>
 <h3 id="visualize-openneuro">visualize-openneuro<a class="headerlink" href="#visualize-openneuro" title="Permanent link">&para;</a></h3>
 <p>Render center-slice thumbnails from OpenNeuro CDN without full download.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a>qortex<span class="w"> </span>visualize-openneuro<span class="w"> </span>DATASET_ID<span class="w"> </span><span class="o">[</span>--subjects<span class="w"> </span>S<span class="w"> </span><span class="o">[</span>S<span class="w"> </span>...<span class="o">]]</span>
-<a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a><span class="w">                            </span><span class="o">[</span>--suffixes<span class="w"> </span>SUF<span class="w"> </span><span class="o">[</span>SUF<span class="w"> </span>...<span class="o">]]</span>
-<a id="__codelineno-26-3" name="__codelineno-26-3" href="#__codelineno-26-3"></a><span class="w">                            </span><span class="o">[</span>--snapshot<span class="w"> </span>VER<span class="o">]</span><span class="w"> </span><span class="o">[</span>--output<span class="w"> </span>DIR<span class="o">]</span>
-<a id="__codelineno-26-4" name="__codelineno-26-4" href="#__codelineno-26-4"></a><span class="w">                            </span><span class="o">[</span>--format<span class="w"> </span><span class="o">{</span>html,png<span class="o">}]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a>qortex<span class="w"> </span>visualize-openneuro<span class="w"> </span>DATASET_ID<span class="w"> </span><span class="o">[</span>--subjects<span class="w"> </span>S<span class="w"> </span><span class="o">[</span>S<span class="w"> </span>...<span class="o">]]</span>
+<a id="__codelineno-28-2" name="__codelineno-28-2" href="#__codelineno-28-2"></a><span class="w">                            </span><span class="o">[</span>--suffixes<span class="w"> </span>SUF<span class="w"> </span><span class="o">[</span>SUF<span class="w"> </span>...<span class="o">]]</span>
+<a id="__codelineno-28-3" name="__codelineno-28-3" href="#__codelineno-28-3"></a><span class="w">                            </span><span class="o">[</span>--snapshot<span class="w"> </span>VER<span class="o">]</span><span class="w"> </span><span class="o">[</span>--output<span class="w"> </span>DIR<span class="o">]</span>
+<a id="__codelineno-28-4" name="__codelineno-28-4" href="#__codelineno-28-4"></a><span class="w">                            </span><span class="o">[</span>--format<span class="w"> </span><span class="o">{</span>html,png<span class="o">}]</span>
 </code></pre></div>
 <h3 id="dicom-browser">dicom-browser<a class="headerlink" href="#dicom-browser" title="Permanent link">&para;</a></h3>
 <p>Browse a local DICOM directory.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a>qortex<span class="w"> </span>dicom-browser<span class="w"> </span>DIR<span class="w"> </span><span class="o">[</span>--output<span class="w"> </span>FILE<span class="o">]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a>qortex<span class="w"> </span>dicom-browser<span class="w"> </span>DIR<span class="w"> </span><span class="o">[</span>--output<span class="w"> </span>FILE<span class="o">]</span>
 </code></pre></div>
 <h3 id="fmri-qc">fmri-qc<a class="headerlink" href="#fmri-qc" title="Permanent link">&para;</a></h3>
 <p>Render the fMRI QC summary for a BOLD file.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a>qortex<span class="w"> </span>fmri-qc<span class="w"> </span>FILE<span class="w"> </span><span class="o">[</span>--events<span class="w"> </span>FILE<span class="o">]</span><span class="w"> </span><span class="o">[</span>--confounds<span class="w"> </span>FILE<span class="o">]</span><span class="w"> </span><span class="o">[</span>--output<span class="w"> </span>FILE<span class="o">]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a>qortex<span class="w"> </span>fmri-qc<span class="w"> </span>FILE<span class="w"> </span><span class="o">[</span>--events<span class="w"> </span>FILE<span class="o">]</span><span class="w"> </span><span class="o">[</span>--confounds<span class="w"> </span>FILE<span class="o">]</span><span class="w"> </span><span class="o">[</span>--output<span class="w"> </span>FILE<span class="o">]</span>
 </code></pre></div>
 <h3 id="dwi-qc">dwi-qc<a class="headerlink" href="#dwi-qc" title="Permanent link">&para;</a></h3>
 <p>Render the DWI QC summary.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a>qortex<span class="w"> </span>dwi-qc<span class="w"> </span>FILE<span class="w"> </span>--bval<span class="w"> </span>FILE<span class="w"> </span>--bvec<span class="w"> </span>FILE<span class="w"> </span><span class="o">[</span>--output<span class="w"> </span>FILE<span class="o">]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a>qortex<span class="w"> </span>dwi-qc<span class="w"> </span>FILE<span class="w"> </span>--bval<span class="w"> </span>FILE<span class="w"> </span>--bvec<span class="w"> </span>FILE<span class="w"> </span><span class="o">[</span>--output<span class="w"> </span>FILE<span class="o">]</span>
 </code></pre></div>
 <h3 id="visual-audit">visual-audit<a class="headerlink" href="#visual-audit" title="Permanent link">&para;</a></h3>
 <p>Run a visual audit on a local BIDS directory or manifest.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a>qortex<span class="w"> </span>visual-audit<span class="w"> </span>DATASET_ID<span class="w"> </span><span class="o">[</span>--data-dir<span class="w"> </span>DIR<span class="o">]</span><span class="w"> </span><span class="o">[</span>--output<span class="w"> </span>FILE<span class="o">]</span>
-<a id="__codelineno-30-2" name="__codelineno-30-2" href="#__codelineno-30-2"></a><span class="w">                    </span><span class="o">[</span>--mode<span class="w"> </span><span class="o">{</span>local,manifest<span class="o">}]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a>qortex<span class="w"> </span>visual-audit<span class="w"> </span>DATASET_ID<span class="w"> </span><span class="o">[</span>--data-dir<span class="w"> </span>DIR<span class="o">]</span><span class="w"> </span><span class="o">[</span>--output<span class="w"> </span>FILE<span class="o">]</span>
+<a id="__codelineno-32-2" name="__codelineno-32-2" href="#__codelineno-32-2"></a><span class="w">                    </span><span class="o">[</span>--mode<span class="w"> </span><span class="o">{</span>local,manifest<span class="o">}]</span>
 </code></pre></div>
 <h3 id="visualize-overlay">visualize-overlay<a class="headerlink" href="#visualize-overlay" title="Permanent link">&para;</a></h3>
 <p>Overlay a mask or stat map on an anatomical image.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a>qortex<span class="w"> </span>visualize-overlay<span class="w"> </span>BACKGROUND_FILE<span class="w"> </span>--overlay<span class="w"> </span>FILE
-<a id="__codelineno-31-2" name="__codelineno-31-2" href="#__codelineno-31-2"></a><span class="w">                          </span><span class="o">[</span>--type<span class="w"> </span><span class="o">{</span>mask,labelmap,stat,pet,contour,edges<span class="o">}]</span>
-<a id="__codelineno-31-3" name="__codelineno-31-3" href="#__codelineno-31-3"></a><span class="w">                          </span><span class="o">[</span>--alpha<span class="w"> </span>F<span class="o">]</span><span class="w"> </span><span class="o">[</span>--threshold<span class="w"> </span>F<span class="o">]</span><span class="w"> </span><span class="o">[</span>--output<span class="w"> </span>FILE<span class="o">]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a>qortex<span class="w"> </span>visualize-overlay<span class="w"> </span>BACKGROUND_FILE<span class="w"> </span>--overlay<span class="w"> </span>FILE
+<a id="__codelineno-33-2" name="__codelineno-33-2" href="#__codelineno-33-2"></a><span class="w">                          </span><span class="o">[</span>--type<span class="w"> </span><span class="o">{</span>mask,labelmap,stat,pet,contour,edges<span class="o">}]</span>
+<a id="__codelineno-33-3" name="__codelineno-33-3" href="#__codelineno-33-3"></a><span class="w">                          </span><span class="o">[</span>--alpha<span class="w"> </span>F<span class="o">]</span><span class="w"> </span><span class="o">[</span>--threshold<span class="w"> </span>F<span class="o">]</span><span class="w"> </span><span class="o">[</span>--output<span class="w"> </span>FILE<span class="o">]</span>
 </code></pre></div>
 <h3 id="compare-masks">compare-masks<a class="headerlink" href="#compare-masks" title="Permanent link">&para;</a></h3>
 <p>Side-by-side or overlay comparison of two masks.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a>qortex<span class="w"> </span>compare-masks<span class="w"> </span>BACKGROUND_FILE<span class="w"> </span>--mask-a<span class="w"> </span>FILE<span class="w"> </span>--mask-b<span class="w"> </span>FILE
-<a id="__codelineno-32-2" name="__codelineno-32-2" href="#__codelineno-32-2"></a><span class="w">                     </span><span class="o">[</span>--labels<span class="w"> </span>A<span class="w"> </span>B<span class="o">]</span><span class="w"> </span><span class="o">[</span>--mode<span class="w"> </span><span class="o">{</span>side-by-side,overlay<span class="o">}]</span>
-<a id="__codelineno-32-3" name="__codelineno-32-3" href="#__codelineno-32-3"></a><span class="w">                     </span><span class="o">[</span>--output<span class="w"> </span>FILE<span class="o">]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a>qortex<span class="w"> </span>compare-masks<span class="w"> </span>BACKGROUND_FILE<span class="w"> </span>--mask-a<span class="w"> </span>FILE<span class="w"> </span>--mask-b<span class="w"> </span>FILE
+<a id="__codelineno-34-2" name="__codelineno-34-2" href="#__codelineno-34-2"></a><span class="w">                     </span><span class="o">[</span>--labels<span class="w"> </span>A<span class="w"> </span>B<span class="o">]</span><span class="w"> </span><span class="o">[</span>--mode<span class="w"> </span><span class="o">{</span>side-by-side,overlay<span class="o">}]</span>
+<a id="__codelineno-34-3" name="__codelineno-34-3" href="#__codelineno-34-3"></a><span class="w">                     </span><span class="o">[</span>--output<span class="w"> </span>FILE<span class="o">]</span>
 </code></pre></div>
 <h3 id="artifact-visualize">artifact-visualize<a class="headerlink" href="#artifact-visualize" title="Permanent link">&para;</a></h3>
 <p>Visualize samples from a converted artifact.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a>qortex<span class="w"> </span>artifact-visualize<span class="w"> </span>ARTIFACT_DIR<span class="w"> </span><span class="o">[</span>--split<span class="w"> </span><span class="o">{</span>train,val,test<span class="o">}]</span>
-<a id="__codelineno-33-2" name="__codelineno-33-2" href="#__codelineno-33-2"></a><span class="w">                           </span><span class="o">[</span>--index<span class="w"> </span>N<span class="o">]</span><span class="w"> </span><span class="o">[</span>--compare-splits<span class="o">]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a>qortex<span class="w"> </span>artifact-visualize<span class="w"> </span>ARTIFACT_DIR<span class="w"> </span><span class="o">[</span>--split<span class="w"> </span><span class="o">{</span>train,val,test<span class="o">}]</span>
+<a id="__codelineno-35-2" name="__codelineno-35-2" href="#__codelineno-35-2"></a><span class="w">                           </span><span class="o">[</span>--index<span class="w"> </span>N<span class="o">]</span><span class="w"> </span><span class="o">[</span>--compare-splits<span class="o">]</span>
 </code></pre></div>
 <h3 id="dashboard">dashboard<a class="headerlink" href="#dashboard" title="Permanent link">&para;</a></h3>
 <p>Launch a local visualization dashboard.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a>qortex<span class="w"> </span>dashboard<span class="w"> </span>DATASET_ID<span class="w"> </span>--data-dir<span class="w"> </span>DIR<span class="w"> </span><span class="o">[</span>--port<span class="w"> </span>N<span class="o">]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a>qortex<span class="w"> </span>dashboard<span class="w"> </span>DATASET_ID<span class="w"> </span>--data-dir<span class="w"> </span>DIR<span class="w"> </span><span class="o">[</span>--port<span class="w"> </span>N<span class="o">]</span>
 </code></pre></div>
 
 
@@ -4666,6 +4718,8 @@
     
     
       <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../../assets/javascripts/openneuro-stats.js"></script>
       
     
   </body>

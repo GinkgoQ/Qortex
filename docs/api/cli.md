@@ -29,6 +29,22 @@ Print dataset metadata: dataset_description.json, participants.tsv, or a specifi
 qortex metadata DATASET_ID [FILE_PATH] [--participants] [--snapshots] [--json]
 ```
 
+### readme
+
+Fetch and print the README / description text for a dataset.
+
+```bash
+qortex readme DATASET_ID [--snapshot VER]
+```
+
+### validation-issues
+
+Print BIDS validation issues for a snapshot.
+
+```bash
+qortex validation-issues DATASET_ID --snapshot VER [--errors-only] [--json]
+```
+
 ### preview
 
 Show the first N rows of a tabular file.

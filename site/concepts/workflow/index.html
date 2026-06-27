@@ -3524,20 +3524,40 @@
 <h1 id="workflow">Workflow<a class="headerlink" href="#workflow" title="Permanent link">&para;</a></h1>
 <p>A full Qortex workflow moves from catalog search to a trained model in six stages. Each stage has a decision gate before proceeding to the next.</p>
 <h2 id="stage-1-find-candidate-datasets">Stage 1: Find candidate datasets<a class="headerlink" href="#stage-1-find-candidate-datasets" title="Permanent link">&para;</a></h2>
-<p>Search the local catalog (backed by DuckDB) for datasets that match your modality and task requirements.</p>
+<p>Search the local catalog (backed by DuckDB) or the live OpenNeuro API for datasets that match your modality and task requirements.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>qortex<span class="w"> </span>search<span class="w"> </span>--modality<span class="w"> </span>eeg<span class="w"> </span>--task<span class="w"> </span>rest<span class="w"> </span>--min-subjects<span class="w"> </span><span class="m">50</span>
 </code></pre></div>
-<p>Or via Python:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">qortex</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
+<p>Via Python — local catalog (fast, offline):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">qortex.catalog</span><span class="w"> </span><span class="kn">import</span> <span class="n">DatasetQuery</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="c1"># If you already know the dataset ID, skip the search</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="p">(</span><span class="s2">&quot;ds004130&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">results</span> <span class="o">=</span> <span class="p">(</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="n">DatasetQuery</span><span class="p">()</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="o">.</span><span class="n">modality</span><span class="p">(</span><span class="s2">&quot;eeg&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    <span class="o">.</span><span class="n">task</span><span class="p">(</span><span class="s2">&quot;rest&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="o">.</span><span class="n">min_subjects</span><span class="p">(</span><span class="mi">50</span><span class="p">)</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    <span class="o">.</span><span class="n">has_events</span><span class="p">()</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>    <span class="o">.</span><span class="n">fetch</span><span class="p">()</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="p">)</span>
+</code></pre></div>
+<p>Via Python — live API with engagement sorting:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">qortex.client</span><span class="w"> </span><span class="kn">import</span> <span class="n">OpenNeuroClient</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="k">with</span> <span class="n">OpenNeuroClient</span><span class="p">()</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="n">results</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">search_datasets_rich</span><span class="p">(</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>        <span class="n">modality</span><span class="o">=</span><span class="s2">&quot;eeg&quot;</span><span class="p">,</span> <span class="n">task</span><span class="o">=</span><span class="s2">&quot;rest&quot;</span><span class="p">,</span> <span class="n">min_subjects</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span> <span class="n">sort_by</span><span class="o">=</span><span class="s2">&quot;downloads&quot;</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    <span class="p">)</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>    <span class="k">for</span> <span class="n">info</span> <span class="ow">in</span> <span class="n">results</span><span class="p">:</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>        <span class="nb">print</span><span class="p">(</span><span class="n">info</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="n">info</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">info</span><span class="o">.</span><span class="n">engagement</span><span class="o">.</span><span class="n">downloads</span><span class="p">)</span>
+</code></pre></div>
+<p>If you already know the dataset ID, skip the search:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">qortex</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="p">(</span><span class="s2">&quot;ds004130&quot;</span><span class="p">)</span>
 </code></pre></div>
 <p>At this point, no network call has been made. The <code>Dataset</code> object holds only the ID.</p>
 <h2 id="stage-2-inspect-the-manifest">Stage 2: Inspect the manifest<a class="headerlink" href="#stage-2-inspect-the-manifest" title="Permanent link">&para;</a></h2>
 <p>Fetch the remote file tree and check structural properties.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">report</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">doctor</span><span class="p">()</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nb">print</span><span class="p">(</span><span class="n">report</span><span class="o">.</span><span class="n">to_text</span><span class="p">())</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">report</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">doctor</span><span class="p">()</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="nb">print</span><span class="p">(</span><span class="n">report</span><span class="o">.</span><span class="n">to_text</span><span class="p">())</span>
 </code></pre></div>
 <p><code>doctor()</code> reads the manifest and a sample of sidecar files. It reports:</p>
 <ul>
@@ -3550,64 +3570,64 @@
 <p><strong>Decision gate:</strong> If <code>report.state</code> is <code>not_usable</code>, stop here. Do not download.</p>
 <h2 id="stage-3-verify-label-readiness">Stage 3: Verify label readiness<a class="headerlink" href="#stage-3-verify-label-readiness" title="Permanent link">&para;</a></h2>
 <p>Before downloading bulk imaging data, confirm that labels are present and have enough coverage.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">ok</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">can_train</span><span class="p">(</span><span class="n">target_col</span><span class="o">=</span><span class="s2">&quot;trial_type&quot;</span><span class="p">,</span> <span class="n">min_classes</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">min_per_class</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="k">if</span> <span class="ow">not</span> <span class="n">ok</span><span class="p">:</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">ds</span><span class="o">.</span><span class="n">label_landscape</span><span class="p">())</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">ok</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">can_train</span><span class="p">(</span><span class="n">target_col</span><span class="o">=</span><span class="s2">&quot;trial_type&quot;</span><span class="p">,</span> <span class="n">min_classes</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">min_per_class</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="k">if</span> <span class="ow">not</span> <span class="n">ok</span><span class="p">:</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">ds</span><span class="o">.</span><span class="n">label_landscape</span><span class="p">())</span>
 </code></pre></div>
 <p>If the dataset does not have usable labels, the imaging data has no value for classification tasks.</p>
 <p><strong>Decision gate:</strong> Proceed only if <code>can_train()</code> returns True.</p>
 <h2 id="stage-4-download-the-minimum">Stage 4: Download the minimum<a class="headerlink" href="#stage-4-download-the-minimum" title="Permanent link">&para;</a></h2>
 <p><code>minimum()</code> returns the smallest download that enables the next step. <code>first_batch()</code> returns the subset needed to test the pipeline end-to-end.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">plan</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">minimum</span><span class="p">(</span><span class="n">goal</span><span class="o">=</span><span class="s2">&quot;first-batch&quot;</span><span class="p">)</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">ds</span><span class="o">.</span><span class="n">download_paths</span><span class="p">(</span><span class="n">plan</span><span class="o">.</span><span class="n">files</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">plan</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">minimum</span><span class="p">(</span><span class="n">goal</span><span class="o">=</span><span class="s2">&quot;first-batch&quot;</span><span class="p">)</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">ds</span><span class="o">.</span><span class="n">download_paths</span><span class="p">(</span><span class="n">plan</span><span class="o">.</span><span class="n">files</span><span class="p">)</span>
 </code></pre></div>
 <p>The plan includes all companion files (events.tsv, JSON sidecars, bval/bvec) automatically.</p>
 <p>For a full selective download:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">ds</span><span class="o">.</span><span class="n">download</span><span class="p">(</span><span class="n">subjects</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;01&quot;</span><span class="p">,</span> <span class="s2">&quot;02&quot;</span><span class="p">,</span> <span class="s2">&quot;03&quot;</span><span class="p">],</span> <span class="n">tasks</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;rest&quot;</span><span class="p">],</span> <span class="n">suffixes</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;bold&quot;</span><span class="p">])</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">ds</span><span class="o">.</span><span class="n">download</span><span class="p">(</span><span class="n">subjects</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;01&quot;</span><span class="p">,</span> <span class="s2">&quot;02&quot;</span><span class="p">,</span> <span class="s2">&quot;03&quot;</span><span class="p">],</span> <span class="n">tasks</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;rest&quot;</span><span class="p">],</span> <span class="n">suffixes</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;bold&quot;</span><span class="p">])</span>
 </code></pre></div>
 <p><strong>Decision gate:</strong> After download, run <code>ds.validate()</code> to confirm the local BIDS structure is complete.</p>
 <h2 id="stage-5-convert-to-ml-format">Stage 5: Convert to ML format<a class="headerlink" href="#stage-5-convert-to-ml-format" title="Permanent link">&para;</a></h2>
 <p>Once data is on disk, convert to a format suitable for training.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">art</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">convert</span><span class="p">(</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>    <span class="n">output_dir</span><span class="o">=</span><span class="s2">&quot;converted/&quot;</span><span class="p">,</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>    <span class="nb">format</span><span class="o">=</span><span class="s2">&quot;parquet&quot;</span><span class="p">,</span>
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>    <span class="n">window</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">duration_s</span><span class="o">=</span><span class="mf">30.0</span><span class="p">,</span> <span class="n">overlap</span><span class="o">=</span><span class="mf">0.5</span><span class="p">),</span>
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>    <span class="n">split</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">strategy</span><span class="o">=</span><span class="s2">&quot;subject&quot;</span><span class="p">,</span> <span class="n">val_frac</span><span class="o">=</span><span class="mf">0.15</span><span class="p">,</span> <span class="n">test_frac</span><span class="o">=</span><span class="mf">0.15</span><span class="p">),</span>
-<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>    <span class="n">label_col</span><span class="o">=</span><span class="s2">&quot;trial_type&quot;</span><span class="p">,</span>
-<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">art</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">convert</span><span class="p">(</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>    <span class="n">output_dir</span><span class="o">=</span><span class="s2">&quot;converted/&quot;</span><span class="p">,</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>    <span class="nb">format</span><span class="o">=</span><span class="s2">&quot;parquet&quot;</span><span class="p">,</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>    <span class="n">window</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">duration_s</span><span class="o">=</span><span class="mf">30.0</span><span class="p">,</span> <span class="n">overlap</span><span class="o">=</span><span class="mf">0.5</span><span class="p">),</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>    <span class="n">split</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">strategy</span><span class="o">=</span><span class="s2">&quot;subject&quot;</span><span class="p">,</span> <span class="n">val_frac</span><span class="o">=</span><span class="mf">0.15</span><span class="p">,</span> <span class="n">test_frac</span><span class="o">=</span><span class="mf">0.15</span><span class="p">),</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>    <span class="n">label_col</span><span class="o">=</span><span class="s2">&quot;trial_type&quot;</span><span class="p">,</span>
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="p">)</span>
 </code></pre></div>
 <p>The <code>ConversionPipeline</code> writes one artifact directory with <code>train/</code>, <code>val/</code>, and <code>test/</code> subdirectories and an <code>artifact_manifest.json</code>.</p>
 <p><strong>Decision gate:</strong> Run <code>ds.leakage_check(art)</code> to confirm no subject appears in two splits.</p>
 <h2 id="stage-6-load-for-training">Stage 6: Load for training<a class="headerlink" href="#stage-6-load-for-training" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">qortex</span><span class="w"> </span><span class="kn">import</span> <span class="n">Artifact</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="n">art</span> <span class="o">=</span> <span class="n">Artifact</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s2">&quot;converted/&quot;</span><span class="p">)</span>
-<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>
-<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="c1"># PyTorch</span>
-<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="n">train_ds</span> <span class="o">=</span> <span class="n">art</span><span class="o">.</span><span class="n">torch</span><span class="p">(</span><span class="n">split</span><span class="o">=</span><span class="s2">&quot;train&quot;</span><span class="p">)</span>
-<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="n">val_ds</span>   <span class="o">=</span> <span class="n">art</span><span class="o">.</span><span class="n">torch</span><span class="p">(</span><span class="n">split</span><span class="o">=</span><span class="s2">&quot;val&quot;</span><span class="p">)</span>
-<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>
-<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="c1"># scikit-learn</span>
-<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span> <span class="o">=</span> <span class="n">art</span><span class="o">.</span><span class="n">sklearn</span><span class="p">(</span><span class="n">split</span><span class="o">=</span><span class="s2">&quot;train&quot;</span><span class="p">)</span>
-<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="n">X_val</span><span class="p">,</span>   <span class="n">y_val</span>   <span class="o">=</span> <span class="n">art</span><span class="o">.</span><span class="n">sklearn</span><span class="p">(</span><span class="n">split</span><span class="o">=</span><span class="s2">&quot;val&quot;</span><span class="p">)</span>
-<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a>
-<a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a><span class="c1"># HuggingFace Dataset</span>
-<a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a><span class="n">hf_ds</span> <span class="o">=</span> <span class="n">art</span><span class="o">.</span><span class="n">huggingface</span><span class="p">(</span><span class="n">split</span><span class="o">=</span><span class="s2">&quot;train&quot;</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">qortex</span><span class="w"> </span><span class="kn">import</span> <span class="n">Artifact</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="n">art</span> <span class="o">=</span> <span class="n">Artifact</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s2">&quot;converted/&quot;</span><span class="p">)</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="c1"># PyTorch</span>
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="n">train_ds</span> <span class="o">=</span> <span class="n">art</span><span class="o">.</span><span class="n">torch</span><span class="p">(</span><span class="n">split</span><span class="o">=</span><span class="s2">&quot;train&quot;</span><span class="p">)</span>
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="n">val_ds</span>   <span class="o">=</span> <span class="n">art</span><span class="o">.</span><span class="n">torch</span><span class="p">(</span><span class="n">split</span><span class="o">=</span><span class="s2">&quot;val&quot;</span><span class="p">)</span>
+<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>
+<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="c1"># scikit-learn</span>
+<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span> <span class="o">=</span> <span class="n">art</span><span class="o">.</span><span class="n">sklearn</span><span class="p">(</span><span class="n">split</span><span class="o">=</span><span class="s2">&quot;train&quot;</span><span class="p">)</span>
+<a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="n">X_val</span><span class="p">,</span>   <span class="n">y_val</span>   <span class="o">=</span> <span class="n">art</span><span class="o">.</span><span class="n">sklearn</span><span class="p">(</span><span class="n">split</span><span class="o">=</span><span class="s2">&quot;val&quot;</span><span class="p">)</span>
+<a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a>
+<a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a><span class="c1"># HuggingFace Dataset</span>
+<a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a><span class="n">hf_ds</span> <span class="o">=</span> <span class="n">art</span><span class="o">.</span><span class="n">huggingface</span><span class="p">(</span><span class="n">split</span><span class="o">=</span><span class="s2">&quot;train&quot;</span><span class="p">)</span>
 </code></pre></div>
 <h2 id="skipping-stages">Skipping stages<a class="headerlink" href="#skipping-stages" title="Permanent link">&para;</a></h2>
 <p>Not all projects need all stages. A team that already has a downloaded BIDS dataset on disk can start at Stage 5 by calling <code>ds.index_local(data_dir=...)</code> to build the local manifest without fetching from OpenNeuro.</p>
 <p>A team that already has a converted artifact can start at Stage 6.</p>
 <h2 id="parallel-workflows">Parallel workflows<a class="headerlink" href="#parallel-workflows" title="Permanent link">&para;</a></h2>
 <p>Multiple datasets can be inspected in parallel before committing to any download:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">qortex</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
-<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>
-<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="n">ids</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;ds000001&quot;</span><span class="p">,</span> <span class="s2">&quot;ds000002&quot;</span><span class="p">,</span> <span class="s2">&quot;ds004130&quot;</span><span class="p">]</span>
-<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="n">datasets</span> <span class="o">=</span> <span class="p">[</span><span class="n">Dataset</span><span class="p">(</span><span class="n">d</span><span class="p">)</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">ids</span><span class="p">]</span>
-<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>
-<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="c1"># doctor() calls are fast (manifest + sidecar reads only)</span>
-<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="n">reports</span> <span class="o">=</span> <span class="p">[</span><span class="n">ds</span><span class="o">.</span><span class="n">doctor</span><span class="p">()</span> <span class="k">for</span> <span class="n">ds</span> <span class="ow">in</span> <span class="n">datasets</span><span class="p">]</span>
-<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="n">usable</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">reports</span> <span class="k">if</span> <span class="n">r</span><span class="o">.</span><span class="n">state</span> <span class="o">!=</span> <span class="s2">&quot;not_usable&quot;</span><span class="p">]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">qortex</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="n">ids</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;ds000001&quot;</span><span class="p">,</span> <span class="s2">&quot;ds000002&quot;</span><span class="p">,</span> <span class="s2">&quot;ds004130&quot;</span><span class="p">]</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="n">datasets</span> <span class="o">=</span> <span class="p">[</span><span class="n">Dataset</span><span class="p">(</span><span class="n">d</span><span class="p">)</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">ids</span><span class="p">]</span>
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>
+<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="c1"># doctor() calls are fast (manifest + sidecar reads only)</span>
+<a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="n">reports</span> <span class="o">=</span> <span class="p">[</span><span class="n">ds</span><span class="o">.</span><span class="n">doctor</span><span class="p">()</span> <span class="k">for</span> <span class="n">ds</span> <span class="ow">in</span> <span class="n">datasets</span><span class="p">]</span>
+<a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a><span class="n">usable</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">reports</span> <span class="k">if</span> <span class="n">r</span><span class="o">.</span><span class="n">state</span> <span class="o">!=</span> <span class="s2">&quot;not_usable&quot;</span><span class="p">]</span>
 </code></pre></div>
 
 
@@ -3712,6 +3732,8 @@
     
     
       <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../../assets/javascripts/openneuro-stats.js"></script>
       
     
   </body>

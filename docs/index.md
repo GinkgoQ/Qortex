@@ -1,3 +1,24 @@
+<div class="on-stats">
+  <div class="on-stats-top">
+    <div class="on-stats-source">
+      <span class="on-stats-label">OpenNeuro · openneuro.org</span>
+      <span class="on-live-badge"><span class="on-live-dot"></span>Live</span>
+    </div>
+    <div class="on-stats-numbers">
+      <div class="on-stat">
+        <strong id="on-public-datasets">—</strong>
+        <span>Public datasets</span>
+      </div>
+      <div class="on-sep"></div>
+      <div class="on-stat">
+        <strong id="on-participants">—</strong>
+        <span>Participants</span>
+      </div>
+    </div>
+  </div>
+  <div class="on-modalities-list" id="on-modalities"></div>
+</div>
+
 <section class="tq-hero">
   <div class="tq-hero-copy">
     <div class="tq-eyebrow">OpenNeuro · BIDS · ML-ready neurodata</div>
@@ -66,21 +87,6 @@
   </div>
 </section>
 
-<div class="tq-metrics">
-  <div class="tq-metric">
-    <strong>Inspect before download</strong>
-    <span>Manifest-first design</span>
-  </div>
-  <div class="tq-metric">
-    <strong>Six output formats</strong>
-    <span>Parquet · Zarr · HDF5 · WebDataset · HuggingFace · TFRecord</span>
-  </div>
-  <div class="tq-metric">
-    <strong>Visual QC built in</strong>
-    <span>One center slice per NIfTI — no full-volume load</span>
-  </div>
-</div>
-
 ## What Qortex does
 
 Qortex is not a download manager. It answers: "can I train on this dataset, and what exactly do I need to download to do it?"
@@ -110,19 +116,19 @@ After download it runs BIDS validation, builds ML-format artifacts with subject-
 
 ## Current Status
 
-| Area | Status |
-| --- | --- |
-| Manifest inspection | Implemented. Reads remote file tree, builds typed Manifest with BIDS entities. |
-| Selective download | Implemented. Filter by subject, session, task, modality, suffix, and size. |
-| BIDS validation | Implemented. Wraps official BIDS Validator with caching and normalized JSON output. |
-| Catalog search | Implemented. Local DuckDB catalog with free-text and structured filters. |
-| Readiness checks | Implemented. doctor, minimum, can-train, first-batch, leakage-check, content-status. |
-| Conversion | Implemented. Parquet, Zarr, HDF5, WebDataset, HuggingFace, TFRecord. |
-| ML adapters | Implemented. PyTorch, Lightning, scikit-learn, HuggingFace, BrainDecode, Dask. |
-| Visual QC — NIfTI | Implemented. Interactive HTML viewer, ortho, lightbox, fMRI QC, DWI QC. |
-| Visual QC — EEG/MEG | Implemented. Butterfly, PSD, spectrogram, epoched via MNE. |
-| Visual QC — DICOM | Implemented. Series browser with PHI protection. |
-| Surface rendering | Not implemented. GIFTI/CIFTI falls through to summary-only output. |
+| Area                | Status                                                                               |
+| ------------------- | ------------------------------------------------------------------------------------ |
+| Manifest inspection | Implemented. Reads remote file tree, builds typed Manifest with BIDS entities.       |
+| Selective download  | Implemented. Filter by subject, session, task, modality, suffix, and size.           |
+| BIDS validation     | Implemented. Wraps official BIDS Validator with caching and normalized JSON output.  |
+| Catalog search      | Implemented. Local DuckDB catalog with free-text and structured filters.             |
+| Readiness checks    | Implemented. doctor, minimum, can-train, first-batch, leakage-check, content-status. |
+| Conversion          | Implemented. Parquet, Zarr, HDF5, WebDataset, HuggingFace, TFRecord.                 |
+| ML adapters         | Implemented. PyTorch, Lightning, scikit-learn, HuggingFace, BrainDecode, Dask.       |
+| Visual QC — NIfTI   | Implemented. Interactive HTML viewer, ortho, lightbox, fMRI QC, DWI QC.              |
+| Visual QC — EEG/MEG | Implemented. Butterfly, PSD, spectrogram, epoched via MNE.                           |
+| Visual QC — DICOM   | Implemented. Series browser with PHI protection.                                     |
+| Surface rendering   | Not implemented. GIFTI/CIFTI falls through to summary-only output.                   |
 
 ## Where to start
 
@@ -147,9 +153,9 @@ After download it runs BIDS validation, builds ML-format artifacts with subject-
 
 ## Reader paths
 
-| Reader | Suggested path |
-| --- | --- |
-| Researcher | [Concepts](concepts/index.md), [Readiness](readiness/index.md), [Visualization](visualization/index.md). |
-| ML engineer | [Quickstart](getting-started/quickstart.md), [Conversion](conversion/index.md), [Artifacts](artifacts/index.md). |
+| Reader       | Suggested path                                                                                                        |
+| ------------ | --------------------------------------------------------------------------------------------------------------------- |
+| Researcher   | [Concepts](concepts/index.md), [Readiness](readiness/index.md), [Visualization](visualization/index.md).              |
+| ML engineer  | [Quickstart](getting-started/quickstart.md), [Conversion](conversion/index.md), [Artifacts](artifacts/index.md).      |
 | Data curator | [Dataset inspection](dataset/index.md), [Download](download/index.md), [Visual audit](visualization/visual-audit.md). |
-| Systems user | [CLI reference](api/cli.md), [Troubleshooting](troubleshooting/index.md). |
+| Systems user | [CLI reference](api/cli.md), [Troubleshooting](troubleshooting/index.md).                                             |

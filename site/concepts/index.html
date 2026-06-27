@@ -3314,8 +3314,8 @@
 <h2 id="core-ideas">Core ideas<a class="headerlink" href="#core-ideas" title="Permanent link">&para;</a></h2>
 <p><a href="what-is-qortex/"><strong>What is Qortex</strong></a> — Qortex is not a downloader. It is a decision layer that sits between OpenNeuro and your training pipeline. It tells you whether a dataset is usable before you transfer any files.</p>
 <p><a href="readiness-first/"><strong>Readiness first</strong></a> — Every dataset has a readiness state: not inspected, inspected (manifest only), downloaded, validated, and conversion-ready. Qortex checks readiness at each stage and tells you what is blocking progress.</p>
-<p><a href="openneuro-and-bids/"><strong>OpenNeuro and BIDS</strong></a> — How Qortex uses the OpenNeuro GraphQL API, what a snapshot is, how BIDS structure maps to Qortex entities.</p>
-<p><a href="data-model/"><strong>Data model</strong></a> — The types that carry information through the pipeline: Dataset → Manifest → FileRecord → BIDS entities → Artifact.</p>
+<p><a href="openneuro-and-bids/"><strong>OpenNeuro and BIDS</strong></a> — How Qortex uses the OpenNeuro GraphQL API, what a snapshot is, how BIDS structure maps to Qortex entities. Covers what data the API exposes: metadata, engagement, demographics, README, BIDS validation.</p>
+<p><a href="data-model/"><strong>Data model</strong></a> — The types that carry information through the pipeline: <code>RichDatasetInfo</code>, <code>SnapshotSummary</code>, <code>DatasetEngagement</code>, <code>Dataset</code>, <code>Manifest</code>, <code>FileRecord</code>, <code>DatasetProfile</code>, <code>Artifact</code>.</p>
 <p><a href="workflow/"><strong>Workflow</strong></a> — The full pipeline from OpenNeuro catalog search to a trained model, with decision points at each stage.</p>
 
 
@@ -3420,6 +3420,8 @@
     
     
       <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../assets/javascripts/openneuro-stats.js"></script>
       
     
   </body>

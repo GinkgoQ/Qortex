@@ -221,10 +221,19 @@ class RichDatasetInfo:
                 "tag": self.latest_snapshot_tag,
                 "hexsha": self.latest_snapshot_hexsha,
                 "n_subjects": snap.n_subjects if snap else None,
+                "n_sessions": snap.n_sessions if snap else None,
                 "n_tasks": snap.n_tasks if snap else None,
+                "subjects": snap.subjects if snap else [],
+                "sessions": snap.sessions if snap else [],
+                "tasks": snap.tasks if snap else [],
                 "total_files": snap.total_files if snap else None,
                 "total_size_gb": round(snap.total_size_gb, 3) if snap else None,
                 "bids_version": snap.bids_version if snap else None,
+                "funding": snap.funding if snap else [],
+                "references": snap.references if snap else [],
+                "ethics_approvals": snap.ethics_approvals if snap else [],
+                "how_to_acknowledge": snap.how_to_acknowledge if snap else None,
+                "data_processed": snap.data_processed if snap else False,
             } if self.latest_snapshot_tag else None,
         }
 
@@ -315,6 +324,41 @@ query GetDatasetRich($datasetId: ID!) {
                     group
                 }
             }
+        }
+    }
+}
+"""
+
+_Q_DATASET_README = """
+query GetDatasetReadme($datasetId: ID!) {
+    dataset(id: $datasetId) {
+        latestSnapshot {
+            tag
+            readme
+        }
+    }
+}
+"""
+
+_Q_SNAPSHOT_README = """
+query GetSnapshotReadme($datasetId: ID!, $tag: String!) {
+    snapshot(datasetId: $datasetId, tag: $tag) {
+        tag
+        readme
+    }
+}
+"""
+
+_Q_SNAPSHOT_ISSUES = """
+query GetSnapshotIssues($datasetId: ID!, $tag: String!) {
+    snapshot(datasetId: $datasetId, tag: $tag) {
+        tag
+        issues {
+            severity
+            key
+            reason
+            files { id name path }
+            helpUrl
         }
     }
 }
@@ -751,6 +795,49 @@ class OpenNeuroClient:
         )
         raw_files: list[dict] = snap_raw.get("files") or []
         return snap, raw_files
+
+    def get_readme(self, dataset_id: str, tag: str | None = None) -> str | None:
+        """Return the README text for a dataset snapshot.
+
+        The README is the description shown on the OpenNeuro dataset page.
+        Returns ``None`` if the dataset has no README file.
+
+        Parameters
+        ----------
+        tag:
+            Snapshot tag. ``None`` → latest published snapshot.
+        """
+        if tag is None:
+            data = self._query(_Q_DATASET_README, {"datasetId": dataset_id},
+                               timeout=self._cfg.metadata_timeout)
+            snap_raw = (data.get("dataset") or {}).get("latestSnapshot") or {}
+        else:
+            data = self._query(_Q_SNAPSHOT_README,
+                               {"datasetId": dataset_id, "tag": tag},
+                               timeout=self._cfg.metadata_timeout)
+            snap_raw = data.get("snapshot") or {}
+        return snap_raw.get("readme") or None
+
+    def get_validation_issues(
+        self, dataset_id: str, tag: str
+    ) -> list[dict[str, Any]]:
+        """Return BIDS validation issues for a snapshot.
+
+        Each entry is a dict with keys: ``severity``, ``key``, ``reason``,
+        ``files`` (list of dicts with id/name/path), and ``helpUrl``.
+        Severity is ``"error"`` or ``"warning"``.
+
+        Returns an empty list if the snapshot has no issues or the API does
+        not support the issues field for this dataset.
+        """
+        try:
+            data = self._query(_Q_SNAPSHOT_ISSUES,
+                               {"datasetId": dataset_id, "tag": tag},
+                               timeout=self._cfg.metadata_timeout)
+            snap = data.get("snapshot") or {}
+            return snap.get("issues") or []
+        except APIError:
+            return []
 
     # ── Search ────────────────────────────────────────────────────────────
 

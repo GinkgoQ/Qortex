@@ -4,18 +4,44 @@ A full Qortex workflow moves from catalog search to a trained model in six stage
 
 ## Stage 1: Find candidate datasets
 
-Search the local catalog (backed by DuckDB) for datasets that match your modality and task requirements.
+Search the local catalog (backed by DuckDB) or the live OpenNeuro API for datasets that match your modality and task requirements.
 
 ```bash
 qortex search --modality eeg --task rest --min-subjects 50
 ```
 
-Or via Python:
+Via Python — local catalog (fast, offline):
+
+```python
+from qortex.catalog import DatasetQuery
+
+results = (
+    DatasetQuery()
+    .modality("eeg")
+    .task("rest")
+    .min_subjects(50)
+    .has_events()
+    .fetch()
+)
+```
+
+Via Python — live API with engagement sorting:
+
+```python
+from qortex.client import OpenNeuroClient
+
+with OpenNeuroClient() as client:
+    results = client.search_datasets_rich(
+        modality="eeg", task="rest", min_subjects=50, sort_by="downloads"
+    )
+    for info in results:
+        print(info.id, info.name, info.engagement.downloads)
+```
+
+If you already know the dataset ID, skip the search:
 
 ```python
 from qortex import Dataset
-
-# If you already know the dataset ID, skip the search
 ds = Dataset("ds004130")
 ```
 

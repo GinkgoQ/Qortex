@@ -3380,6 +3380,27 @@
   
 
 
+<div class="on-stats">
+  <div class="on-stats-top">
+    <div class="on-stats-source">
+      <span class="on-stats-label">OpenNeuro · openneuro.org</span>
+      <span class="on-live-badge"><span class="on-live-dot"></span>Live</span>
+    </div>
+    <div class="on-stats-numbers">
+      <div class="on-stat">
+        <strong id="on-public-datasets">—</strong>
+        <span>Public datasets</span>
+      </div>
+      <div class="on-sep"></div>
+      <div class="on-stat">
+        <strong id="on-participants">—</strong>
+        <span>Participants</span>
+      </div>
+    </div>
+  </div>
+  <div class="on-modalities-list" id="on-modalities"></div>
+</div>
+
 <section class="tq-hero">
   <div class="tq-hero-copy">
     <div class="tq-eyebrow">OpenNeuro · BIDS · ML-ready neurodata</div>
@@ -3447,21 +3468,6 @@
     <p>Readiness checks run at every stage. The manifest answers subject counts, event coverage, and total size before any data transfer.</p>
   </div>
 </section>
-
-<div class="tq-metrics">
-  <div class="tq-metric">
-    <strong>Inspect before download</strong>
-    <span>Manifest-first design</span>
-  </div>
-  <div class="tq-metric">
-    <strong>Six output formats</strong>
-    <span>Parquet · Zarr · HDF5 · WebDataset · HuggingFace · TFRecord</span>
-  </div>
-  <div class="tq-metric">
-    <strong>Visual QC built in</strong>
-    <span>One center slice per NIfTI — no full-volume load</span>
-  </div>
-</div>
 
 <h2 id="what-qortex-does">What Qortex does<a class="headerlink" href="#what-qortex-does" title="Permanent link">&para;</a></h2>
 <p>Qortex is not a download manager. It answers: "can I train on this dataset, and what exactly do I need to download to do it?"</p>
@@ -3675,6 +3681,8 @@
     
     
       <script src="assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="assets/javascripts/openneuro-stats.js"></script>
       
     
   </body>

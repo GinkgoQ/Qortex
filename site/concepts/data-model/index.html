@@ -772,6 +772,39 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#richdatasetinfo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RichDatasetInfo
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#datasetengagement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DatasetEngagement
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#snapshotsummary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SnapshotSummary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#dataset" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -827,6 +860,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#datasetprofile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DatasetProfile
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#artifact" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -838,10 +882,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#relationships" class="md-nav__link">
+  <a href="#type-relationships" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Relationships
+        Type relationships
       
     </span>
   </a>
@@ -3355,6 +3399,39 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#richdatasetinfo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RichDatasetInfo
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#datasetengagement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DatasetEngagement
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#snapshotsummary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SnapshotSummary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#dataset" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3410,6 +3487,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#datasetprofile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DatasetProfile
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#artifact" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3421,10 +3509,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#relationships" class="md-nav__link">
+  <a href="#type-relationships" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Relationships
+        Type relationships
       
     </span>
   </a>
@@ -3501,13 +3589,105 @@
 
 <h1 id="data-model">Data Model<a class="headerlink" href="#data-model" title="Permanent link">&para;</a></h1>
 <p>Qortex has a layered data model. Each layer adds more specific information as you move through the pipeline.</p>
+<h2 id="richdatasetinfo">RichDatasetInfo<a class="headerlink" href="#richdatasetinfo" title="Permanent link">&para;</a></h2>
+<p><code>RichDatasetInfo</code> is the primary metadata object returned by <code>OpenNeuroClient.get_dataset_rich()</code>. It covers every field visible on an OpenNeuro dataset page without downloading or iterating the file tree.</p>
+<p>Key fields:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>id</code>, <code>name</code>, <code>doi</code></td>
+<td>Dataset identity</td>
+</tr>
+<tr>
+<td><code>license</code>, <code>authors</code>, <code>senior_author</code></td>
+<td>Attribution</td>
+</tr>
+<tr>
+<td><code>modalities</code>, <code>tasks</code>, <code>species</code></td>
+<td>Scientific context</td>
+</tr>
+<tr>
+<td><code>study_domain</code>, <code>study_design</code></td>
+<td>Study type</td>
+</tr>
+<tr>
+<td><code>grant_funder</code>, <code>grant_id</code></td>
+<td>Funding</td>
+</tr>
+<tr>
+<td><code>associated_paper_doi</code></td>
+<td>Linked publication</td>
+</tr>
+<tr>
+<td><code>created</code>, <code>publish_date</code></td>
+<td>Timestamps</td>
+</tr>
+<tr>
+<td><code>engagement</code></td>
+<td><code>DatasetEngagement</code> — views, downloads, stars, followers</td>
+</tr>
+<tr>
+<td><code>latest_snapshot_summary</code></td>
+<td><code>SnapshotSummary</code> — subjects, sessions, tasks, file counts, demographics</td>
+</tr>
+<tr>
+<td><code>data_processed</code></td>
+<td>True if preprocessed data is included</td>
+</tr>
+</tbody>
+</table>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">qortex.client</span><span class="w"> </span><span class="kn">import</span> <span class="n">OpenNeuroClient</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="k">with</span> <span class="n">OpenNeuroClient</span><span class="p">()</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">info</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">get_dataset_rich</span><span class="p">(</span><span class="s2">&quot;ds008039&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="n">snap</span> <span class="o">=</span> <span class="n">info</span><span class="o">.</span><span class="n">latest_snapshot_summary</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="nb">print</span><span class="p">(</span><span class="n">snap</span><span class="o">.</span><span class="n">n_subjects</span><span class="p">,</span> <span class="n">snap</span><span class="o">.</span><span class="n">total_size_gb</span><span class="p">,</span> <span class="n">snap</span><span class="o">.</span><span class="n">bids_version</span><span class="p">)</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="nb">print</span><span class="p">(</span><span class="n">snap</span><span class="o">.</span><span class="n">funding</span><span class="p">,</span> <span class="n">snap</span><span class="o">.</span><span class="n">references</span><span class="p">,</span> <span class="n">snap</span><span class="o">.</span><span class="n">ethics_approvals</span><span class="p">)</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="nb">print</span><span class="p">(</span><span class="n">snap</span><span class="o">.</span><span class="n">demographics_dataframe</span><span class="p">())</span>   <span class="c1"># Polars DataFrame: age, sex, group</span>
+</code></pre></div>
+<h2 id="datasetengagement">DatasetEngagement<a class="headerlink" href="#datasetengagement" title="Permanent link">&para;</a></h2>
+<p><code>DatasetEngagement</code> tracks community activity for a dataset on the OpenNeuro platform.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">info</span><span class="o">.</span><span class="n">engagement</span><span class="o">.</span><span class="n">views</span>             <span class="c1"># integer</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">info</span><span class="o">.</span><span class="n">engagement</span><span class="o">.</span><span class="n">downloads</span>         <span class="c1"># integer</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">info</span><span class="o">.</span><span class="n">engagement</span><span class="o">.</span><span class="n">stars</span>             <span class="c1"># integer</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">info</span><span class="o">.</span><span class="n">engagement</span><span class="o">.</span><span class="n">followers</span>         <span class="c1"># integer</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">info</span><span class="o">.</span><span class="n">engagement</span><span class="o">.</span><span class="n">popularity_score</span>  <span class="c1"># composite 0–100 score</span>
+</code></pre></div>
+<h2 id="snapshotsummary">SnapshotSummary<a class="headerlink" href="#snapshotsummary" title="Permanent link">&para;</a></h2>
+<p><code>SnapshotSummary</code> is the API-level BIDS summary for one snapshot. It is returned by <code>get_dataset_rich()</code> (as <code>latest_snapshot_summary</code>) and by <code>get_snapshot_summary()</code>. It does not require a file tree fetch.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">snap</span><span class="o">.</span><span class="n">tag</span>                <span class="c1"># &quot;1.2.0&quot;</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">snap</span><span class="o">.</span><span class="n">n_subjects</span>         <span class="c1"># len(snap.subjects)</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">snap</span><span class="o">.</span><span class="n">subjects</span>           <span class="c1"># [&quot;sub-01&quot;, &quot;sub-02&quot;, ...]</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="n">snap</span><span class="o">.</span><span class="n">sessions</span>           <span class="c1"># [&quot;ses-01&quot;, &quot;ses-02&quot;]</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="n">snap</span><span class="o">.</span><span class="n">tasks</span>              <span class="c1"># [&quot;rest&quot;, &quot;nback&quot;]</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="n">snap</span><span class="o">.</span><span class="n">modalities</span>         <span class="c1"># [&quot;MRI&quot;]</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="n">snap</span><span class="o">.</span><span class="n">total_files</span>        <span class="c1"># integer</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="n">snap</span><span class="o">.</span><span class="n">total_size_gb</span>      <span class="c1"># float</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="n">snap</span><span class="o">.</span><span class="n">bids_version</span>       <span class="c1"># &quot;1.8.0&quot;</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="n">snap</span><span class="o">.</span><span class="n">license</span>            <span class="c1"># &quot;CC0&quot;</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="n">snap</span><span class="o">.</span><span class="n">funding</span>            <span class="c1"># [&quot;NIH R01 MH123456&quot;, ...]</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="n">snap</span><span class="o">.</span><span class="n">references</span>         <span class="c1"># [&quot;https://doi.org/...&quot;, ...]</span>
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="n">snap</span><span class="o">.</span><span class="n">ethics_approvals</span>   <span class="c1"># [&quot;IRB approval #2024-001&quot;]</span>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="n">snap</span><span class="o">.</span><span class="n">how_to_acknowledge</span> <span class="c1"># citation string</span>
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="n">snap</span><span class="o">.</span><span class="n">data_processed</span>     <span class="c1"># bool</span>
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="n">snap</span><span class="o">.</span><span class="n">subject_demographics</span>  <span class="c1"># list[SubjectDemographic]</span>
+<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="n">snap</span><span class="o">.</span><span class="n">demographics_dataframe</span><span class="p">()</span>  <span class="c1"># Polars DataFrame</span>
+<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="n">snap</span><span class="o">.</span><span class="n">age_stats</span><span class="p">()</span>        <span class="c1"># {&quot;n&quot;: 42, &quot;mean&quot;: 28.4, &quot;min&quot;: 18, &quot;max&quot;: 65, ...}</span>
+</code></pre></div>
 <h2 id="dataset">Dataset<a class="headerlink" href="#dataset" title="Permanent link">&para;</a></h2>
 <p><code>Dataset</code> is the top-level facade. It holds a dataset ID, an optional snapshot tag, and an optional local data directory. It is cheap to create — no network calls happen at construction time.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">qortex</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="p">(</span><span class="s2">&quot;ds004130&quot;</span><span class="p">)</span>                        <span class="c1"># no network call yet</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="p">(</span><span class="s2">&quot;ds004130&quot;</span><span class="p">,</span> <span class="n">snapshot</span><span class="o">=</span><span class="s2">&quot;1.2.0&quot;</span><span class="p">)</span>      <span class="c1"># pin a snapshot</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="p">(</span><span class="s2">&quot;ds004130&quot;</span><span class="p">,</span> <span class="n">data_dir</span><span class="o">=</span><span class="n">Path</span><span class="p">(</span><span class="s2">&quot;/data&quot;</span><span class="p">))</span> <span class="c1"># override default cache</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">qortex</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="p">(</span><span class="s2">&quot;ds004130&quot;</span><span class="p">)</span>                        <span class="c1"># no network call yet</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="p">(</span><span class="s2">&quot;ds004130&quot;</span><span class="p">,</span> <span class="n">snapshot</span><span class="o">=</span><span class="s2">&quot;1.2.0&quot;</span><span class="p">)</span>      <span class="c1"># pin a snapshot</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="p">(</span><span class="s2">&quot;ds004130&quot;</span><span class="p">,</span> <span class="n">data_dir</span><span class="o">=</span><span class="n">Path</span><span class="p">(</span><span class="s2">&quot;/data&quot;</span><span class="p">))</span> <span class="c1"># override default cache</span>
 </code></pre></div>
 <p>The manifest is fetched lazily on the first call to <code>ds.manifest()</code>, <code>ds.download()</code>, <code>ds.doctor()</code>, or any other method that needs it.</p>
 <h2 id="manifest">Manifest<a class="headerlink" href="#manifest" title="Permanent link">&para;</a></h2>
@@ -3518,11 +3698,11 @@
 <li><code>files</code> — a list of <code>FileRecord</code> objects</li>
 <li><code>summary</code> — a <code>ManifestSummary</code> with pre-computed counts</li>
 </ul>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">manifest</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">manifest</span><span class="p">()</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nb">print</span><span class="p">(</span><span class="n">manifest</span><span class="o">.</span><span class="n">summary</span><span class="o">.</span><span class="n">n_subjects</span><span class="p">)</span>     <span class="c1"># integer</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">manifest</span><span class="o">.</span><span class="n">summary</span><span class="o">.</span><span class="n">modalities</span><span class="p">)</span>     <span class="c1"># list of strings</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="nb">print</span><span class="p">(</span><span class="n">manifest</span><span class="o">.</span><span class="n">summary</span><span class="o">.</span><span class="n">has_events</span><span class="p">)</span>     <span class="c1"># bool</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="nb">print</span><span class="p">(</span><span class="n">manifest</span><span class="o">.</span><span class="n">summary</span><span class="o">.</span><span class="n">total_size</span><span class="p">)</span>     <span class="c1"># bytes</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">manifest</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">manifest</span><span class="p">()</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="nb">print</span><span class="p">(</span><span class="n">manifest</span><span class="o">.</span><span class="n">summary</span><span class="o">.</span><span class="n">n_subjects</span><span class="p">)</span>     <span class="c1"># integer</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">manifest</span><span class="o">.</span><span class="n">summary</span><span class="o">.</span><span class="n">modalities</span><span class="p">)</span>     <span class="c1"># list of strings</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="nb">print</span><span class="p">(</span><span class="n">manifest</span><span class="o">.</span><span class="n">summary</span><span class="o">.</span><span class="n">has_events</span><span class="p">)</span>     <span class="c1"># bool</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="nb">print</span><span class="p">(</span><span class="n">manifest</span><span class="o">.</span><span class="n">summary</span><span class="o">.</span><span class="n">total_size</span><span class="p">)</span>     <span class="c1"># bytes</span>
 </code></pre></div>
 <p>The manifest is cached in memory. Repeated calls to <code>ds.manifest()</code> return the cached copy unless <code>force_refresh=True</code> is passed.</p>
 <h2 id="filerecord">FileRecord<a class="headerlink" href="#filerecord" title="Permanent link">&para;</a></h2>
@@ -3533,7 +3713,7 @@
 <li><code>urls</code> — list of CDN and S3 URLs for this file</li>
 <li><code>subject</code>, <code>session</code>, <code>task</code>, <code>run</code>, <code>datatype</code>, <code>suffix</code> — parsed BIDS entities</li>
 <li><code>extension</code> — file extension (<code>.nii.gz</code>, <code>.tsv</code>, etc.)</li>
-<li><code>is_essential</code> — True for root-level metadata files (participants.tsv, dataset_description.json, etc.)</li>
+<li><code>is_dir</code> — True for directory entries</li>
 </ul>
 <p>FileRecords are read-only. Filtering happens through <code>manifest.filter()</code> or <code>ds.files()</code>.</p>
 <h2 id="selectionspec">SelectionSpec<a class="headerlink" href="#selectionspec" title="Permanent link">&para;</a></h2>
@@ -3546,37 +3726,61 @@
 </ul>
 <p>The planner resolves a SelectionSpec against a Manifest to produce a <code>DownloadPlan</code>.</p>
 <h2 id="downloadplan">DownloadPlan<a class="headerlink" href="#downloadplan" title="Permanent link">&para;</a></h2>
-<p>A <code>DownloadPlan</code> lists the exact files to download, with target paths and companion files included. It is produced by <code>DownloadPlanner.plan()</code> before any transfer happens. This lets you inspect or serialize the plan before committing to it.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">plan</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">plan</span><span class="p">(</span><span class="n">subjects</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;01&quot;</span><span class="p">,</span> <span class="s2">&quot;02&quot;</span><span class="p">],</span> <span class="n">suffixes</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;bold&quot;</span><span class="p">])</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nb">print</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">plan</span><span class="o">.</span><span class="n">files</span><span class="p">))</span>          <span class="c1"># file count</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">plan</span><span class="o">.</span><span class="n">target_dir</span><span class="p">)</span>          <span class="c1"># destination path</span>
+<p>A <code>DownloadPlan</code> lists the exact files to download, with target paths and companion files included. It is produced by <code>DownloadPlanner.plan()</code> before any transfer happens.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">plan</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">plan</span><span class="p">(</span><span class="n">subjects</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;01&quot;</span><span class="p">,</span> <span class="s2">&quot;02&quot;</span><span class="p">],</span> <span class="n">suffixes</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;bold&quot;</span><span class="p">])</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="nb">print</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">plan</span><span class="o">.</span><span class="n">files</span><span class="p">))</span>          <span class="c1"># file count</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">plan</span><span class="o">.</span><span class="n">target_dir</span><span class="p">)</span>          <span class="c1"># destination path</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="nb">print</span><span class="p">(</span><span class="n">plan</span><span class="o">.</span><span class="n">size_gb</span><span class="p">)</span>             <span class="c1"># GB</span>
+</code></pre></div>
+<h2 id="datasetprofile">DatasetProfile<a class="headerlink" href="#datasetprofile" title="Permanent link">&para;</a></h2>
+<p><code>DatasetProfile</code> is the result of <code>DatasetInspector.inspect()</code>. It builds on the file tree manifest to produce a full structural breakdown with ML readiness scoring.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">profile</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">inspect</span><span class="p">()</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="nb">print</span><span class="p">(</span><span class="n">profile</span><span class="o">.</span><span class="n">n_subjects</span><span class="p">)</span>           <span class="c1"># from manifest</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">profile</span><span class="o">.</span><span class="n">events_coverage</span><span class="p">)</span>      <span class="c1"># fraction with events.tsv</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="nb">print</span><span class="p">(</span><span class="n">profile</span><span class="o">.</span><span class="n">ml_readiness</span><span class="o">.</span><span class="n">grade</span><span class="p">)</span>   <span class="c1"># &quot;A&quot;–&quot;F&quot;</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="nb">print</span><span class="p">(</span><span class="n">profile</span><span class="o">.</span><span class="n">rich_info</span><span class="p">)</span>            <span class="c1"># RichDatasetInfo (if available)</span>
 </code></pre></div>
 <h2 id="artifact">Artifact<a class="headerlink" href="#artifact" title="Permanent link">&para;</a></h2>
 <p>An <code>Artifact</code> is the output of <code>ConversionPipeline.run()</code>. It lives on local disk at a directory containing an <code>artifact_manifest.json</code> and one subdirectory per split (<code>train/</code>, <code>val/</code>, <code>test/</code>). Each split contains Parquet (or Zarr/HDF5/etc.) shards.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">qortex</span><span class="w"> </span><span class="kn">import</span> <span class="n">Artifact</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">art</span> <span class="o">=</span> <span class="n">Artifact</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s2">&quot;converted/parquet/&quot;</span><span class="p">)</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="nb">print</span><span class="p">(</span><span class="n">art</span><span class="o">.</span><span class="n">manifest</span><span class="o">.</span><span class="n">n_samples</span><span class="p">)</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="nb">print</span><span class="p">(</span><span class="n">art</span><span class="o">.</span><span class="n">manifest</span><span class="o">.</span><span class="n">splits</span><span class="p">)</span>      <span class="c1"># {&quot;train&quot;: ..., &quot;val&quot;: ..., &quot;test&quot;: ...}</span>
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>
-<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="n">X</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="n">art</span><span class="o">.</span><span class="n">sklearn</span><span class="p">()</span>
-<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="n">ds_torch</span> <span class="o">=</span> <span class="n">art</span><span class="o">.</span><span class="n">torch</span><span class="p">(</span><span class="n">split</span><span class="o">=</span><span class="s2">&quot;train&quot;</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">qortex</span><span class="w"> </span><span class="kn">import</span> <span class="n">Artifact</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="n">art</span> <span class="o">=</span> <span class="n">Artifact</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s2">&quot;converted/parquet/&quot;</span><span class="p">)</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="nb">print</span><span class="p">(</span><span class="n">art</span><span class="o">.</span><span class="n">manifest</span><span class="o">.</span><span class="n">n_samples</span><span class="p">)</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="nb">print</span><span class="p">(</span><span class="n">art</span><span class="o">.</span><span class="n">manifest</span><span class="o">.</span><span class="n">splits</span><span class="p">)</span>      <span class="c1"># {&quot;train&quot;: ..., &quot;val&quot;: ..., &quot;test&quot;: ...}</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="n">X</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="n">art</span><span class="o">.</span><span class="n">sklearn</span><span class="p">()</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="n">ds_torch</span> <span class="o">=</span> <span class="n">art</span><span class="o">.</span><span class="n">torch</span><span class="p">(</span><span class="n">split</span><span class="o">=</span><span class="s2">&quot;train&quot;</span><span class="p">)</span>
 </code></pre></div>
-<h2 id="relationships">Relationships<a class="headerlink" href="#relationships" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>Dataset
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>  └─ Manifest
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>       ├─ ManifestSummary
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>       └─ [FileRecord, ...]
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>            └─ (urls, BIDS entities, size, companions)
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>
-<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>DownloadPlan
-<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>  └─ [FileRecord, ...]
-<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>
-<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>ConversionPipeline
-<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>  └─ Artifact
-<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a>       ├─ ArtifactManifest
-<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a>       └─ split/
-<a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a>            └─ *.parquet (or .zarr, .h5, etc.)
+<h2 id="type-relationships">Type relationships<a class="headerlink" href="#type-relationships" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>OpenNeuroClient
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>  ├─ get_dataset_rich()       →  RichDatasetInfo
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>  │     ├─ DatasetEngagement
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>  │     └─ SnapshotSummary
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>  │           └─ [SubjectDemographic, ...]
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>  ├─ get_readme()             →  str | None
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>  ├─ get_validation_issues()  →  list[dict]
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>  ├─ get_snapshots()          →  list[SnapshotRef]
+<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>  ├─ get_files()              →  (SnapshotRef, list[dict])
+<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a>  └─ search_datasets_rich()   →  list[RichDatasetInfo]
+<a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a>
+<a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a>Dataset (facade)
+<a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a>  └─ manifest()  →  Manifest
+<a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a>        ├─ ManifestSummary
+<a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a>        └─ [FileRecord, ...]
+<a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a>
+<a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a>DatasetInspector.inspect()  →  DatasetProfile
+<a id="__codelineno-8-18" name="__codelineno-8-18" href="#__codelineno-8-18"></a>  ├─ DatasetRef
+<a id="__codelineno-8-19" name="__codelineno-8-19" href="#__codelineno-8-19"></a>  ├─ SnapshotRef
+<a id="__codelineno-8-20" name="__codelineno-8-20" href="#__codelineno-8-20"></a>  ├─ MLReadinessScore
+<a id="__codelineno-8-21" name="__codelineno-8-21" href="#__codelineno-8-21"></a>  └─ RichDatasetInfo (optional)
+<a id="__codelineno-8-22" name="__codelineno-8-22" href="#__codelineno-8-22"></a>
+<a id="__codelineno-8-23" name="__codelineno-8-23" href="#__codelineno-8-23"></a>DownloadPlanner.plan()  →  DownloadPlan
+<a id="__codelineno-8-24" name="__codelineno-8-24" href="#__codelineno-8-24"></a>  └─ [FileRecord, ...]
+<a id="__codelineno-8-25" name="__codelineno-8-25" href="#__codelineno-8-25"></a>
+<a id="__codelineno-8-26" name="__codelineno-8-26" href="#__codelineno-8-26"></a>ConversionPipeline.run()  →  Artifact
+<a id="__codelineno-8-27" name="__codelineno-8-27" href="#__codelineno-8-27"></a>  ├─ ArtifactManifest
+<a id="__codelineno-8-28" name="__codelineno-8-28" href="#__codelineno-8-28"></a>  └─ split/
+<a id="__codelineno-8-29" name="__codelineno-8-29" href="#__codelineno-8-29"></a>       └─ *.parquet (or .zarr, .h5, etc.)
 </code></pre></div>
 
 
@@ -3681,6 +3885,8 @@
     
     
       <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../../assets/javascripts/openneuro-stats.js"></script>
       
     
   </body>

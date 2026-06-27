@@ -1,0 +1,13 @@
+{
+  "public_datasets": 1777,
+  "participants": 80552,
+  "modalities": [
+    "MRI",
+    "PET",
+    "MEG",
+    "EEG",
+    "iEEG",
+    "NIRS",
+    "BEH"
+  ]
+}

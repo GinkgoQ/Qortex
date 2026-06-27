@@ -3481,10 +3481,14 @@
 <p>Qortex is built specifically for OpenNeuro datasets that follow the BIDS standard. Understanding how these two relate clarifies what Qortex can and cannot do.</p>
 <h2 id="openneuro">OpenNeuro<a class="headerlink" href="#openneuro" title="Permanent link">&para;</a></h2>
 <p>OpenNeuro is a platform for sharing neuroimaging data. Every dataset has a unique ID (e.g., <code>ds004130</code>) and is versioned through snapshots.</p>
-<p>Qortex communicates with OpenNeuro through its GraphQL API. This is how it fetches:</p>
+<p>Qortex communicates with OpenNeuro through its GraphQL API via <code>OpenNeuroClient</code>. This covers:</p>
 <ul>
-<li>Dataset metadata (name, DOI, license, authors)</li>
-<li>Snapshot metadata (subject count, file tree structure)</li>
+<li>Full dataset metadata (name, DOI, license, authors, funding, associated paper DOI)</li>
+<li>Community engagement (views, downloads, stars, followers)</li>
+<li>Snapshot summaries (subject count, session list, task list, file count, total size, BIDS version)</li>
+<li>Subject demographics (age, sex, group) from the API-level summary</li>
+<li>README text (the description shown on the OpenNeuro dataset page)</li>
+<li>BIDS validation issues (errors and warnings)</li>
 <li>CDN download URLs for individual files</li>
 </ul>
 <p>You do not need an account to read public datasets. Private datasets or embargo-period access require an API token.</p>
@@ -3633,6 +3637,8 @@
     
     
       <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../../assets/javascripts/openneuro-stats.js"></script>
       
     
   </body>

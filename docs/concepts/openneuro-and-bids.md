@@ -6,10 +6,14 @@ Qortex is built specifically for OpenNeuro datasets that follow the BIDS standar
 
 OpenNeuro is a platform for sharing neuroimaging data. Every dataset has a unique ID (e.g., `ds004130`) and is versioned through snapshots.
 
-Qortex communicates with OpenNeuro through its GraphQL API. This is how it fetches:
+Qortex communicates with OpenNeuro through its GraphQL API via `OpenNeuroClient`. This covers:
 
-- Dataset metadata (name, DOI, license, authors)
-- Snapshot metadata (subject count, file tree structure)
+- Full dataset metadata (name, DOI, license, authors, funding, associated paper DOI)
+- Community engagement (views, downloads, stars, followers)
+- Snapshot summaries (subject count, session list, task list, file count, total size, BIDS version)
+- Subject demographics (age, sex, group) from the API-level summary
+- README text (the description shown on the OpenNeuro dataset page)
+- BIDS validation issues (errors and warnings)
 - CDN download URLs for individual files
 
 You do not need an account to read public datasets. Private datasets or embargo-period access require an API token.

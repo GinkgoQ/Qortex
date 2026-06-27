@@ -47,6 +47,9 @@ theme:
 extra_css:
   - assets/stylesheets/theme.css
 
+extra_javascript:
+  - assets/javascripts/openneuro-stats.js
+
 plugins:
   - search
   - mkdocstrings:
@@ -99,6 +102,42 @@ nav:
       - Install: getting-started/install.md
       - Quickstart: getting-started/quickstart.md
       - First Visual Audit: getting-started/first-visual-audit.md
+  - Modalities:
+      - modalities/index.md
+      - MRI:
+          - modalities/mri/index.md
+          - Structural MRI: modalities/mri/structural-mri.md
+          - fMRI / BOLD: modalities/mri/fmri-bold.md
+          - DWI / Diffusion: modalities/mri/dwi-diffusion.md
+          - Fieldmaps: modalities/mri/fieldmaps.md
+      - PET:
+          - modalities/pet/index.md
+          - PET Metadata: modalities/pet/metadata.md
+          - PET Visualization: modalities/pet/visualization.md
+      - MEG:
+          - modalities/meg/index.md
+          - MEG Files: modalities/meg/files.md
+          - MEG Events: modalities/meg/events.md
+      - EEG:
+          - modalities/eeg/index.md
+          - EEG Files: modalities/eeg/files.md
+          - EEG Events: modalities/eeg/events.md
+          - EEG Visualization: modalities/eeg/visualization.md
+      - iEEG:
+          - modalities/ieeg/index.md
+          - iEEG Files: modalities/ieeg/files.md
+          - Electrodes and Coordinates: modalities/ieeg/electrodes-and-coordinates.md
+      - fNIRS:
+          - modalities/fnirs/index.md
+          - fNIRS Files: modalities/fnirs/files.md
+      - Behavioral and Events:
+          - modalities/behavioral/index.md
+          - Events TSV: modalities/behavioral/events-tsv.md
+          - Labels and Trial Types: modalities/behavioral/labels-and-trial-types.md
+      - Modality Selection:
+          - modalities/selection.md
+          - modality Readiness: modalities/readiness.md
+          - Modality Conversion: modalities/conversion.md
   - Dataset:
       - dataset/index.md
       - Inspect: dataset/inspect.md

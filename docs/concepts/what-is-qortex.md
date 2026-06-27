@@ -4,7 +4,7 @@ Qortex is a Python library for preparing OpenNeuro neuroimaging datasets for mac
 
 ## The problem it solves
 
-OpenNeuro hosts over 1,000 BIDS datasets. Many are not usable for supervised learning. Before you can tell whether a dataset is usable, you need to know:
+OpenNeuro hosts over 1,700 public BIDS datasets. Many are not usable for supervised learning. Before you can tell whether a dataset is usable, you need to know:
 
 - Do the fMRI files have events.tsv companions with parseable trial types?
 - Are there enough subjects to split into train/val/test without leakage?

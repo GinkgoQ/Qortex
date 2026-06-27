@@ -3231,10 +3231,32 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#what-you-can-do-with-a-dataset" class="md-nav__link">
+  <a href="#dataset-single-dataset-facade" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What you can do with a Dataset
+        Dataset — single-dataset facade
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#openneuroclient-rich-metadata-and-search" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenNeuroClient — rich metadata and search
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pages-in-this-section" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pages in this section
       
     </span>
   </a>
@@ -3310,18 +3332,36 @@
 
 
 <h1 id="dataset">Dataset<a class="headerlink" href="#dataset" title="Permanent link">&para;</a></h1>
-<p>The <code>Dataset</code> class is the entry point for all Qortex operations. Create one with an OpenNeuro dataset ID and optionally a snapshot version.</p>
+<p>Qortex provides two main entry points for working with OpenNeuro datasets:</p>
+<ul>
+<li><strong><code>Dataset</code></strong> — the high-level facade for a single dataset: inspect, download, convert, visualize.</li>
+<li><strong><code>OpenNeuroClient</code></strong> — the low-level GraphQL client for rich metadata, search, README, and BIDS validation.</li>
+</ul>
+<h2 id="dataset-single-dataset-facade">Dataset — single-dataset facade<a class="headerlink" href="#dataset-single-dataset-facade" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">qortex</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="p">(</span><span class="s2">&quot;ds004130&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="p">(</span><span class="s2">&quot;ds004130&quot;</span><span class="p">,</span> <span class="n">snapshot</span><span class="o">=</span><span class="s2">&quot;1.2.0&quot;</span><span class="p">)</span>   <span class="c1"># pin version</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="p">(</span><span class="s2">&quot;ds004130&quot;</span><span class="p">,</span> <span class="n">snapshot</span><span class="o">=</span><span class="s2">&quot;1.2.0&quot;</span><span class="p">)</span>            <span class="c1"># pin version</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="p">(</span><span class="s2">&quot;ds004130&quot;</span><span class="p">,</span> <span class="n">data_dir</span><span class="o">=</span><span class="n">Path</span><span class="p">(</span><span class="s2">&quot;/data/ds004130&quot;</span><span class="p">))</span>  <span class="c1"># local dir</span>
 </code></pre></div>
 <p>Creating a <code>Dataset</code> object makes no network calls. Network access begins when you call a method that needs the manifest.</p>
-<h2 id="what-you-can-do-with-a-dataset">What you can do with a Dataset<a class="headerlink" href="#what-you-can-do-with-a-dataset" title="Permanent link">&para;</a></h2>
-<p><a href="inspect/"><strong>Inspect</strong></a> — Fetch the manifest and read structural properties: subject count, modalities, file sizes, companion coverage.</p>
+<h2 id="openneuroclient-rich-metadata-and-search">OpenNeuroClient — rich metadata and search<a class="headerlink" href="#openneuroclient-rich-metadata-and-search" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">qortex.client</span><span class="w"> </span><span class="kn">import</span> <span class="n">OpenNeuroClient</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="k">with</span> <span class="n">OpenNeuroClient</span><span class="p">()</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="n">info</span>    <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">get_dataset_rich</span><span class="p">(</span><span class="s2">&quot;ds008039&quot;</span><span class="p">)</span>          <span class="c1"># full metadata in one call</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="n">readme</span>  <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">get_readme</span><span class="p">(</span><span class="s2">&quot;ds008039&quot;</span><span class="p">)</span>                 <span class="c1"># description text</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    <span class="n">issues</span>  <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">get_validation_issues</span><span class="p">(</span><span class="s2">&quot;ds008039&quot;</span><span class="p">,</span> <span class="s2">&quot;1.0.0&quot;</span><span class="p">)</span>  <span class="c1"># BIDS issues</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="n">snaps</span>   <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">get_snapshots</span><span class="p">(</span><span class="s2">&quot;ds008039&quot;</span><span class="p">)</span>              <span class="c1"># all versions</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>    <span class="n">results</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">search_datasets_rich</span><span class="p">(</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>        <span class="n">modality</span><span class="o">=</span><span class="s2">&quot;eeg&quot;</span><span class="p">,</span> <span class="n">min_subjects</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span> <span class="n">sort_by</span><span class="o">=</span><span class="s2">&quot;downloads&quot;</span>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>    <span class="p">)</span>
+</code></pre></div>
+<h2 id="pages-in-this-section">Pages in this section<a class="headerlink" href="#pages-in-this-section" title="Permanent link">&para;</a></h2>
+<p><a href="inspect/"><strong>Inspect</strong></a> — Rich API metadata (<code>RichDatasetInfo</code>) and manifest-level profiles (<code>DatasetProfile</code>). Covers every field visible on an OpenNeuro dataset page, including engagement metrics, demographics, funding, README, and BIDS validation.</p>
 <p><a href="metadata/"><strong>Metadata</strong></a> — Read sidecar JSON, events.tsv, participants.tsv, and dataset_description.json without downloading imaging files.</p>
-<p><a href="search-catalog/"><strong>Search catalog</strong></a> — Filter the local DuckDB catalog of indexed datasets by modality, task, subject count, and size.</p>
+<p><a href="search-catalog/"><strong>Search &amp; filter</strong></a> — <code>DatasetQuery</code> fluent builder with 10 filters, local catalog, live API search, <code>search_datasets_rich()</code> with engagement sorting.</p>
 <p><a href="snapshots/"><strong>Snapshots</strong></a> — List available snapshot versions, compare manifests between snapshots.</p>
 <p><a href="bids-entities/"><strong>BIDS entities</strong></a> — The entity labels parsed from file paths: subject, session, task, run, datatype, suffix.</p>
 
@@ -3427,6 +3467,8 @@
     
     
       <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../assets/javascripts/openneuro-stats.js"></script>
       
     
   </body>

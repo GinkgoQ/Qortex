@@ -3224,6 +3224,36 @@
     
   
   
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#openneuroclient" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenNeuroClient
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#datasetquery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DatasetQuery
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
 </nav>
                   </div>
                 </div>
@@ -3292,11 +3322,93 @@
 
 <h1 id="api-reference">API Reference<a class="headerlink" href="#api-reference" title="Permanent link">&para;</a></h1>
 <p>The API reference is generated from docstrings in the source code using mkdocstrings.</p>
-<p><a href="dataset/"><strong>Dataset</strong></a> — <code>qortex.Dataset</code> — the main entry point</p>
+<p><a href="dataset/"><strong>Dataset</strong></a> — <code>qortex.Dataset</code> — the main entry point: inspect, download, convert, visualize</p>
 <p><a href="visualization/"><strong>Visualization</strong></a> — <code>qortex.visualize</code> — viewers, overlays, audit</p>
 <p><a href="artifact/"><strong>Artifact</strong></a> — <code>qortex.Artifact</code> — ML-ready artifact loading</p>
 <p><a href="conversion/"><strong>Conversion</strong></a> — <code>qortex.convert</code> — ConversionPipeline, WindowSpec, SplitSpec</p>
 <p><a href="cli/"><strong>CLI</strong></a> — All CLI commands with options and examples</p>
+<h2 id="openneuroclient">OpenNeuroClient<a class="headerlink" href="#openneuroclient" title="Permanent link">&para;</a></h2>
+<p>The <code>OpenNeuroClient</code> provides direct access to the OpenNeuro GraphQL API. It is the primary way to fetch rich dataset metadata without the overhead of manifest parsing.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">qortex.client</span><span class="w"> </span><span class="kn">import</span> <span class="n">OpenNeuroClient</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="k">with</span> <span class="n">OpenNeuroClient</span><span class="p">()</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">info</span>    <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">get_dataset_rich</span><span class="p">(</span><span class="s2">&quot;ds008039&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">readme</span>  <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">get_readme</span><span class="p">(</span><span class="s2">&quot;ds008039&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">issues</span>  <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">get_validation_issues</span><span class="p">(</span><span class="s2">&quot;ds008039&quot;</span><span class="p">,</span> <span class="s2">&quot;1.0.0&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">snaps</span>   <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">get_snapshots</span><span class="p">(</span><span class="s2">&quot;ds008039&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">summary</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">get_snapshot_summary</span><span class="p">(</span><span class="s2">&quot;ds008039&quot;</span><span class="p">,</span> <span class="s2">&quot;1.0.0&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">results</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">search_datasets_rich</span><span class="p">(</span><span class="n">modality</span><span class="o">=</span><span class="s2">&quot;eeg&quot;</span><span class="p">,</span> <span class="n">sort_by</span><span class="o">=</span><span class="s2">&quot;downloads&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p>Key methods:</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Returns</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>get_dataset_rich(id)</code></td>
+<td><code>RichDatasetInfo</code></td>
+<td>All metadata for one dataset</td>
+</tr>
+<tr>
+<td><code>get_readme(id, tag?)</code></td>
+<td><code>str \| None</code></td>
+<td>README / description text</td>
+</tr>
+<tr>
+<td><code>get_validation_issues(id, tag)</code></td>
+<td><code>list[dict]</code></td>
+<td>BIDS validation errors and warnings</td>
+</tr>
+<tr>
+<td><code>get_snapshot_summary(id, tag)</code></td>
+<td><code>SnapshotSummary</code></td>
+<td>Subjects, sessions, demographics</td>
+</tr>
+<tr>
+<td><code>get_snapshots(id)</code></td>
+<td><code>list[SnapshotRef]</code></td>
+<td>All available versions</td>
+</tr>
+<tr>
+<td><code>get_files(id, tag?)</code></td>
+<td><code>(SnapshotRef, list[dict])</code></td>
+<td>Full file tree</td>
+</tr>
+<tr>
+<td><code>search_datasets_rich(...)</code></td>
+<td><code>list[RichDatasetInfo]</code></td>
+<td>Filtered rich search</td>
+</tr>
+<tr>
+<td><code>get_dataset(id)</code></td>
+<td><code>DatasetRef</code></td>
+<td>Lightweight metadata</td>
+</tr>
+</tbody>
+</table>
+<h2 id="datasetquery">DatasetQuery<a class="headerlink" href="#datasetquery" title="Permanent link">&para;</a></h2>
+<p><code>DatasetQuery</code> is the fluent search builder for local catalog and live API searches.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">qortex.catalog</span><span class="w"> </span><span class="kn">import</span> <span class="n">DatasetQuery</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">results</span> <span class="o">=</span> <span class="p">(</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="n">DatasetQuery</span><span class="p">()</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="o">.</span><span class="n">modality</span><span class="p">(</span><span class="s2">&quot;eeg&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    <span class="o">.</span><span class="n">min_subjects</span><span class="p">(</span><span class="mi">30</span><span class="p">)</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="o">.</span><span class="n">has_events</span><span class="p">()</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    <span class="o">.</span><span class="n">containing</span><span class="p">(</span><span class="s2">&quot;auditory&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>    <span class="o">.</span><span class="n">limit</span><span class="p">(</span><span class="mi">20</span><span class="p">)</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>    <span class="o">.</span><span class="n">fetch</span><span class="p">()</span>        <span class="c1"># local catalog</span>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="p">)</span>
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="c1"># Or live from API</span>
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="n">live</span> <span class="o">=</span> <span class="n">DatasetQuery</span><span class="p">()</span><span class="o">.</span><span class="n">modality</span><span class="p">(</span><span class="s2">&quot;eeg&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">min_subjects</span><span class="p">(</span><span class="mi">30</span><span class="p">)</span><span class="o">.</span><span class="n">live</span><span class="p">()</span>
+</code></pre></div>
+<p>See <a href="../dataset/search-catalog/">Search &amp; filter</a> for the full filter reference.</p>
 
 
 
@@ -3400,6 +3512,8 @@
     
     
       <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../assets/javascripts/openneuro-stats.js"></script>
       
     
   </body>

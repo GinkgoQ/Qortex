@@ -1076,10 +1076,43 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#python" class="md-nav__link">
+  <a href="#rich-api-metadata" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Python
+        Rich API metadata
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#readme-description-text" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        README / description text
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bids-validation-issues" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BIDS validation issues
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#manifest-level-profile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Manifest-level profile
       
     </span>
   </a>
@@ -1098,10 +1131,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#how-it-works" class="md-nav__link">
+  <a href="#all-available-snapshots" class="md-nav__link">
     <span class="md-ellipsis">
       
-        How it works
+        All available snapshots
       
     </span>
   </a>
@@ -1109,10 +1142,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#inspecting-a-local-dataset" class="md-nav__link">
+  <a href="#local-dataset" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Inspecting a local dataset
+        Local dataset
       
     </span>
   </a>
@@ -3333,10 +3366,43 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#python" class="md-nav__link">
+  <a href="#rich-api-metadata" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Python
+        Rich API metadata
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#readme-description-text" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        README / description text
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bids-validation-issues" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BIDS validation issues
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#manifest-level-profile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Manifest-level profile
       
     </span>
   </a>
@@ -3355,10 +3421,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#how-it-works" class="md-nav__link">
+  <a href="#all-available-snapshots" class="md-nav__link">
     <span class="md-ellipsis">
       
-        How it works
+        All available snapshots
       
     </span>
   </a>
@@ -3366,10 +3432,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#inspecting-a-local-dataset" class="md-nav__link">
+  <a href="#local-dataset" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Inspecting a local dataset
+        Local dataset
       
     </span>
   </a>
@@ -3456,66 +3522,187 @@
 
 
 <h1 id="inspect">Inspect<a class="headerlink" href="#inspect" title="Permanent link">&para;</a></h1>
-<p><code>ds.inspect()</code> fetches the manifest and returns a structured summary of dataset properties. It is the first method to call when evaluating a new dataset.</p>
-<h2 id="python">Python<a class="headerlink" href="#python" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">qortex</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
+<p>Qortex provides two levels of dataset inspection: a lightweight manifest-level profile built from the file tree (<code>DatasetInspector</code>), and a rich API-level metadata object sourced directly from the OpenNeuro GraphQL API (<code>RichDatasetInfo</code>). Use them together to get the full picture before downloading anything.</p>
+<h2 id="rich-api-metadata">Rich API metadata<a class="headerlink" href="#rich-api-metadata" title="Permanent link">&para;</a></h2>
+<p><code>OpenNeuroClient.get_dataset_rich()</code> returns a <code>RichDatasetInfo</code> object covering every field visible on an OpenNeuro dataset page — without downloading or iterating the file tree.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">qortex.client</span><span class="w"> </span><span class="kn">import</span> <span class="n">OpenNeuroClient</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="p">(</span><span class="s2">&quot;ds004130&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">info</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">inspect</span><span class="p">()</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="nb">print</span><span class="p">(</span><span class="n">info</span><span class="p">)</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="k">with</span> <span class="n">OpenNeuroClient</span><span class="p">()</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">info</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">get_dataset_rich</span><span class="p">(</span><span class="s2">&quot;ds008039&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="c1"># Identity</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="n">info</span><span class="o">.</span><span class="n">id</span>                               <span class="c1"># &quot;ds008039&quot;</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="n">info</span><span class="o">.</span><span class="n">name</span>                             <span class="c1"># dataset name from dataset_description.json</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="n">info</span><span class="o">.</span><span class="n">doi</span>                              <span class="c1"># &quot;10.18112/openneuro.ds008039.v1.0.0&quot;</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="n">info</span><span class="o">.</span><span class="n">license</span>                          <span class="c1"># &quot;CC0&quot;</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="n">info</span><span class="o">.</span><span class="n">authors</span>                          <span class="c1"># [&quot;Doe J&quot;, &quot;Smith A&quot;, ...]</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="n">info</span><span class="o">.</span><span class="n">senior_author</span>                    <span class="c1"># last/senior author name</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="c1"># Scientific context</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="n">info</span><span class="o">.</span><span class="n">modalities</span>                       <span class="c1"># [&quot;MRI&quot;]</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="n">info</span><span class="o">.</span><span class="n">tasks</span>                            <span class="c1"># [&quot;rest&quot;, &quot;nback&quot;]</span>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="n">info</span><span class="o">.</span><span class="n">species</span>                          <span class="c1"># &quot;human&quot;</span>
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="n">info</span><span class="o">.</span><span class="n">study_domain</span>                     <span class="c1"># e.g. &quot;cognitive neuroscience&quot;</span>
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="n">info</span><span class="o">.</span><span class="n">study_design</span>                     <span class="c1"># e.g. &quot;longitudinal&quot;</span>
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="n">info</span><span class="o">.</span><span class="n">data_processed</span>                   <span class="c1"># True/False — preprocessed data included</span>
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="c1"># Publication &amp; funding</span>
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a><span class="n">info</span><span class="o">.</span><span class="n">associated_paper_doi</span>             <span class="c1"># linked journal article DOI</span>
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a><span class="n">info</span><span class="o">.</span><span class="n">grant_funder</span>                     <span class="c1"># funding agency name</span>
+<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a><span class="n">info</span><span class="o">.</span><span class="n">grant_id</span>                         <span class="c1"># grant number</span>
+<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>
+<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a><span class="c1"># Dates</span>
+<a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a><span class="n">info</span><span class="o">.</span><span class="n">created</span>                          <span class="c1"># ISO 8601 string: &quot;2024-03-15T10:22:00.000Z&quot;</span>
+<a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a><span class="n">info</span><span class="o">.</span><span class="n">publish_date</span>                     <span class="c1"># ISO 8601 string</span>
+<a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>
+<a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a><span class="c1"># Community engagement</span>
+<a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a><span class="n">info</span><span class="o">.</span><span class="n">engagement</span><span class="o">.</span><span class="n">views</span>                 <span class="c1"># total page views</span>
+<a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a><span class="n">info</span><span class="o">.</span><span class="n">engagement</span><span class="o">.</span><span class="n">downloads</span>             <span class="c1"># total file downloads</span>
+<a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a><span class="n">info</span><span class="o">.</span><span class="n">engagement</span><span class="o">.</span><span class="n">stars</span>                 <span class="c1"># number of stars</span>
+<a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a><span class="n">info</span><span class="o">.</span><span class="n">engagement</span><span class="o">.</span><span class="n">followers</span>             <span class="c1"># number of followers</span>
+<a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a><span class="n">info</span><span class="o">.</span><span class="n">engagement</span><span class="o">.</span><span class="n">popularity_score</span>      <span class="c1"># composite 0–100 score</span>
+<a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a>
+<a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a><span class="c1"># Snapshot summary (subject counts, file counts — no file tree needed)</span>
+<a id="__codelineno-0-39" name="__codelineno-0-39" href="#__codelineno-0-39"></a><span class="n">snap</span> <span class="o">=</span> <span class="n">info</span><span class="o">.</span><span class="n">latest_snapshot_summary</span>
+<a id="__codelineno-0-40" name="__codelineno-0-40" href="#__codelineno-0-40"></a><span class="n">snap</span><span class="o">.</span><span class="n">tag</span>                              <span class="c1"># &quot;1.0.0&quot;</span>
+<a id="__codelineno-0-41" name="__codelineno-0-41" href="#__codelineno-0-41"></a><span class="n">snap</span><span class="o">.</span><span class="n">n_subjects</span>                       <span class="c1"># 42</span>
+<a id="__codelineno-0-42" name="__codelineno-0-42" href="#__codelineno-0-42"></a><span class="n">snap</span><span class="o">.</span><span class="n">n_sessions</span>                       <span class="c1"># 2</span>
+<a id="__codelineno-0-43" name="__codelineno-0-43" href="#__codelineno-0-43"></a><span class="n">snap</span><span class="o">.</span><span class="n">n_tasks</span>                          <span class="c1"># 3</span>
+<a id="__codelineno-0-44" name="__codelineno-0-44" href="#__codelineno-0-44"></a><span class="n">snap</span><span class="o">.</span><span class="n">subjects</span>                         <span class="c1"># [&quot;sub-01&quot;, &quot;sub-02&quot;, ...]</span>
+<a id="__codelineno-0-45" name="__codelineno-0-45" href="#__codelineno-0-45"></a><span class="n">snap</span><span class="o">.</span><span class="n">sessions</span>                         <span class="c1"># [&quot;ses-01&quot;, &quot;ses-02&quot;]</span>
+<a id="__codelineno-0-46" name="__codelineno-0-46" href="#__codelineno-0-46"></a><span class="n">snap</span><span class="o">.</span><span class="n">tasks</span>                            <span class="c1"># [&quot;rest&quot;, &quot;nback&quot;]</span>
+<a id="__codelineno-0-47" name="__codelineno-0-47" href="#__codelineno-0-47"></a><span class="n">snap</span><span class="o">.</span><span class="n">total_files</span>                      <span class="c1"># 1847</span>
+<a id="__codelineno-0-48" name="__codelineno-0-48" href="#__codelineno-0-48"></a><span class="n">snap</span><span class="o">.</span><span class="n">total_size_gb</span>                    <span class="c1"># 14.23</span>
+<a id="__codelineno-0-49" name="__codelineno-0-49" href="#__codelineno-0-49"></a><span class="n">snap</span><span class="o">.</span><span class="n">bids_version</span>                     <span class="c1"># &quot;1.8.0&quot;</span>
+<a id="__codelineno-0-50" name="__codelineno-0-50" href="#__codelineno-0-50"></a><span class="n">snap</span><span class="o">.</span><span class="n">funding</span>                          <span class="c1"># [&quot;NIH R01 MH123456&quot;, ...]</span>
+<a id="__codelineno-0-51" name="__codelineno-0-51" href="#__codelineno-0-51"></a><span class="n">snap</span><span class="o">.</span><span class="n">references</span>                       <span class="c1"># [&quot;https://doi.org/...&quot;, ...]</span>
+<a id="__codelineno-0-52" name="__codelineno-0-52" href="#__codelineno-0-52"></a><span class="n">snap</span><span class="o">.</span><span class="n">ethics_approvals</span>                 <span class="c1"># [&quot;IRB approval #2024-001&quot;]</span>
+<a id="__codelineno-0-53" name="__codelineno-0-53" href="#__codelineno-0-53"></a><span class="n">snap</span><span class="o">.</span><span class="n">how_to_acknowledge</span>               <span class="c1"># citation string</span>
+<a id="__codelineno-0-54" name="__codelineno-0-54" href="#__codelineno-0-54"></a>
+<a id="__codelineno-0-55" name="__codelineno-0-55" href="#__codelineno-0-55"></a><span class="c1"># Subject demographics</span>
+<a id="__codelineno-0-56" name="__codelineno-0-56" href="#__codelineno-0-56"></a><span class="n">snap</span><span class="o">.</span><span class="n">demographics_dataframe</span><span class="p">()</span>         <span class="c1"># Polars DataFrame: participant_id, age, sex, group</span>
+<a id="__codelineno-0-57" name="__codelineno-0-57" href="#__codelineno-0-57"></a><span class="n">snap</span><span class="o">.</span><span class="n">age_stats</span><span class="p">()</span>                      <span class="c1"># {&quot;n&quot;: 42, &quot;mean&quot;: 28.4, &quot;min&quot;: 18, &quot;max&quot;: 65, ...}</span>
 </code></pre></div>
-<p>The returned object has:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">info</span><span class="o">.</span><span class="n">dataset_id</span>        <span class="c1"># &quot;ds004130&quot;</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">info</span><span class="o">.</span><span class="n">snapshot</span>          <span class="c1"># &quot;1.2.0&quot;</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">info</span><span class="o">.</span><span class="n">name</span>              <span class="c1"># full dataset name from dataset_description.json</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">info</span><span class="o">.</span><span class="n">doi</span>               <span class="c1"># dataset DOI</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">info</span><span class="o">.</span><span class="n">n_subjects</span>        <span class="c1"># integer</span>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">info</span><span class="o">.</span><span class="n">n_sessions</span>        <span class="c1"># integer (1 if no sessions)</span>
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="n">info</span><span class="o">.</span><span class="n">modalities</span>        <span class="c1"># [&quot;eeg&quot;]</span>
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="n">info</span><span class="o">.</span><span class="n">tasks</span>             <span class="c1"># [&quot;rest&quot;]</span>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="n">info</span><span class="o">.</span><span class="n">suffixes</span>          <span class="c1"># [&quot;eeg&quot;, &quot;events&quot;, &quot;channels&quot;, &quot;coordsystem&quot;]</span>
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="n">info</span><span class="o">.</span><span class="n">has_events</span>        <span class="c1"># True/False</span>
-<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="n">info</span><span class="o">.</span><span class="n">event_columns</span>     <span class="c1"># [&quot;onset&quot;, &quot;duration&quot;, &quot;trial_type&quot;, ...]</span>
-<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="n">info</span><span class="o">.</span><span class="n">has_bval</span>          <span class="c1"># True/False (DWI)</span>
-<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="n">info</span><span class="o">.</span><span class="n">n_files</span>           <span class="c1"># integer</span>
-<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="n">info</span><span class="o">.</span><span class="n">total_size</span>        <span class="c1"># bytes</span>
+<p>Export to dict or JSON:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nb">print</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">info</span><span class="o">.</span><span class="n">to_dict</span><span class="p">(),</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">))</span>
+</code></pre></div>
+<h2 id="readme-description-text">README / description text<a class="headerlink" href="#readme-description-text" title="Permanent link">&para;</a></h2>
+<p>The text shown as "Description" on the OpenNeuro dataset page comes from the README file. Fetch it in one call:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">with</span> <span class="n">OpenNeuroClient</span><span class="p">()</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    <span class="n">readme</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">get_readme</span><span class="p">(</span><span class="s2">&quot;ds008039&quot;</span><span class="p">)</span>           <span class="c1"># latest snapshot</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    <span class="n">readme</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">get_readme</span><span class="p">(</span><span class="s2">&quot;ds008039&quot;</span><span class="p">,</span> <span class="s2">&quot;1.0.0&quot;</span><span class="p">)</span>  <span class="c1"># specific version</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="nb">print</span><span class="p">(</span><span class="n">readme</span><span class="p">)</span>  <span class="c1"># full README text</span>
+</code></pre></div>
+<p>Returns <code>None</code> if the dataset has no README.</p>
+<h2 id="bids-validation-issues">BIDS validation issues<a class="headerlink" href="#bids-validation-issues" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">with</span> <span class="n">OpenNeuroClient</span><span class="p">()</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>    <span class="n">issues</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">get_validation_issues</span><span class="p">(</span><span class="s2">&quot;ds008039&quot;</span><span class="p">,</span> <span class="s2">&quot;1.0.0&quot;</span><span class="p">)</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="k">for</span> <span class="n">issue</span> <span class="ow">in</span> <span class="n">issues</span><span class="p">:</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">issue</span><span class="p">[</span><span class="s2">&quot;severity&quot;</span><span class="p">],</span> <span class="n">issue</span><span class="p">[</span><span class="s2">&quot;key&quot;</span><span class="p">],</span> <span class="n">issue</span><span class="p">[</span><span class="s2">&quot;reason&quot;</span><span class="p">])</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>    <span class="c1"># &quot;error&quot;   MISSING_FILE   &quot;Required file /participants.tsv not found&quot;</span>
+</code></pre></div>
+<p>Each issue dict has: <code>severity</code> (<code>"error"</code> or <code>"warning"</code>), <code>key</code>, <code>reason</code>, <code>files</code>, <code>helpUrl</code>.</p>
+<h2 id="manifest-level-profile">Manifest-level profile<a class="headerlink" href="#manifest-level-profile" title="Permanent link">&para;</a></h2>
+<p><code>DatasetInspector.inspect()</code> fetches the file tree for a snapshot and builds a structural profile with BIDS entity parsing, modality breakdowns, and ML readiness scoring.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">qortex</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="p">(</span><span class="s2">&quot;ds004130&quot;</span><span class="p">)</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">profile</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">inspect</span><span class="p">()</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="nb">print</span><span class="p">(</span><span class="n">profile</span><span class="p">)</span>           <span class="c1"># human-readable summary</span>
+</code></pre></div>
+<p>The returned <code>DatasetProfile</code> has:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">profile</span><span class="o">.</span><span class="n">dataset_ref</span>        <span class="c1"># DatasetRef (id, name, doi, license, authors, modalities, tasks)</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">profile</span><span class="o">.</span><span class="n">snapshot</span>           <span class="c1"># SnapshotRef (tag, hexsha, doi)</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">profile</span><span class="o">.</span><span class="n">all_snapshots</span>      <span class="c1"># list[SnapshotRef] — all available versions</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="c1"># Structural counts</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="n">profile</span><span class="o">.</span><span class="n">n_subjects</span>         <span class="c1"># integer</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="n">profile</span><span class="o">.</span><span class="n">n_sessions</span>         <span class="c1"># integer</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="n">profile</span><span class="o">.</span><span class="n">n_tasks</span>            <span class="c1"># integer</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="n">profile</span><span class="o">.</span><span class="n">subjects</span>           <span class="c1"># [&quot;sub-01&quot;, ...]</span>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="n">profile</span><span class="o">.</span><span class="n">sessions</span>           <span class="c1"># [&quot;ses-01&quot;, ...]</span>
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="n">profile</span><span class="o">.</span><span class="n">tasks</span>              <span class="c1"># [&quot;rest&quot;, ...]</span>
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>
+<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="c1"># Modality breakdown</span>
+<a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="n">profile</span><span class="o">.</span><span class="n">modality_breakdown</span>  <span class="c1"># {&quot;eeg&quot;: ModalityBreakdown(...), ...}</span>
+<a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a>
+<a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a><span class="c1"># Cross-subject coverage matrices</span>
+<a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a><span class="n">profile</span><span class="o">.</span><span class="n">subject_task_matrix</span>     <span class="c1"># {&quot;sub-01&quot;: [&quot;rest&quot;, &quot;nback&quot;], ...}</span>
+<a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a><span class="n">profile</span><span class="o">.</span><span class="n">subject_session_matrix</span>  <span class="c1"># {&quot;sub-01&quot;: [&quot;ses-01&quot;, &quot;ses-02&quot;], ...}</span>
+<a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a>
+<a id="__codelineno-5-20" name="__codelineno-5-20" href="#__codelineno-5-20"></a><span class="c1"># File counts</span>
+<a id="__codelineno-5-21" name="__codelineno-5-21" href="#__codelineno-5-21"></a><span class="n">profile</span><span class="o">.</span><span class="n">n_signal_files</span>      <span class="c1"># signal-type files only</span>
+<a id="__codelineno-5-22" name="__codelineno-5-22" href="#__codelineno-5-22"></a><span class="n">profile</span><span class="o">.</span><span class="n">n_events_files</span>      <span class="c1"># *_events.tsv count</span>
+<a id="__codelineno-5-23" name="__codelineno-5-23" href="#__codelineno-5-23"></a><span class="n">profile</span><span class="o">.</span><span class="n">n_sidecar_files</span>     <span class="c1"># *.json sidecar count</span>
+<a id="__codelineno-5-24" name="__codelineno-5-24" href="#__codelineno-5-24"></a><span class="n">profile</span><span class="o">.</span><span class="n">n_derivative_files</span>  <span class="c1"># derivatives/* count</span>
+<a id="__codelineno-5-25" name="__codelineno-5-25" href="#__codelineno-5-25"></a><span class="n">profile</span><span class="o">.</span><span class="n">total_size_gb</span>       <span class="c1"># float</span>
+<a id="__codelineno-5-26" name="__codelineno-5-26" href="#__codelineno-5-26"></a><span class="n">profile</span><span class="o">.</span><span class="n">per_subject_avg_gb</span>  <span class="c1"># float</span>
+<a id="__codelineno-5-27" name="__codelineno-5-27" href="#__codelineno-5-27"></a>
+<a id="__codelineno-5-28" name="__codelineno-5-28" href="#__codelineno-5-28"></a><span class="c1"># Companion coverage (fraction of signal files with companion)</span>
+<a id="__codelineno-5-29" name="__codelineno-5-29" href="#__codelineno-5-29"></a><span class="n">profile</span><span class="o">.</span><span class="n">events_coverage</span>     <span class="c1"># 0.0–1.0</span>
+<a id="__codelineno-5-30" name="__codelineno-5-30" href="#__codelineno-5-30"></a><span class="n">profile</span><span class="o">.</span><span class="n">channels_coverage</span>   <span class="c1"># 0.0–1.0</span>
+<a id="__codelineno-5-31" name="__codelineno-5-31" href="#__codelineno-5-31"></a><span class="n">profile</span><span class="o">.</span><span class="n">sidecar_coverage</span>    <span class="c1"># 0.0–1.0</span>
+<a id="__codelineno-5-32" name="__codelineno-5-32" href="#__codelineno-5-32"></a>
+<a id="__codelineno-5-33" name="__codelineno-5-33" href="#__codelineno-5-33"></a><span class="c1"># Structure checks</span>
+<a id="__codelineno-5-34" name="__codelineno-5-34" href="#__codelineno-5-34"></a><span class="n">profile</span><span class="o">.</span><span class="n">has_participants_tsv</span>        <span class="c1"># bool</span>
+<a id="__codelineno-5-35" name="__codelineno-5-35" href="#__codelineno-5-35"></a><span class="n">profile</span><span class="o">.</span><span class="n">has_dataset_description</span>     <span class="c1"># bool</span>
+<a id="__codelineno-5-36" name="__codelineno-5-36" href="#__codelineno-5-36"></a><span class="n">profile</span><span class="o">.</span><span class="n">has_readme</span>                  <span class="c1"># bool</span>
+<a id="__codelineno-5-37" name="__codelineno-5-37" href="#__codelineno-5-37"></a>
+<a id="__codelineno-5-38" name="__codelineno-5-38" href="#__codelineno-5-38"></a><span class="c1"># ML readiness</span>
+<a id="__codelineno-5-39" name="__codelineno-5-39" href="#__codelineno-5-39"></a><span class="n">profile</span><span class="o">.</span><span class="n">ml_readiness</span>        <span class="c1"># MLReadinessScore</span>
+<a id="__codelineno-5-40" name="__codelineno-5-40" href="#__codelineno-5-40"></a><span class="n">profile</span><span class="o">.</span><span class="n">ml_readiness</span><span class="o">.</span><span class="n">total</span>  <span class="c1"># 0–100</span>
+<a id="__codelineno-5-41" name="__codelineno-5-41" href="#__codelineno-5-41"></a><span class="n">profile</span><span class="o">.</span><span class="n">ml_readiness</span><span class="o">.</span><span class="n">grade</span>  <span class="c1"># &quot;A&quot; | &quot;B&quot; | &quot;C&quot; | &quot;D&quot; | &quot;F&quot;</span>
+<a id="__codelineno-5-42" name="__codelineno-5-42" href="#__codelineno-5-42"></a>
+<a id="__codelineno-5-43" name="__codelineno-5-43" href="#__codelineno-5-43"></a><span class="c1"># Recommendations</span>
+<a id="__codelineno-5-44" name="__codelineno-5-44" href="#__codelineno-5-44"></a><span class="n">profile</span><span class="o">.</span><span class="n">recommendations</span>     <span class="c1"># list[str] — human-readable suggestions</span>
+<a id="__codelineno-5-45" name="__codelineno-5-45" href="#__codelineno-5-45"></a>
+<a id="__codelineno-5-46" name="__codelineno-5-46" href="#__codelineno-5-46"></a><span class="c1"># Rich API metadata (populated when OpenNeuroClient is available)</span>
+<a id="__codelineno-5-47" name="__codelineno-5-47" href="#__codelineno-5-47"></a><span class="n">profile</span><span class="o">.</span><span class="n">rich_info</span>           <span class="c1"># RichDatasetInfo or None</span>
 </code></pre></div>
 <h2 id="cli">CLI<a class="headerlink" href="#cli" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>qortex<span class="w"> </span>inspect<span class="w"> </span>ds004130
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>qortex<span class="w"> </span>inspect<span class="w"> </span>ds004130
 </code></pre></div>
 <p>Output:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>Dataset:   ds004130 — EEG resting-state
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>Snapshot:  1.2.0
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>DOI:       10.18112/openneuro.ds004130.v1.2.0
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>Subjects:  88
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>Sessions:  1
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>Modalities: eeg
-<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>Tasks:     rest
-<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>Files:     1,056
-<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>Size:      4.2 GB
-<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>Events:    yes (88 files, columns: onset duration trial_type)
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>Dataset:   ds004130 — EEG resting-state
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>Snapshot:  1.2.0
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>DOI:       10.18112/openneuro.ds004130.v1.2.0
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>Subjects:  88
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>Sessions:  1
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>Modalities: eeg
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>Tasks:     rest
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>Files:     1,056
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>Size:      4.2 GB
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>Events:    yes (88 files, columns: onset duration trial_type)
 </code></pre></div>
 <p>Add <code>--json</code> for machine-readable output:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>qortex<span class="w"> </span>inspect<span class="w"> </span>ds004130<span class="w"> </span>--json
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>qortex<span class="w"> </span>inspect<span class="w"> </span>ds004130<span class="w"> </span>--json
 </code></pre></div>
-<h2 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
-<p><code>inspect()</code> calls <code>ds.manifest()</code> internally. The manifest is fetched from the OpenNeuro GraphQL API. The response includes the file tree for the latest (or specified) snapshot. Qortex parses BIDS entity labels from each file path and aggregates the counts.</p>
-<p>The summary (<code>ds.info()</code>) is a lighter version of inspect — it returns only the ManifestSummary without the full file list.</p>
-<h2 id="inspecting-a-local-dataset">Inspecting a local dataset<a class="headerlink" href="#inspecting-a-local-dataset" title="Permanent link">&para;</a></h2>
+<h2 id="all-available-snapshots">All available snapshots<a class="headerlink" href="#all-available-snapshots" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">with</span> <span class="n">OpenNeuroClient</span><span class="p">()</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>    <span class="n">snapshots</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">get_snapshots</span><span class="p">(</span><span class="s2">&quot;ds008039&quot;</span><span class="p">)</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">snapshots</span><span class="p">:</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">tag</span><span class="p">,</span> <span class="n">s</span><span class="o">.</span><span class="n">created</span><span class="p">,</span> <span class="n">s</span><span class="o">.</span><span class="n">size</span><span class="p">)</span>
+</code></pre></div>
+<h2 id="local-dataset">Local dataset<a class="headerlink" href="#local-dataset" title="Permanent link">&para;</a></h2>
 <p>If you have a local BIDS directory and want to build a manifest from disk rather than OpenNeuro:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="p">(</span><span class="s2">&quot;ds004130&quot;</span><span class="p">,</span> <span class="n">data_dir</span><span class="o">=</span><span class="s2">&quot;data/ds004130/&quot;</span><span class="p">)</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">ds</span><span class="o">.</span><span class="n">index_local</span><span class="p">()</span>     <span class="c1"># scan local tree, write .qortex/manifest.json</span>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">info</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">inspect</span><span class="p">()</span>  <span class="c1"># reads from local manifest</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="p">(</span><span class="s2">&quot;ds004130&quot;</span><span class="p">,</span> <span class="n">data_dir</span><span class="o">=</span><span class="s2">&quot;data/ds004130/&quot;</span><span class="p">)</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="n">ds</span><span class="o">.</span><span class="n">index_local</span><span class="p">()</span>     <span class="c1"># scan local tree, write .qortex/manifest.json</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="n">profile</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">inspect</span><span class="p">()</span>
 </code></pre></div>
-<p>Or from the CLI:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>qortex<span class="w"> </span>local-index<span class="w"> </span>data/ds004130/<span class="w"> </span>--dataset-id<span class="w"> </span>ds004130
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>qortex<span class="w"> </span>inspect<span class="w"> </span>ds004130<span class="w"> </span>--local
+<p>CLI equivalent:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>qortex<span class="w"> </span>local-index<span class="w"> </span>data/ds004130/<span class="w"> </span>--dataset-id<span class="w"> </span>ds004130
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>qortex<span class="w"> </span>inspect<span class="w"> </span>ds004130<span class="w"> </span>--local
 </code></pre></div>
 <h2 id="related">Related<a class="headerlink" href="#related" title="Permanent link">&para;</a></h2>
 <ul>
-<li><a href="../metadata/"><code>ds.metadata()</code></a> — read sidecar files without downloading imaging data</li>
-<li><a href="../../readiness/doctor/"><code>ds.doctor()</code></a> — full readiness report beyond just structure</li>
-<li><a href="../metadata/"><code>ds.files()</code></a> — get a filtered list of FileRecords</li>
+<li><a href="../search-catalog/"><code>DatasetQuery</code></a> — search and filter across all public datasets</li>
+<li><a href="../metadata/"><code>ds.metadata()</code></a> — read sidecar files, events.tsv, participants.tsv</li>
+<li><a href="../../readiness/doctor/"><code>ds.doctor()</code></a> — full ML readiness report</li>
 </ul>
 
 
@@ -3620,6 +3807,8 @@
     
     
       <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../../assets/javascripts/openneuro-stats.js"></script>
       
     
   </body>

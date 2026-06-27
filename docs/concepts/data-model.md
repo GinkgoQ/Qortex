@@ -2,6 +2,74 @@
 
 Qortex has a layered data model. Each layer adds more specific information as you move through the pipeline.
 
+## RichDatasetInfo
+
+`RichDatasetInfo` is the primary metadata object returned by `OpenNeuroClient.get_dataset_rich()`. It covers every field visible on an OpenNeuro dataset page without downloading or iterating the file tree.
+
+Key fields:
+
+| Field | Description |
+|-------|-------------|
+| `id`, `name`, `doi` | Dataset identity |
+| `license`, `authors`, `senior_author` | Attribution |
+| `modalities`, `tasks`, `species` | Scientific context |
+| `study_domain`, `study_design` | Study type |
+| `grant_funder`, `grant_id` | Funding |
+| `associated_paper_doi` | Linked publication |
+| `created`, `publish_date` | Timestamps |
+| `engagement` | `DatasetEngagement` — views, downloads, stars, followers |
+| `latest_snapshot_summary` | `SnapshotSummary` — subjects, sessions, tasks, file counts, demographics |
+| `data_processed` | True if preprocessed data is included |
+
+```python
+from qortex.client import OpenNeuroClient
+
+with OpenNeuroClient() as client:
+    info = client.get_dataset_rich("ds008039")
+
+snap = info.latest_snapshot_summary
+print(snap.n_subjects, snap.total_size_gb, snap.bids_version)
+print(snap.funding, snap.references, snap.ethics_approvals)
+print(snap.demographics_dataframe())   # Polars DataFrame: age, sex, group
+```
+
+## DatasetEngagement
+
+`DatasetEngagement` tracks community activity for a dataset on the OpenNeuro platform.
+
+```python
+info.engagement.views             # integer
+info.engagement.downloads         # integer
+info.engagement.stars             # integer
+info.engagement.followers         # integer
+info.engagement.popularity_score  # composite 0–100 score
+```
+
+## SnapshotSummary
+
+`SnapshotSummary` is the API-level BIDS summary for one snapshot. It is returned by `get_dataset_rich()` (as `latest_snapshot_summary`) and by `get_snapshot_summary()`. It does not require a file tree fetch.
+
+```python
+snap.tag                # "1.2.0"
+snap.n_subjects         # len(snap.subjects)
+snap.subjects           # ["sub-01", "sub-02", ...]
+snap.sessions           # ["ses-01", "ses-02"]
+snap.tasks              # ["rest", "nback"]
+snap.modalities         # ["MRI"]
+snap.total_files        # integer
+snap.total_size_gb      # float
+snap.bids_version       # "1.8.0"
+snap.license            # "CC0"
+snap.funding            # ["NIH R01 MH123456", ...]
+snap.references         # ["https://doi.org/...", ...]
+snap.ethics_approvals   # ["IRB approval #2024-001"]
+snap.how_to_acknowledge # citation string
+snap.data_processed     # bool
+snap.subject_demographics  # list[SubjectDemographic]
+snap.demographics_dataframe()  # Polars DataFrame
+snap.age_stats()        # {"n": 42, "mean": 28.4, "min": 18, "max": 65, ...}
+```
+
 ## Dataset
 
 `Dataset` is the top-level facade. It holds a dataset ID, an optional snapshot tag, and an optional local data directory. It is cheap to create — no network calls happen at construction time.
@@ -44,7 +112,7 @@ A `FileRecord` represents one file in the manifest. It has:
 - `urls` — list of CDN and S3 URLs for this file
 - `subject`, `session`, `task`, `run`, `datatype`, `suffix` — parsed BIDS entities
 - `extension` — file extension (`.nii.gz`, `.tsv`, etc.)
-- `is_essential` — True for root-level metadata files (participants.tsv, dataset_description.json, etc.)
+- `is_dir` — True for directory entries
 
 FileRecords are read-only. Filtering happens through `manifest.filter()` or `ds.files()`.
 
@@ -61,12 +129,25 @@ The planner resolves a SelectionSpec against a Manifest to produce a `DownloadPl
 
 ## DownloadPlan
 
-A `DownloadPlan` lists the exact files to download, with target paths and companion files included. It is produced by `DownloadPlanner.plan()` before any transfer happens. This lets you inspect or serialize the plan before committing to it.
+A `DownloadPlan` lists the exact files to download, with target paths and companion files included. It is produced by `DownloadPlanner.plan()` before any transfer happens.
 
 ```python
 plan = ds.plan(subjects=["01", "02"], suffixes=["bold"])
 print(len(plan.files))          # file count
 print(plan.target_dir)          # destination path
+print(plan.size_gb)             # GB
+```
+
+## DatasetProfile
+
+`DatasetProfile` is the result of `DatasetInspector.inspect()`. It builds on the file tree manifest to produce a full structural breakdown with ML readiness scoring.
+
+```python
+profile = ds.inspect()
+print(profile.n_subjects)           # from manifest
+print(profile.events_coverage)      # fraction with events.tsv
+print(profile.ml_readiness.grade)   # "A"–"F"
+print(profile.rich_info)            # RichDatasetInfo (if available)
 ```
 
 ## Artifact
@@ -84,21 +165,36 @@ X, y = art.sklearn()
 ds_torch = art.torch(split="train")
 ```
 
-## Relationships
+## Type relationships
 
 ```
-Dataset
-  └─ Manifest
-       ├─ ManifestSummary
-       └─ [FileRecord, ...]
-            └─ (urls, BIDS entities, size, companions)
+OpenNeuroClient
+  ├─ get_dataset_rich()       →  RichDatasetInfo
+  │     ├─ DatasetEngagement
+  │     └─ SnapshotSummary
+  │           └─ [SubjectDemographic, ...]
+  ├─ get_readme()             →  str | None
+  ├─ get_validation_issues()  →  list[dict]
+  ├─ get_snapshots()          →  list[SnapshotRef]
+  ├─ get_files()              →  (SnapshotRef, list[dict])
+  └─ search_datasets_rich()   →  list[RichDatasetInfo]
 
-DownloadPlan
+Dataset (facade)
+  └─ manifest()  →  Manifest
+        ├─ ManifestSummary
+        └─ [FileRecord, ...]
+
+DatasetInspector.inspect()  →  DatasetProfile
+  ├─ DatasetRef
+  ├─ SnapshotRef
+  ├─ MLReadinessScore
+  └─ RichDatasetInfo (optional)
+
+DownloadPlanner.plan()  →  DownloadPlan
   └─ [FileRecord, ...]
 
-ConversionPipeline
-  └─ Artifact
-       ├─ ArtifactManifest
-       └─ split/
-            └─ *.parquet (or .zarr, .h5, etc.)
+ConversionPipeline.run()  →  Artifact
+  ├─ ArtifactManifest
+  └─ split/
+       └─ *.parquet (or .zarr, .h5, etc.)
 ```

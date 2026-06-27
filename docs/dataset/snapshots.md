@@ -11,10 +11,13 @@ If you do not pin a snapshot, Qortex uses the latest published snapshot at the t
 ## List available snapshots
 
 ```python
-from qortex import Dataset
+from qortex.client import OpenNeuroClient
 
-ds = Dataset("ds004130")
-snapshots = ds.metadata()["snapshots"]  # not currently a separate method
+with OpenNeuroClient() as client:
+    snapshots = client.get_snapshots("ds004130")
+
+for s in snapshots:
+    print(s.tag, s.created, s.size)
 ```
 
 From the CLI:
@@ -35,9 +38,11 @@ ds004130 snapshots:
 ## Pin a snapshot
 
 ```python
+from qortex import Dataset
+
 ds = Dataset("ds004130", snapshot="1.0.0")
-info = ds.inspect()
-print(info.n_subjects)  # 87
+profile = ds.inspect()
+print(profile.n_subjects)  # 87
 ```
 
 From the CLI, add `--snapshot`:
@@ -45,6 +50,22 @@ From the CLI, add `--snapshot`:
 ```bash
 qortex inspect ds004130 --snapshot 1.0.0
 qortex download ds004130 --snapshot 1.0.0 --data-dir data/ds004130_v1/
+```
+
+## Get summary for a specific snapshot
+
+```python
+from qortex.client import OpenNeuroClient
+
+with OpenNeuroClient() as client:
+    summary = client.get_snapshot_summary("ds004130", "1.0.0")
+
+print(summary.n_subjects)    # 87
+print(summary.total_size_gb) # 4.1
+print(summary.bids_version)  # "1.6.0"
+print(summary.tasks)         # ["rest"]
+print(summary.sessions)      # []
+print(summary.funding)       # ["NIH ..."]
 ```
 
 ## Compare snapshots
@@ -65,8 +86,6 @@ removed = old_paths - new_paths
 print(f"Added: {len(added)}  Removed: {len(removed)}")
 ```
 
-There is no built-in diff method yet. The above pattern with set operations works well for file-level comparison.
-
 ## Recording the snapshot in provenance
 
 When you convert a dataset, the snapshot version is recorded in the artifact manifest automatically:
@@ -81,4 +100,4 @@ This lets you trace any artifact back to the exact dataset version it came from.
 ## Limitations
 
 - Very old snapshots (pre-2020) may have stale CDN URLs that return 404. Use a newer snapshot if possible.
-- The snapshot list endpoint is part of the OpenNeuro GraphQL API. A network error here means you cannot list snapshots.
+- The snapshot list is fetched from the OpenNeuro GraphQL API. A network error here means you cannot list snapshots.
