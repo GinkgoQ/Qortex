@@ -53,6 +53,7 @@ class TransformKind(str, Enum):
     channel_select    = "channel_select"
     channel_reorder   = "channel_reorder"
     channel_map       = "channel_map"
+    bandpass          = "bandpass"
     normalize         = "normalize"
     window            = "window"
     cast_dtype        = "cast_dtype"
@@ -125,7 +126,12 @@ class WarningItem(BaseModel if _PYDANTIC else object):
 # ── Internal data abstractions ────────────────────────────────────────────────
 
 class QortexAbstraction(BaseModel if _PYDANTIC else object):
-    """Base for all internal data abstractions per AGENT.md §4.5."""
+    """Base for all internal data abstractions per AGENT.md §4.5.
+
+    The ``data`` field carries the actual numpy array so source adapters can
+    pass both the contract metadata and the raw samples through the pipeline
+    in one object.  The runtime engine extracts ``data`` via ``_extract_array()``.
+    """
     abstraction_type: str
     shape: tuple[int, ...]
     axes: list[str]
@@ -133,9 +139,12 @@ class QortexAbstraction(BaseModel if _PYDANTIC else object):
     units: str | None = None
     source_provenance: dict[str, Any] = Field(default_factory=dict) if _PYDANTIC else {}
     known_limitations: list[str] = Field(default_factory=list) if _PYDANTIC else []
+    # Carries the actual numpy array — excluded from JSON serialisation.
+    data: Any = Field(default=None, exclude=True) if _PYDANTIC else None
 
     if not _PYDANTIC:
         def __init__(self, **kwargs):
+            self.data = kwargs.pop("data", None)
             for k, v in kwargs.items():
                 setattr(self, k, v)
             if not hasattr(self, "source_provenance"):
@@ -144,7 +153,9 @@ class QortexAbstraction(BaseModel if _PYDANTIC else object):
                 self.known_limitations = []
 
         def model_dump(self):
-            return self.__dict__.copy()
+            d = self.__dict__.copy()
+            d.pop("data", None)  # never serialise raw arrays
+            return d
 
 
 class QortexTimeSeries(QortexAbstraction):

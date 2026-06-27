@@ -205,13 +205,22 @@ class RuntimeEngine:
 # ── Helper ────────────────────────────────────────────────────────────────────
 
 def _extract_array(data_item: Any):
-    """Extract the underlying numpy array from a QortexData object."""
+    """Extract the underlying numpy array from a QortexData object.
+
+    Source adapters set QortexAbstraction.data to the actual numpy array.
+    Raw numpy arrays are passed through directly.
+    """
     import numpy as np
     if isinstance(data_item, np.ndarray):
         return data_item
+    # QortexTimeSeries / QortexVolume carry their array in .data
+    arr = getattr(data_item, "data", None)
+    if isinstance(arr, np.ndarray):
+        return arr
+    # Torch tensor
     if hasattr(data_item, "numpy"):
         return data_item.numpy()
-    # For QortexTimeSeries / QortexVolume we don't actually carry the array
-    # — the source adapter's stream() should yield raw arrays or tensors.
-    # Return as-is and let TransformExecutor handle it.
+    if hasattr(data_item, "detach"):
+        return data_item.detach().cpu().numpy()
+    # Fall through — TransformExecutor._coerce_numpy will raise with a clear message
     return data_item

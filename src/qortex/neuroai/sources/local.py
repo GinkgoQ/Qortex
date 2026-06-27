@@ -173,11 +173,12 @@ class LocalFileAdapter(SourceAdapter):
         raw = self._open_mne_raw(preload=True)
         if self._channel_names:
             raw.pick_channels(self._channel_names)
-        data = raw.get_data()  # (n_ch, n_times) float64
+        data = raw.get_data().astype(np.float32)  # (n_ch, n_times)
         info = raw.info
         ch_names = info.ch_names
         sfreq = info["sfreq"]
         return QortexTimeSeries(
+            data=data,
             shape=data.shape,
             axes=["channels", "times"],
             dtype=str(data.dtype),
@@ -214,6 +215,7 @@ class LocalFileAdapter(SourceAdapter):
             data, _ = raw.get_data(tmin=tstart, tmax=tend, return_times=True)
             data = data.astype(np.float32)
             yield QortexTimeSeries(
+                data=data,
                 shape=data.shape,
                 axes=["channels", "times"],
                 dtype=str(data.dtype),
@@ -286,6 +288,7 @@ class LocalFileAdapter(SourceAdapter):
         vox = tuple(abs(float(v)) for v in img.header.get_zooms()[:3])
         affine = img.affine.tolist()
         return QortexVolume(
+            data=data,
             shape=shape,
             axes=["x", "y", "z"] if len(shape) == 3 else ["x", "y", "z", "t"],
             dtype=str(data.dtype),
@@ -298,25 +301,60 @@ class LocalFileAdapter(SourceAdapter):
     # ── Generic (tabular) ─────────────────────────────────────────────────────
 
     def _probe_generic(self) -> SourceProfile:
+        columns: list[str] = []
+        n_events: int = 0
+        ext = self._ext
+        try:
+            if ext == ".parquet":
+                import polars as pl
+                lazy = pl.scan_parquet(str(self._path))
+                columns = lazy.columns
+                n_events = lazy.select(pl.len()).collect().item()
+            elif ext in (".csv", ".tsv"):
+                sep = "\t" if ext == ".tsv" else ","
+                import polars as pl
+                lazy = pl.scan_csv(str(self._path), separator=sep)
+                columns = lazy.columns
+                n_events = lazy.select(pl.len()).collect().item()
+        except Exception:
+            pass
         return SourceProfile(
             source_id=self.source_id,
             source_type="local_file",
             path=str(self._path),
             modality=Modality.tabular,
-            evidence_status=EvidenceStatus.inferred,
+            n_channels=len(columns) if columns else None,
+            channel_names=columns or None,
+            evidence_status=EvidenceStatus.confirmed if columns else EvidenceStatus.inferred,
+            extra={"n_rows": n_events, "columns": columns},
         )
 
-    def _load_generic(self) -> Any:
+    def _load_generic(self) -> "QortexEventTable":
+        from qortex.neuroai.contracts import QortexEventTable
         ext = self._ext
         if ext == ".parquet":
             import polars as pl
-            return pl.read_parquet(str(self._path))
+            df = pl.read_parquet(str(self._path))
         elif ext in (".csv", ".tsv"):
             sep = "\t" if ext == ".tsv" else ","
             import polars as pl
-            return pl.read_csv(str(self._path), separator=sep)
+            df = pl.read_csv(str(self._path), separator=sep)
         else:
-            return self._path.read_bytes()
+            df = None
+        columns = list(df.columns) if df is not None else []
+        n_events = len(df) if df is not None else 0
+        tbl = QortexEventTable(
+            shape=(n_events, len(columns)),
+            axes=["rows", "columns"],
+            dtype="mixed",
+            columns=columns,
+            n_events=n_events,
+            source_provenance={"path": str(self._path)},
+        )
+        # Store the dataframe as the data payload (not a numpy array, but
+        # downstream code can detect the type and handle it).
+        tbl.data = df
+        return tbl
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 

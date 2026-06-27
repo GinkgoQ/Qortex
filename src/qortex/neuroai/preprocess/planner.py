@@ -39,15 +39,16 @@ _TRANSFORM_ORDER: dict[str, int] = {
     TransformKind.channel_reorder.value:   3,
     TransformKind.resample.value:          4,
     TransformKind.resample_spatial.value:  4,
-    TransformKind.pad_or_crop.value:       5,
-    TransformKind.reorient.value:          6,
-    TransformKind.rescale_intensity.value: 7,
-    TransformKind.normalize.value:         8,
-    TransformKind.cast_dtype.value:        9,
-    TransformKind.add_batch_dim.value:     10,
-    TransformKind.add_channel_dim.value:   11,
-    TransformKind.to_tensor.value:         12,
-    TransformKind.window.value:            13,
+    TransformKind.bandpass.value:          5,
+    TransformKind.pad_or_crop.value:       6,
+    TransformKind.reorient.value:          7,
+    TransformKind.rescale_intensity.value: 8,
+    TransformKind.normalize.value:         9,
+    TransformKind.cast_dtype.value:        10,
+    TransformKind.add_batch_dim.value:     11,
+    TransformKind.add_channel_dim.value:   12,
+    TransformKind.to_tensor.value:         13,
+    TransformKind.window.value:            14,
 }
 
 
@@ -175,9 +176,48 @@ class TransformExecutor:
     def _apply_one(self, arr: np.ndarray, kind: str, params: dict) -> np.ndarray:
         if kind == "channel_select":
             keep_n = params.get("target_n")
-            keep_names = params.get("keep")
-            if keep_n is not None and arr.ndim >= 2:
+            indices = params.get("indices")
+            if indices is not None and arr.ndim >= 2:
+                arr = arr[indices]
+            elif keep_n is not None and arr.ndim >= 2:
                 arr = arr[:keep_n]
+            return arr
+
+        elif kind == "channel_map":
+            # Reorder channels by name mapping: params["mapping"] = {src_name: dst_idx}
+            # or params["order"] = [dst_name, ...] with params["names"] = [src_name, ...]
+            order = params.get("order")
+            if order is not None and arr.ndim >= 2 and len(order) <= arr.shape[0]:
+                arr = arr[order]
+            return arr
+
+        elif kind == "channel_reorder":
+            # Reorder channels to a target order: params["order"] = [int, ...]
+            order = params.get("order")
+            if order is not None and arr.ndim >= 2:
+                arr = arr[list(order)]
+            return arr
+
+        elif kind == "bandpass":
+            low_hz = params.get("low_hz")
+            high_hz = params.get("high_hz")
+            sfreq = params.get("sfreq", 1.0)
+            if arr.ndim >= 2 and (low_hz is not None or high_hz is not None):
+                try:
+                    from scipy.signal import butter, sosfiltfilt
+                    nyq = sfreq / 2.0
+                    low = (low_hz / nyq) if low_hz is not None else None
+                    high = (high_hz / nyq) if high_hz is not None else None
+                    high = min(high, 0.999) if high is not None else None
+                    if low is not None and high is not None:
+                        sos = butter(5, [low, high], btype="bandpass", output="sos")
+                    elif low is not None:
+                        sos = butter(5, low, btype="highpass", output="sos")
+                    else:
+                        sos = butter(5, high, btype="lowpass", output="sos")
+                    arr = sosfiltfilt(sos, arr, axis=-1).astype(arr.dtype)
+                except ImportError:
+                    log.warning("bandpass transform requires scipy — skipping filter")
             return arr
 
         elif kind == "resample":
@@ -273,9 +313,21 @@ def _coerce_numpy(data: Any) -> np.ndarray:
         return data
     if hasattr(data, "numpy"):
         return data.numpy()
-    # QortexTimeSeries or QortexVolume — the actual array is not attached
-    # (data is carried inside the adapter); return as-is for the executor
-    return np.array(data, dtype=np.float32) if not hasattr(data, "shape") else data
+    # QortexTimeSeries / QortexVolume carry their numpy array in .data
+    if hasattr(data, "data") and isinstance(getattr(data, "data", None), np.ndarray):
+        return data.data
+    # Torch tensor
+    if hasattr(data, "detach"):
+        return data.detach().cpu().numpy()
+    # Last resort: try to convert; raise clearly if it fails
+    try:
+        return np.asarray(data, dtype=np.float32)
+    except Exception as exc:
+        raise TypeError(
+            f"Cannot extract numpy array from {type(data).__name__}. "
+            "Source adapter must yield QortexTimeSeries/QortexVolume with "
+            "the `data` field set, or yield raw numpy arrays directly."
+        ) from exc
 
 
 def _pad_or_crop(arr: np.ndarray, target_shape: tuple) -> np.ndarray:
