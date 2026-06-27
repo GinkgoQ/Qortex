@@ -169,8 +169,23 @@ class Selector:
                     "run check(local_path=...) or use event_complete=True for pre-download filtering."
                 )
 
-        # ── 9. Glob include ───────────────────────────────────────────────
-        if spec.include:
+        # ── 9a. Exact-path include (set membership — no glob interpretation) ─
+        if spec.exact_paths is not None:
+            exact_set = set(spec.exact_paths)
+            unmatched = exact_set - {f.path for f in candidates}
+            if unmatched:
+                for missing in sorted(unmatched):
+                    suggestions = find_close_matches(missing, all_paths)
+                    warnings.append(
+                        f"Exact path {missing!r} not found in manifest"
+                        + (f"; did you mean: {suggestions}" if suggestions else "")
+                    )
+            candidates = [f for f in candidates if f.path in exact_set]
+            for file in candidates:
+                add_reason(file, "exact path match")
+
+        # ── 9b. Glob include ──────────────────────────────────────────────
+        elif spec.include:
             candidates, included_set, _ = apply_include_exclude(
                 candidates, spec.include, None
             )

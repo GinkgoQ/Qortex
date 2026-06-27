@@ -8,6 +8,8 @@ Format: YAML (human-readable, diffable).
 
 from __future__ import annotations
 
+import os
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
@@ -105,10 +107,19 @@ class LockFile:
 
     def _save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self._path.with_suffix(".tmp")
-        with open(tmp, "w", encoding="utf-8") as f:
-            _yaml.dump(self._data, f)
-        tmp.replace(self._path)  # atomic rename
+        # Include PID and a short random token so parallel Qortex processes
+        # operating on the same target directory never write to the same temp
+        # file.  On POSIX, rename(2) is atomic; on Windows it is best-effort
+        # but still isolated per-process.
+        token = f"{os.getpid()}-{uuid.uuid4().hex[:12]}"
+        tmp = self._path.with_name(f"{self._path.name}.{token}.tmp")
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                _yaml.dump(self._data, f)
+            tmp.replace(self._path)  # atomic rename on POSIX
+        except Exception:
+            tmp.unlink(missing_ok=True)
+            raise
 
     def save(self) -> None:
         self._save()

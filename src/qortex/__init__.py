@@ -12,8 +12,11 @@ Quick start::
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 from qortex._version import __version__
 from qortex.artifact import Artifact
@@ -344,13 +347,19 @@ class Dataset:
         dry_run: bool = False,
         max_size_gb: float | None = None,
     ) -> DownloadResult:
-        """Download exact manifest paths, optionally including companions."""
+        """Download exact manifest paths, optionally including companions.
+
+        Paths are matched by set membership — they are *not* interpreted as
+        glob patterns.  This avoids misbehaviour when paths contain glob
+        metacharacters (e.g. ``[`` or ``]`` in dataset-level filenames).
+        Pass ``include=[...]`` via ``download()`` if you need pattern matching.
+        """
         from qortex.fetch.engine import DownloadEngine
         from qortex.plan.planner import DownloadPlanner
 
         manifest = self.manifest()
         spec = SelectionSpec(
-            include=paths,
+            exact_paths=paths,       # exact set membership, not glob
             with_companions=with_companions,
             max_size_gb=max_size_gb,
         )
@@ -358,8 +367,6 @@ class Dataset:
         self._data_dir = target
         plan = DownloadPlanner().plan(manifest, spec, target)
         if dry_run:
-            from qortex.core.entities import DownloadResult
-
             return DownloadResult(plan=plan)
         return DownloadEngine().execute(plan)
 
@@ -770,7 +777,7 @@ class Dataset:
         Tries the OpenNeuro API first (``snapshot.summary.subjectMetadata``)
         which gives age, sex, and group without downloading participants.tsv.
         Falls back to fetching participants.tsv via CDN if the API returns no
-        demographics.
+        demographics or the API path fails with a recognised transient error.
 
         Parameters
         ----------
@@ -783,15 +790,21 @@ class Dataset:
         polars.DataFrame
             Columns: participant_id, age (int | null), sex (str | null),
             group (str | null).  Additional columns from the TSV are included
-            when the fallback path is taken.
+            when the fallback path is taken.  The dataframe carries a
+            ``_source`` attribute (``"api"`` or ``"participants.tsv"``)
+            indicating which path was used.
 
         Examples
         --------
         >>> df = Dataset("ds000117").participants()
         >>> df.filter(pl.col("sex") == "M")["age"].mean()
+        >>> df.attrs.get("_source")   # "api" or "participants.tsv"
         """
         import polars as pl
         from qortex.client.graphql import OpenNeuroClient
+        from qortex.core.exceptions import APIError, QortexError
+
+        _source: str = "participants.tsv"
 
         if prefer_api:
             with OpenNeuroClient(token=self._token) as client:
@@ -799,9 +812,32 @@ class Dataset:
                     snap_tag = self.snapshot or client.get_latest_snapshot(self.dataset_id).tag
                     summary = client.get_snapshot_summary(self.dataset_id, snap_tag)
                     if summary.subject_demographics:
-                        return summary.demographics_dataframe()
-                except Exception:
-                    pass
+                        df = summary.demographics_dataframe()
+                        _source = "api"
+                        log.debug(
+                            "participants(%s): loaded %d rows from API summary",
+                            self.dataset_id, len(df),
+                        )
+                        return df
+                    # API returned successfully but no demographics — use TSV
+                    log.debug(
+                        "participants(%s): API summary has no subject_demographics; "
+                        "falling back to participants.tsv", self.dataset_id,
+                    )
+                except (APIError, QortexError) as exc:
+                    log.warning(
+                        "participants(%s): API path failed (%s: %s); "
+                        "falling back to participants.tsv",
+                        self.dataset_id, type(exc).__name__, exc,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    # Unexpected failures (network, schema change) are logged at
+                    # WARNING rather than silently dropped so callers can detect them.
+                    log.warning(
+                        "participants(%s): unexpected error in API path (%s: %s); "
+                        "falling back to participants.tsv",
+                        self.dataset_id, type(exc).__name__, exc,
+                    )
 
         # Fallback: fetch participants.tsv via CDN
         manifest = self.manifest()
@@ -809,8 +845,19 @@ class Dataset:
         gateway = RemoteFileGateway()
         url = best_url_for_path(manifest, "participants.tsv")
         if url is None:
-            return pl.DataFrame(schema={"participant_id": pl.Utf8, "age": pl.Int64, "sex": pl.Utf8, "group": pl.Utf8})
-        return gateway.fetch_tsv(url)
+            log.warning(
+                "participants(%s): participants.tsv not found in manifest; "
+                "returning empty DataFrame", self.dataset_id,
+            )
+            return pl.DataFrame(
+                schema={"participant_id": pl.Utf8, "age": pl.Int64, "sex": pl.Utf8, "group": pl.Utf8}
+            )
+        df = gateway.fetch_tsv(url)
+        log.debug(
+            "participants(%s): loaded %d rows from participants.tsv (CDN)",
+            self.dataset_id, len(df),
+        )
+        return df
 
     def events(
         self,
@@ -840,6 +887,11 @@ class Dataset:
         >>> df = Dataset("ds000117").events(subject="01", task="facerecognition")
         >>> df.head()
         """
+        # Strip BIDS prefixes so both "01" and "sub-01" work identically.
+        # Manifests store entity values without prefixes (e.g. subject="01").
+        subject = subject.removeprefix("sub-") if subject else subject
+        session = session.removeprefix("ses-") if session else session
+
         manifest = self.manifest()
         matches = [
             fr for fr in manifest.files
@@ -862,27 +914,37 @@ class Dataset:
             raise FileNotFoundError(f"No URL for events file {fr.path!r}")
         return gateway.fetch_tsv(url)
 
-    def sidecar(self, path: str):
+    def sidecar(self, path: str, *, strict: bool = False):
         """Fetch and merge BIDS JSON sidecars for a file path, without downloading.
 
         Follows BIDS inheritance: most-general (dataset root) sidecar values
         are overridden by more-specific ones (subject → session → file-level).
+        Sidecar fetch failures are logged at WARNING level and recorded in the
+        returned dict under the ``"_sidecar_warnings"`` key so callers can
+        detect partial merges without crashing.
 
         Parameters
         ----------
         path:
             BIDS-relative path, e.g. ``"sub-01/eeg/sub-01_task-rest_eeg.set"``.
+        strict:
+            When True, raise the first sidecar fetch/parse error rather than
+            continuing.  Useful for debugging incomplete CDN responses or
+            unexpected JSON schema changes.
 
         Returns
         -------
         dict
-            Merged JSON sidecar key-value pairs.
+            Merged JSON sidecar key-value pairs.  On partial failure the dict
+            includes ``"_sidecar_warnings": [...]`` listing failed sidecar
+            paths and their error messages.
 
         Examples
         --------
         >>> meta = Dataset("ds004130").sidecar("sub-01/eeg/sub-01_task-rest_eeg.set")
         >>> meta["SamplingFrequency"]
         256
+        >>> meta.get("_sidecar_warnings")   # None or list of {"path": ..., "error": ...}
         """
         manifest = self.manifest()
         from qortex.client.remote import RemoteFileGateway, _pick_url
@@ -898,14 +960,27 @@ class Dataset:
 
         gateway = RemoteFileGateway()
         merged: dict = {}
+        sidecar_warnings: list[dict] = []
+
         for fr in sidecar_records:
             url = _pick_url(fr)
-            if url:
-                try:
-                    data = gateway.fetch_json(url)
-                    merged.update(data)
-                except Exception:
-                    pass
+            if not url:
+                continue
+            try:
+                data = gateway.fetch_json(url)
+                merged.update(data)
+            except Exception as exc:
+                msg = f"{type(exc).__name__}: {exc}"
+                log.warning(
+                    "sidecar(%s): failed to fetch/parse %s — %s",
+                    path, fr.path, msg,
+                )
+                sidecar_warnings.append({"path": fr.path, "error": msg})
+                if strict:
+                    raise
+
+        if sidecar_warnings:
+            merged["_sidecar_warnings"] = sidecar_warnings
         return merged
 
     def nifti_info(self, path: str):

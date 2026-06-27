@@ -401,6 +401,11 @@ class SelectionSpec(_Frozen):
     datatypes: list[str] | None = None
     include: list[str] | None = None        # glob patterns
     exclude: list[str] | None = None        # glob patterns
+    # Exact BIDS-relative paths resolved via set membership — NOT treated as
+    # glob patterns.  Use this instead of ``include`` when paths come from the
+    # manifest directly (e.g. ``download_paths()``) to avoid misbehaviour with
+    # paths containing glob metacharacters (``[``, ``]``, ``*``, ``?``, etc.).
+    exact_paths: list[str] | None = None
     include_derivatives: bool = False
     metadata_only: bool = False
     with_companions: bool = True

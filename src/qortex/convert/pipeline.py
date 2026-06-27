@@ -213,11 +213,22 @@ class ConversionPipeline:
     def _run_with_split(
         self, writer
     ) -> tuple[int, int, dict[str, int], list[str]]:
-        """Two-pass: pass-1 builds split map; pass-2 streams with split labels."""
+        """Two-pass: pass-1 builds split map; pass-2 streams with split labels.
+
+        The split key is a monotonic global sample index injected into each
+        sample's provenance during pass-1 (``_sample_idx``).  Pass-2 assigns
+        the same index in the same iteration order and looks it up in the
+        split_map.  This is collision-proof even when multiple events share the
+        same (source, onset, subject) triple — e.g. repeated baseline events,
+        duplicate trial types, or multi-subject tables with identical onsets.
+        """
         # Pass 1: collect lightweight metadata (no signal arrays stored).
         meta_samples: list[SampleRecord] = []
-        for sample in self._apply_windows_streaming(self._sample_stream()):
-            # Replace large data array with a sentinel to avoid RAM explosion.
+        for sample_idx, sample in enumerate(
+            self._apply_windows_streaming(self._sample_stream())
+        ):
+            # Inject a deterministic, globally unique sample index.
+            prov_with_idx = {**sample.provenance, "_sample_idx": sample_idx}
             meta = SampleRecord(
                 data=None,
                 label=sample.label,
@@ -230,37 +241,48 @@ class ConversionPipeline:
                 onset=sample.onset,
                 duration=sample.duration,
                 sfreq=sample.sfreq,
-                provenance=sample.provenance,
+                provenance=prov_with_idx,
             )
             meta_samples.append(meta)
 
+        total_pass1 = len(meta_samples)
+
         # Assign splits using lightweight metadata.
         train, val, test = apply_split(meta_samples, self.split_spec)  # type: ignore[arg-type]
-        split_map: dict[str, str] = {}
+
+        # Build collision-proof split map: sample_idx (int) → split label.
+        split_map: dict[int, str] = {}
         for part, label in [(train, "train"), (val, "val"), (test, "test")]:
             for s in part:
-                src = s.provenance.get("source_path") or s.provenance.get("source") or ""
-                key = f"{src}|{s.onset or 0:.6f}|{s.subject or ''}"
-                split_map[key] = label
+                idx = s.provenance.get("_sample_idx")
+                if idx is None:
+                    # Defensive: should never happen — fall back to string key.
+                    src = s.provenance.get("source_path") or s.provenance.get("source") or ""
+                    fallback_key = hash(f"{src}|{s.onset or 0:.6f}|{s.subject or ''}|{id(s)}")
+                    split_map[fallback_key] = label  # type: ignore[index]
+                else:
+                    split_map[idx] = label
 
         split_counts = {
             "train": len(train),
             "val": len(val),
             "test": len(test),
         }
-        log.info("Split assignment: %s", split_counts)
+        log.info("Split assignment: %s (total pass-1 samples: %d)", split_counts, total_pass1)
 
         # Pass 2: re-stream with split labels injected.
+        # The two passes are deterministic because _sample_stream() and
+        # _apply_windows_streaming() are pure functions of the manifest +
+        # local files; the iteration order is identical across both passes.
         subjects: set[str] = set()
         source_files: set[str] = set()
         n_samples = 0
 
         def _with_split(stream: Iterator[SampleRecord]) -> Iterator[SampleRecord]:
             nonlocal n_samples
-            for s in stream:
+            for sample_idx, s in enumerate(stream):
+                s.split = split_map.get(sample_idx)
                 src = s.provenance.get("source_path") or s.provenance.get("source") or ""
-                key = f"{src}|{s.onset or 0:.6f}|{s.subject or ''}"
-                s.split = split_map.get(key)
                 if s.subject:
                     subjects.add(s.subject)
                 if src:

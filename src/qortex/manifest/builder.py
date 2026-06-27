@@ -181,6 +181,11 @@ def save_manifest(manifest: Manifest, directory: Path) -> None:
 
     The Parquet file stores the full file list for fast programmatic access.
     The JSON sidecar stores summary + metadata for human inspection.
+
+    All BIDSEntities fields (including acquisition, direction, space,
+    resolution, echo, part, hemisphere, density, processing, split, and
+    all non-standard extras) are preserved verbatim via entities_json so that
+    reloaded manifests are bit-for-bit equivalent to freshly built ones.
     """
     directory.mkdir(parents=True, exist_ok=True)
 
@@ -188,13 +193,15 @@ def save_manifest(manifest: Manifest, directory: Path) -> None:
     rows = []
     for f in manifest.files:
         row = f.model_dump()
-        # Flatten nested BIDSEntities into columns
+        # Store the full BIDSEntities model as JSON — zero field loss.
+        # The individual flat columns (sub/ses/task/run) are kept as
+        # fast-filter shortcuts for downstream SQL/DuckDB queries.
         ent = row.pop("entities", {})
         row["sub"] = ent.get("subject")
         row["ses"] = ent.get("session")
         row["task"] = ent.get("task")
         row["run"] = ent.get("run")
-        row["entities_extra"] = json.dumps(ent.get("extra", {}))
+        row["entities_json"] = json.dumps(ent, ensure_ascii=False)
         rows.append(row)
 
     _write_rows_parquet(rows, directory / "manifest.parquet")
@@ -228,14 +235,10 @@ def load_manifest(directory: Path) -> Manifest:
 
     records: list[FileRecord] = []
     for row in _read_rows_parquet(parquet_path):
-        entities = BIDSEntities(
-            subject=row.pop("sub", None),
-            session=row.pop("ses", None),
-            task=row.pop("task", None),
-            run=row.pop("run", None),
-            extra=json.loads(row.pop("entities_extra", "{}") or "{}"),
-        )
-        row.pop("entities", None)
+        entities = _deserialize_entities(row)
+        # Remove all entity-related columns before passing to FileRecord
+        for col in ("sub", "ses", "task", "run", "entities_json", "entities_extra", "entities"):
+            row.pop(col, None)
         records.append(FileRecord(**row, entities=entities))
 
     return Manifest(
@@ -245,6 +248,33 @@ def load_manifest(directory: Path) -> Manifest:
         files=records,
         summary=summary,
         built_at=datetime.fromisoformat(meta["built_at"]),
+    )
+
+
+def _deserialize_entities(row: dict) -> BIDSEntities:
+    """Reconstruct a BIDSEntities from a Parquet row, handling both legacy
+    and current serialisation formats.
+
+    Current format (v ≥ 0.3): ``entities_json`` holds the full model_dump().
+    Legacy format (v < 0.3): individual ``sub``/``ses``/``task``/``run`` columns
+    plus ``entities_extra`` for non-standard entities.  Loaded manifests from
+    old caches are transparently upgraded; a fresh save will write entities_json.
+    """
+    if "entities_json" in row and row["entities_json"]:
+        try:
+            raw = json.loads(row["entities_json"])
+            # BIDSEntities.model_dump() stores "extra" as a nested dict — reconstruct directly.
+            return BIDSEntities(**{k: v for k, v in raw.items() if k in BIDSEntities.model_fields})
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass  # corrupt entry — fall through to legacy reconstruction
+
+    # Legacy: reconstruct from individual columns
+    return BIDSEntities(
+        subject=row.get("sub"),
+        session=row.get("ses"),
+        task=row.get("task"),
+        run=row.get("run"),
+        extra=json.loads(row.get("entities_extra", "{}") or "{}"),
     )
 
 
