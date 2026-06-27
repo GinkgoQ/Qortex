@@ -1,0 +1,246 @@
+# Outputs
+
+Every output adapter implements `open()`, `write(output, metadata)`, and `close()` as a context manager. Multiple outputs can be listed in one pipeline — all are opened before streaming starts and closed after the run finishes.
+
+Output type is set by `outputs[n].type` in the pipeline YAML.
+
+## File outputs
+
+### JSONL
+
+```yaml
+outputs:
+  - type: jsonl
+    path: predictions.jsonl
+    append: false
+```
+
+One JSON object per prediction window. Schema varies by output type (classification, detection, segmentation, etc.) but always includes `pipeline_ref`, `window_index`, `timestamp`, and `output_type`.
+
+### Parquet
+
+```yaml
+outputs:
+  - type: parquet
+    path: predictions.parquet
+```
+
+Columnar output. Columns: `timestamp`, `output_type`, `class_name`, `class_index`, `confidence`, `regression_value`, `source_id`, `model_id`, `window_index`, `extra_json`. Complex fields (bounding boxes, masks) are serialized into `extra_json`.
+
+### CSV
+
+```yaml
+outputs:
+  - type: csv
+    path: predictions.csv
+    append: true
+```
+
+Same columns as Parquet. `append: true` opens in append mode so multiple runs accumulate in one file.
+
+## Streaming outputs
+
+### LSL marker
+
+```yaml
+outputs:
+  - type: lsl_marker
+    stream_name: qortex_markers
+```
+
+Creates a `pylsl.StreamInfo` with `type="Markers"`, `channel_count=1`, `channel_format=cf_string`. Pushes one string per prediction: `"{class_name}:{class_index}"`. When `metadata["trigger_value"]` is set, that value is pushed instead.
+
+This is the standard interface for BCI applications — BCI2000, OpenViBE, and similar platforms can receive these markers on the LSL network.
+
+### WebSocket
+
+```yaml
+outputs:
+  - type: websocket
+    path: ws://localhost:8765/predictions
+```
+
+Uses `websocket-client` (synchronous). Sends a JSON payload per `write()`. Connection is opened in `open()` and closed in `close()`. Does not retry on write failure — errors are logged.
+
+### HTTP callback
+
+```yaml
+outputs:
+  - type: http
+    path: https://api.example.com/predictions
+    extra:
+      auth:
+        type: bearer
+        token: "${API_TOKEN}"
+      retry_max: 3
+```
+
+Uses `requests.Session`. Sends a JSON POST per window. Retries up to 3 times with `sleep(0.5 * attempt)` backoff. Supports bearer token and basic auth via `spec.extra["auth"]`.
+
+## Imaging outputs
+
+### NIfTI
+
+```yaml
+outputs:
+  - type: nifti
+    path: mask.nii.gz
+```
+
+Writes a `nibabel.Nifti1Image` from a `SegmentationOutput` or `VolumePredictionOutput`. Validates that the affine determinant is positive before writing (a negative determinant indicates a flipped orientation). Writes a JSON sidecar (`mask_provenance.json`) with pipeline reference and model ID.
+
+### DICOM-SEG
+
+```yaml
+outputs:
+  - type: dicom_seg
+    path: output_seg/
+```
+
+Creates a `highdicom.seg.Segmentation` with `SegmentDescription` and `AlgorithmIdentificationSequence`. Validates mask shape against the source series dimensions. Falls back to saving as `.npy` if the `highdicom` API raises (API changes across versions).
+
+### DICOM-SR
+
+```yaml
+outputs:
+  - type: dicom_sr
+    path: output_sr/
+```
+
+Creates a `highdicom.sr.EnhancedSR` structured report using TID 1500 MeasurementReport. Used for `RegressionOutput` and `ReportOutput` types. Falls back to `.json` on `highdicom` API failure.
+
+## Annotation outputs
+
+### BIDS derivative
+
+```yaml
+outputs:
+  - type: bids
+    path: derivatives/qortex/
+    extra:
+      subject: "01"
+      session: null
+      task: rest
+      run: "01"
+```
+
+Creates a BIDS derivative directory structure. Writes `dataset_description.json` with `GeneratedBy: [{Name: "Qortex"}]`. Filenames follow BIDS entity naming:
+
+```
+sub-01[_ses-01][_task-rest][_run-01]_{suffix}.json
+```
+
+For segmentation output, writes a NIfTI via nibabel instead of JSON. On `close()`, writes `provenance.json` summarizing all outputs in the session.
+
+### COCO JSON
+
+```yaml
+outputs:
+  - type: coco
+    path: predictions_coco.json
+```
+
+Accumulates `images`, `annotations`, and `categories` in memory across all windows. Writes the full COCO JSON on `close()`. Bounding boxes are in COCO format: `[x, y, width, height]`.
+
+### YOLO text
+
+```yaml
+outputs:
+  - type: yolo
+    path: yolo_labels/
+```
+
+One `.txt` file per image: `{class_id} {cx} {cy} {w} {h}` with normalized coordinates (0–1). On `close()`, writes `classes.txt` listing all class names.
+
+## Canonical output types
+
+All adapters receive one of these typed objects:
+
+```python
+ClassificationOutput(
+    class_name="motor_imagery",
+    class_index=1,
+    confidence=0.92,
+    top_k=[("motor_imagery", 0.92), ("rest", 0.08)],
+)
+
+DetectionOutput(
+    boxes=[
+        BoundingBox(x1=0.1, y1=0.2, x2=0.4, y2=0.6,
+                    class_name="lesion", class_index=0, confidence=0.87)
+    ],
+    image_shape=(512, 512),
+)
+
+SegmentationOutput(
+    mask=np.array(..., dtype=np.int16),   # [z, y, x] or [h, w]
+    n_classes=5,
+    class_labels=["background", "WM", "GM", "CSF", "tumor"],
+    affine=np.eye(4),
+    voxel_sizes=(1.0, 1.0, 1.0),
+)
+
+RegressionOutput(value=3.72, units="mm", confidence_interval=(3.1, 4.3))
+
+EmbeddingOutput(vector=np.array(...), dimensionality=128, model_layer="encoder")
+
+TimeSeriesPredictionOutput(
+    predictions=np.array(...),    # [time, n_classes]
+    timestamps=np.array(...),
+    sampling_rate_hz=250.0,
+    label_map={0: "N2", 1: "N3", 2: "REM", 3: "Wake"},
+)
+
+EventMarkerOutput(
+    label="motor_imagery",
+    value=1,
+    timestamp=1234.56,
+    duration=4.0,
+    confidence=0.92,
+    source_window=42,
+)
+
+VolumePredictionOutput(
+    mask=np.array(...),
+    affine=np.eye(4),
+    voxel_sizes=(1.0, 1.0, 1.0),
+    n_classes=3,
+    class_labels=["background", "lesion", "edema"],
+)
+
+ReportOutput(
+    title="Brain Lesion Analysis",
+    findings=["Single lesion detected in right hemisphere"],
+    measurements={"volume_ml": 4.2},
+    confidence=0.87,
+    warnings=[],
+)
+```
+
+`BoundingBox` has helpers for format conversion:
+
+```python
+box.to_coco()              # [x, y, width, height]
+box.to_yolo(img_w=512, img_h=512)   # [cx, cy, w, h] normalized
+```
+
+`ClassificationOutput.from_probs(probs, top_k=5)` builds from a raw probability array.
+
+## Artifact directory
+
+When `pipe.run(artifact_dir="...")` is called, `ArtifactWriter` writes 9 files:
+
+```
+artifacts/run_001/
+  provenance.json           pipeline spec, source, model, git hash, timestamps
+  compatibility_report.json CompatibilityReport fields
+  preprocess_plan.json      PreprocessPlan — transforms applied and why
+  runtime_report.json       windows processed, outputs written, errors
+  latency_report.json       p50/p95/p99 per stage
+  warnings.json             non-fatal issues during the run
+  pipeline.yaml             copy of the pipeline spec
+  artifact_contract.json    schema, hash, provenance summary
+  artifact_manifest.json    SHA-256 and file size for every file above
+```
+
+`artifact_manifest.json` lets any downstream consumer verify the integrity of the artifact without re-running anything.

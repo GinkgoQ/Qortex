@@ -135,7 +135,11 @@ Three phases. Each is independent — inspect without downloading, download with
     <p>MRI · fMRI · DWI · PET · MEG · EEG · iEEG · fNIRS — what each modality looks like in BIDS and what Qortex can do with it.</p>
   </div>
   <div class="tq-card">
+    <h3><a href="neuroai/">NeuroAI runtime</a></h3>
+    <p>Source → model → output pipelines on local files, DICOM, NWB, XDF, LSL streams, and BrainFlow boards. Compatibility check before weight loading.</p>
+  </div>
+  <div class="tq-card">
     <h3><a href="api/cli/">CLI reference</a></h3>
-    <p>All commands: <code>search</code> · <code>inspect</code> · <code>doctor</code> · <code>download</code> · <code>convert</code> · <code>visualize</code> · <code>can-train</code>.</p>
+    <p>All commands: <code>search</code> · <code>inspect</code> · <code>doctor</code> · <code>download</code> · <code>convert</code> · <code>visualize</code> · <code>neuroai run</code>.</p>
   </div>
 </div>
