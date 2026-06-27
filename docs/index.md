@@ -1,161 +1,141 @@
-<div class="on-stats">
-  <div class="on-stats-top">
-    <div class="on-stats-source">
+<section class="tq-hero">
+  <div class="tq-hero-strip">
+    <div class="tq-strip-source">
       <span class="on-stats-label">OpenNeuro · openneuro.org</span>
       <span class="on-live-badge"><span class="on-live-dot"></span>Live</span>
     </div>
-    <div class="on-stats-numbers">
-      <div class="on-stat">
+    <div class="tq-strip-numbers">
+      <div class="tq-strip-stat">
         <strong id="on-public-datasets">—</strong>
-        <span>Public datasets</span>
+        <span>datasets</span>
       </div>
-      <div class="on-sep"></div>
-      <div class="on-stat">
+      <div class="tq-strip-sep"></div>
+      <div class="tq-strip-stat">
         <strong id="on-participants">—</strong>
-        <span>Participants</span>
+        <span>participants</span>
       </div>
     </div>
+    <div class="on-modalities-list" id="on-modalities"></div>
   </div>
-  <div class="on-modalities-list" id="on-modalities"></div>
-</div>
 
-<section class="tq-hero">
   <div class="tq-hero-copy">
-    <div class="tq-eyebrow">OpenNeuro · BIDS · ML-ready neurodata</div>
+    <div class="tq-eyebrow">Python · OpenNeuro · BIDS</div>
     <h1>Qortex</h1>
-    <p>
-      Qortex is a Python library for moving from an OpenNeuro dataset to a first
-      ML batch. It reads the remote manifest before any download, plans the
-      minimum transfer for a concrete goal, verifies local completeness, runs
-      visual QC, converts to six ML-ready formats, and exposes provenance at
-      every step.
-    </p>
-    <p>
-      The design separates inspection from download, and download from conversion.
-      Each stage can be run independently, checked, and interrupted without losing
-      work.
-    </p>
+    <ul class="tq-feature-list">
+      <li><code>can_train("trial_type")</code> — manifest verdict before any download</li>
+      <li><code>minimum("first-batch")</code> — exact files and byte count for a concrete ML goal</li>
+      <li><code>doctor(recipe)</code> — 15-point BIDS readiness check: events, companions, label coverage, splits</li>
+      <li>Selective download by subject · task · modality · suffix — resumable, size-limited</li>
+      <li>Parquet · Zarr · HDF5 · WebDataset · HuggingFace · TFRecord — subject-level splits, leakage verified</li>
+      <li>MRI · fMRI · DWI · PET · MEG · EEG · iEEG · fNIRS — uniform inspect / convert API</li>
+    </ul>
     <div class="tq-actions">
       <a class="tq-button primary" href="getting-started/quickstart/">Quickstart</a>
-      <a class="tq-button secondary" href="concepts/what-is-qortex/">Read the concepts</a>
+      <a class="tq-button secondary" href="concepts/what-is-qortex/">Concepts</a>
       <a class="tq-button secondary" href="api/">API reference</a>
     </div>
   </div>
-  <div class="tq-hero-visual" role="img" aria-label="Qortex workflow from OpenNeuro manifest inspection to ML artifact">
-    <div class="tq-diagram-head">
-      <span>OpenNeuro → ML pipeline</span>
-      <code>inspect · plan · download · verify · convert · train</code>
+
+  <div class="tq-hero-visual" role="presentation">
+    <div class="tq-code-header">
+      <span class="tq-code-dot"></span><span class="tq-code-dot"></span><span class="tq-code-dot"></span>
+      <span class="tq-code-filename">session.py</span>
     </div>
-    <div class="tq-page-card">
-      <div class="tq-page-meta">
-        <span>manifest first</span>
-        <span>no wasted bytes</span>
-        <span>provenance kept</span>
-      </div>
-      <div class="tq-slot-address">
-        <span>inspect</span>
-        <code>ds = Dataset("ds004130")  # no download yet</code>
-      </div>
-      <div class="tq-region-row">
-        <span>subjects · sessions</span>
-        <span>suffixes · events</span>
-      </div>
-      <div class="tq-component-row">
-        <b>dl</b>
-        <span class="tq-payload">download(subjects=["01","02"], suffixes=["bold"])</span>
-        <span>2 subj</span>
-      </div>
-      <div class="tq-component-row">
-        <b>cv</b>
-        <span class="tq-payload">convert(output_format="parquet", window=2.0)</span>
-        <span>artifact</span>
-      </div>
-      <div class="tq-byte-formula">
-        <span><b>readiness</b><code>doctor · minimum · can-train · first-batch</code></span>
-        <span><b>visual QC</b><code>one center slice per NIfTI — no full load</code></span>
-        <span><b>formats</b><code>parquet · zarr · hdf5 · webdataset · hf · tfrecord</code></span>
-      </div>
-    </div>
-    <div class="tq-route-line">
-      <span>inspect</span>
-      <i></i>
-      <span>download</span>
-      <i></i>
-      <span>train</span>
-    </div>
-    <p>Readiness checks run at every stage. The manifest answers subject counts, event coverage, and total size before any data transfer.</p>
+<pre class="tq-code-block"><code><span class="tq-ck">from</span> qortex <span class="tq-ck">import</span> Dataset
+
+ds = Dataset(<span class="tq-cs">"ds004130"</span>)
+<span class="tq-c"># 88 subjects · MRI + EEG · 156 files · 4.8 GB</span>
+<span class="tq-c"># no download yet</span>
+
+ds.can_train(<span class="tq-cs">"trial_type"</span>)
+<span class="tq-c"># True  (2 classes · 240 windows · 86 subjects)</span>
+
+ds.minimum(<span class="tq-cs">"first-batch"</span>)
+<span class="tq-c"># 2 subjects · 4 files · 0.81 GB</span>
+
+ds.download(subjects=[<span class="tq-cs">"01"</span>, <span class="tq-cs">"02"</span>], datatypes=[<span class="tq-cs">"func"</span>])
+<span class="tq-c"># ████████████  100%  831 MB</span>
+
+art = ds.convert(
+    format=<span class="tq-cs">"parquet"</span>,
+    window=<span class="tq-ck">dict</span>(mode=<span class="tq-cs">"event_aligned"</span>, tmin=<span class="tq-cn">-0.2</span>, tmax=<span class="tq-cn">0.8</span>),
+    label_col=<span class="tq-cs">"trial_type"</span>,
+)
+<span class="tq-c"># train 180 · val 30 · test 30 samples</span>
+
+X, y = art.sklearn(split=<span class="tq-cs">"train"</span>)
+<span class="tq-c"># X: (180, 64, 256)   y: (180,)</span></code></pre>
   </div>
 </section>
 
-## What Qortex does
+## Key interfaces
 
-Qortex is not a download manager. It answers: "can I train on this dataset, and what exactly do I need to download to do it?"
+Three phases. Each is independent — inspect without downloading, download without converting, convert in any format.
 
-It reads the OpenNeuro manifest before any file transfer. From the manifest alone it can tell you how many subjects have T1w files, which tasks have events.tsv companions, what the total size of a filtered subset would be, and whether supervised training is feasible on a named label column.
+**Before download — remote manifest only**
 
-After download it runs BIDS validation, builds ML-format artifacts with subject-level train/val/test splits, and provides visual QC tools that read one center slice from each NIfTI without loading the full volume.
+| Call | Returns |
+|------|---------|
+| `Dataset("ds_id")` | Manifest: subjects, files, entities — no data transferred |
+| `ds.can_train(target_col)` | `True/False` + blocking reasons |
+| `ds.minimum(goal)` | File list + byte count for `"first-batch"`, `"label-check"`, `"validation"` |
+| `ds.label_landscape()` | Per-class trial counts and subject coverage across all events.tsv |
+| `ds.doctor()` | Full readiness report — events, companions, sizes, split feasibility |
+| `DatasetQuery().modality("eeg").has_events().min_subjects(30).fetch()` | Filtered catalog results |
+| `client.search_datasets_rich(modality="MRI", sort_by="downloads")` | Live API results with engagement |
 
-<div class="tq-flow">
-  <div>
-    <b>1. Inspect</b>
-    <span>Read the remote manifest. Get subject counts, modalities, event coverage, and total size — no download.</span>
-  </div>
-  <div>
-    <b>2. Download</b>
-    <span>Filter by subject, task, modality, or suffix. Resume automatically on interruption.</span>
-  </div>
-  <div>
-    <b>3. Convert</b>
-    <span>Write Parquet, Zarr, HDF5, or WebDataset with subject-level splits and full provenance.</span>
-  </div>
-  <div>
-    <b>4. Train</b>
-    <span>Load directly into PyTorch, scikit-learn, Lightning, HuggingFace, or BrainDecode.</span>
-  </div>
-</div>
+**After selective download**
 
-## Current Status
+| Call | Returns |
+|------|---------|
+| `ds.download(subjects, datatypes, suffixes, max_size_gb)` | Resumable selective transfer |
+| `ds.doctor(recipe="eeg-classification")` | Modality-specific checks post-download |
+| `ds.visual_audit(output_dir)` | Center-slice thumbnails — no full volume loaded |
+| `ds.get_validation_issues(tag)` | BIDS validator errors and warnings |
 
-| Area                | Status                                                                               |
-| ------------------- | ------------------------------------------------------------------------------------ |
-| Manifest inspection | Implemented. Reads remote file tree, builds typed Manifest with BIDS entities.       |
-| Selective download  | Implemented. Filter by subject, session, task, modality, suffix, and size.           |
-| BIDS validation     | Implemented. Wraps official BIDS Validator with caching and normalized JSON output.  |
-| Catalog search      | Implemented. Local DuckDB catalog with free-text and structured filters.             |
-| Readiness checks    | Implemented. doctor, minimum, can-train, first-batch, leakage-check, content-status. |
-| Conversion          | Implemented. Parquet, Zarr, HDF5, WebDataset, HuggingFace, TFRecord.                 |
-| ML adapters         | Implemented. PyTorch, Lightning, scikit-learn, HuggingFace, BrainDecode, Dask.       |
-| Visual QC — NIfTI   | Implemented. Interactive HTML viewer, ortho, lightbox, fMRI QC, DWI QC.              |
-| Visual QC — EEG/MEG | Implemented. Butterfly, PSD, spectrogram, epoched via MNE.                           |
-| Visual QC — DICOM   | Implemented. Series browser with PHI protection.                                     |
-| Surface rendering   | Not implemented. GIFTI/CIFTI falls through to summary-only output.                   |
+**Convert to artifact**
+
+| Call | Returns |
+|------|---------|
+| `ds.convert(format, window, label_col, split)` | Artifact with subject-level train/val/test split |
+| `art.sklearn(split)` | `(X, y)` numpy arrays |
+| `art.torch(split)` | PyTorch `Dataset` |
+| `art.huggingface(split)` | HuggingFace `Dataset` |
+| `art.braindecode(split)` | BrainDecode `BaseConcatDataset` |
+
+## Implementation status
+
+| Area | Status |
+|------|--------|
+| Manifest inspection | Remote file tree, typed Manifest, BIDS entities extracted |
+| Selective download | Subject · session · task · modality · suffix · size filters; automatic resume |
+| BIDS validation | Wraps official validator; cached, normalized JSON output |
+| Catalog search | Local DuckDB + live API; `DatasetQuery` fluent builder with 10 filters |
+| Readiness checks | `doctor` · `minimum` · `can-train` · `first-batch` · `leakage-check` · `content-status` |
+| Conversion | Parquet · Zarr · HDF5 · WebDataset · HuggingFace · TFRecord |
+| ML adapters | PyTorch · Lightning · scikit-learn · HuggingFace · BrainDecode · Dask |
+| Visual QC — NIfTI | Ortho · lightbox · fMRI QC · DWI QC · PET overlay · one center slice per file |
+| Visual QC — EEG/MEG | Butterfly · PSD · spectrogram · topomap · epoched previews via MNE |
+| Visual QC — DICOM | Series browser with PHI protection |
+| Surface rendering | Not implemented — GIFTI/CIFTI falls to summary-only |
 
 ## Where to start
 
 <div class="tq-card-grid">
   <div class="tq-card">
-    <h3><a href="getting-started/install/">Install</a></h3>
-    <p>Base install, optional extras, and what each extras group enables.</p>
-  </div>
-  <div class="tq-card">
     <h3><a href="getting-started/quickstart/">Quickstart</a></h3>
-    <p>End-to-end example: inspect ds004130, download two subjects, convert to Parquet, train a classifier.</p>
+    <p>End-to-end: inspect ds004130, run readiness checks, download two subjects, convert to Parquet, load into PyTorch.</p>
   </div>
   <div class="tq-card">
-    <h3><a href="concepts/readiness-first/">Readiness concepts</a></h3>
-    <p>Why Qortex checks usability before downloading and what the five readiness states mean.</p>
+    <h3><a href="concepts/readiness-first/">Readiness first</a></h3>
+    <p>Why the manifest answers most questions before any file transfer, and how each readiness stage gates the next.</p>
   </div>
   <div class="tq-card">
-    <h3><a href="visualization/">Visualization</a></h3>
-    <p>Visual QC for NIfTI, DICOM, EEG, and converted artifacts without loading full volumes.</p>
+    <h3><a href="modalities/">Modalities</a></h3>
+    <p>MRI · fMRI · DWI · PET · MEG · EEG · iEEG · fNIRS — what each modality looks like in BIDS and what Qortex can do with it.</p>
+  </div>
+  <div class="tq-card">
+    <h3><a href="api/cli/">CLI reference</a></h3>
+    <p>All commands: <code>search</code> · <code>inspect</code> · <code>doctor</code> · <code>download</code> · <code>convert</code> · <code>visualize</code> · <code>can-train</code>.</p>
   </div>
 </div>
-
-## Reader paths
-
-| Reader       | Suggested path                                                                                                        |
-| ------------ | --------------------------------------------------------------------------------------------------------------------- |
-| Researcher   | [Concepts](concepts/index.md), [Readiness](readiness/index.md), [Visualization](visualization/index.md).              |
-| ML engineer  | [Quickstart](getting-started/quickstart.md), [Conversion](conversion/index.md), [Artifacts](artifacts/index.md).      |
-| Data curator | [Dataset inspection](dataset/index.md), [Download](download/index.md), [Visual audit](visualization/visual-audit.md). |
-| Systems user | [CLI reference](api/cli.md), [Troubleshooting](troubleshooting/index.md).                                             |

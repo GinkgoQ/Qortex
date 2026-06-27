@@ -277,10 +277,10 @@
 .tq-hero {
   display: grid;
   grid-template-columns: 1fr;
-  gap: clamp(1rem, 2vw, 1.65rem);
-  align-items: center;
+  gap: 0;
+  align-items: start;
   margin: 0 0 1.8rem;
-  padding: clamp(1.8rem, 4.2vw, 3.35rem);
+  padding: 0;
   border: 1px solid var(--tq-line);
   border-radius: 0.9rem;
   background:
@@ -301,21 +301,139 @@
   background: var(--tq-accent-muted);
   filter: blur(0.5px);
   opacity: 0.48;
+  pointer-events: none;
 }
 
 .tq-hero-copy,
-.tq-hero-visual {
+.tq-hero-visual,
+.tq-hero-strip {
   position: relative;
   z-index: 1;
+}
+
+/* ── Hero stats strip ─────────────────────────────────────── */
+
+.tq-hero-strip {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 1.4rem;
+  padding: 0.55rem 1.2rem;
+  border-bottom: 1px solid var(--tq-code-border);
+  background: var(--tq-code-bg);
+  border-radius: 0.9rem 0.9rem 0 0;
+}
+
+.tq-strip-source {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tq-strip-numbers {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+
+.tq-strip-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.04rem;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.tq-strip-stat strong {
+  color: var(--tq-accent);
+  font-size: clamp(1.1rem, 2.4vw, 1.55rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.tq-strip-stat span {
+  color: var(--tq-code-text);
+  font-size: 0.5rem;
+  font-weight: 680;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-family: "IBM Plex Mono", SFMono-Regular, Consolas, monospace;
+  opacity: 0.45;
+}
+
+.tq-strip-sep {
+  width: 1px;
+  height: 1.8rem;
+  background: var(--tq-code-border);
+  flex-shrink: 0;
+}
+
+/* hero-strip also hosts the modality pills */
+.tq-hero-strip .on-modalities-list {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 0.32rem;
+  padding: 0;
+  border-top: none;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+/* ── Hero copy + visual padding ───────────────────────────── */
+
+.tq-hero-copy {
+  padding: clamp(1.1rem, 2.4vw, 1.7rem) clamp(1.1rem, 2.4vw, 1.7rem) clamp(1.1rem, 2.4vw, 1.7rem);
+}
+
+/* ── Feature list inside hero copy ───────────────────────── */
+
+.tq-feature-list {
+  margin: 0.65rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.28rem;
+}
+
+.tq-feature-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  color: var(--tq-muted);
+  font-size: 0.8rem;
+  line-height: 1.38;
+}
+
+.tq-feature-list li::before {
+  content: "→";
+  color: var(--tq-accent);
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  font-family: "IBM Plex Mono", SFMono-Regular, Consolas, monospace;
+  font-weight: 740;
+}
+
+.tq-feature-list code {
+  color: var(--tq-ink);
+  font-size: 0.76rem;
+  background: var(--tq-accent-muted);
+  border-radius: 0.2rem;
+  padding: 0.02em 0.25em;
 }
 
 .tq-eyebrow {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-  margin-bottom: 0.85rem;
+  margin-bottom: 0.45rem;
   color: var(--tq-accent);
-  font-size: 0.66rem;
+  font-size: 0.62rem;
   font-weight: 780;
   letter-spacing: 0.11em;
   text-transform: uppercase;
@@ -323,9 +441,9 @@
 }
 
 .tq-hero h1 {
-  margin: 0 0 0.85rem;
+  margin: 0 0 0.55rem;
   max-width: 100%;
-  font-size: clamp(2.5rem, 6vw, 4.1rem);
+  font-size: clamp(2.2rem, 4.5vw, 3.2rem);
   line-height: 1;
   letter-spacing: 0;
   overflow-wrap: normal;
@@ -343,8 +461,8 @@
 .tq-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
-  margin-top: 1.25rem;
+  gap: 0.6rem;
+  margin-top: 0.9rem;
 }
 
 .tq-button {
@@ -371,22 +489,60 @@
 }
 
 .tq-hero-visual {
-  display: grid;
-  gap: 0.55rem;
-  padding: 0.72rem;
-  border: 1px solid var(--tq-line);
-  border-radius: 0.72rem;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.42)),
-    linear-gradient(135deg, var(--tq-accent-muted), transparent);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--tq-code-border);
+  border-radius: 0.62rem;
+  background: var(--tq-code-bg);
+  overflow: hidden;
+  margin: clamp(0.9rem, 1.8vw, 1.4rem);
+  margin-left: 0;
 }
 
-[data-md-color-scheme="slate"] .tq-hero-visual {
-  background:
-    linear-gradient(180deg, rgba(20, 22, 30, 0.9), rgba(20, 22, 30, 0.74)),
-    linear-gradient(135deg, var(--tq-accent-muted), transparent);
+.tq-code-header {
+  display: flex;
+  align-items: center;
+  gap: 0.32rem;
+  padding: 0.4rem 0.65rem;
+  border-bottom: 1px solid var(--tq-code-border);
+  background: rgba(255 255 255 / 0.03);
 }
+
+.tq-code-dot {
+  width: 0.48rem;
+  height: 0.48rem;
+  border-radius: 50%;
+  background: var(--tq-code-border);
+  flex-shrink: 0;
+}
+
+.tq-code-filename {
+  margin-left: 0.45rem;
+  color: var(--tq-code-text);
+  font-size: 0.55rem;
+  font-family: "IBM Plex Mono", SFMono-Regular, Consolas, monospace;
+  opacity: 0.4;
+  letter-spacing: 0.05em;
+}
+
+.tq-code-block {
+  margin: 0;
+  padding: 0.7rem 0.9rem;
+  background: transparent;
+  border: 0;
+  font-size: 0.63rem;
+  line-height: 1.58;
+  color: var(--tq-code-text);
+  overflow-x: auto;
+  font-family: "IBM Plex Mono", SFMono-Regular, Consolas, monospace;
+  flex: 1;
+}
+
+/* syntax token colors inside .tq-code-block */
+.tq-c  { color: #5a6a3a; font-style: normal; }         /* comment → muted olive */
+.tq-ck { color: #c0a7e0; }                              /* keyword → muted purple */
+.tq-cs { color: #a8c77a; }                              /* string → light green */
+.tq-cn { color: #e0b67a; }                              /* number → amber */
 
 .tq-diagram-head {
   display: grid;
@@ -690,10 +846,6 @@
 }
 
 @media screen and (max-width: 60em) {
-  .tq-hero-visual {
-    min-height: 13rem;
-  }
-
   .tq-metrics,
   .tq-card-grid,
   .tq-flow {
@@ -702,25 +854,24 @@
 
   .tq-hero {
     border-radius: 0.85rem;
-    padding: 2rem;
+  }
+
+  .tq-hero-strip {
+    border-radius: 0.85rem 0.85rem 0 0;
   }
 }
 
 @media screen and (max-width: 40em) {
-  .tq-hero {
-    padding: 1.35rem;
-  }
-
   .tq-eyebrow {
     font-size: 0.58rem;
   }
 
   .tq-hero h1 {
-    font-size: clamp(2.35rem, 12vw, 3rem);
+    font-size: clamp(2rem, 12vw, 2.8rem);
   }
 
-  .tq-hero p {
-    font-size: 0.86rem;
+  .tq-feature-list li {
+    font-size: 0.75rem;
   }
 
   .tq-hero-visual {
@@ -730,26 +881,39 @@
 
 @media screen and (min-width: 76em) {
   .tq-hero {
-    grid-template-columns: minmax(0, 1fr) minmax(16rem, 0.58fr);
-    padding: clamp(1.8rem, 3.2vw, 2.6rem);
+    grid-template-columns: minmax(0, 1fr) minmax(16rem, 0.52fr);
+    grid-template-rows: auto 1fr;
+    align-items: stretch;
+  }
+
+  .tq-hero-strip {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+
+  .tq-hero-copy {
+    grid-column: 1;
+    grid-row: 2;
+    align-self: center;
   }
 
   .tq-hero-visual {
-    min-height: 14rem;
+    grid-column: 2;
+    grid-row: 2;
+    margin-left: 0;
+    min-height: 0;
+    border-radius: 0 0 0.62rem 0;
+    border-right: 0;
+    border-bottom: 0;
+    border-top: 1px solid var(--tq-code-border);
+    border-left: 1px solid var(--tq-code-border);
+    border-radius: 0;
   }
 }
 
 @media screen and (max-width: 75.99em) {
-  .tq-hero {
-    padding: clamp(1.45rem, 5vw, 2.6rem);
-  }
-
-  .tq-page-card {
-    gap: 0.45rem;
-  }
-
-  .tq-component-row {
-    grid-template-columns: 1.8rem minmax(4.5rem, 1fr) 3.1rem;
+  .tq-hero-visual {
+    margin: 0 clamp(0.85rem, 3vw, 1.4rem) clamp(0.85rem, 3vw, 1.4rem);
   }
 }
 
