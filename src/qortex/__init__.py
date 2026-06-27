@@ -56,6 +56,21 @@ from qortex.inspect.selector import DatasetFitness, DatasetSelector, ResearchGoa
 from qortex import visualize
 from qortex.visualize._audit import VisualAuditReport
 
+# ── Advanced ML / neuroimaging subsystems ────────────────────────────────────
+from qortex.harmonize import HarmonizationReporter, HarmonizationReport
+from qortex.export import MONAIExporter, TorchIOExporter
+from qortex.derivatives import DerivativeIndexer
+from qortex.qc import QCFilter, QCMask
+from qortex.cohort import CohortBuilder, CohortManifest, FederatedCohort, FederatedSubject
+from qortex.stream import NiftiStreamer, EDFStreamer
+from qortex.runtime import (
+    BIDSImageDataset,
+    BIDSSignalDataset,
+    BIDSEpochDataset,
+    MONAIDictBuilder,
+    TorchEEGBridge,
+)
+
 
 # ── BIDS path helpers (module-level so they work inside Dataset methods) ──────
 
@@ -606,6 +621,679 @@ class Dataset:
             skip_missing=skip_missing,
         )
         return pipeline.run()
+
+    # ── AI Runtime — PyTorch / MONAI / TorchEEG native adapters ─────────────
+
+    def with_format(
+        self,
+        type: str = "torch",
+        *,
+        device: str = "cpu",
+        dtype: str | None = None,
+    ):
+        """Return a ``BIDSImageDataset`` pre-configured for the given framework.
+
+        Parameters
+        ----------
+        type:
+            ``"torch"`` (default): returns a ``BIDSImageDataset`` compatible
+            with ``torch.utils.data.DataLoader``.
+            ``"numpy"``: same Dataset but items returned as numpy arrays.
+        device:
+            Target device string for tensor placement, e.g. ``"cuda"`` or
+            ``"cpu"``.  Only meaningful when ``type="torch"``.
+
+        Returns
+        -------
+        BIDSImageDataset
+            A PyTorch Dataset covering the locally downloaded data.
+
+        Examples
+        --------
+        >>> ds = Dataset("ds000001")
+        >>> ds.download(subjects=["01"], suffixes=["T1w"])
+        >>> torch_ds = ds.with_format("torch", device="cuda")
+        >>> loader = torch_ds.to_dataloader(batch_size=4, num_workers=2)
+        """
+        from qortex.runtime import BIDSImageDataset
+
+        data_dir = self._resolve_data_dir()
+
+        def _device_transform(sample: dict) -> dict:
+            if type == "torch":
+                try:
+                    import torch
+                    for k, v in sample.items():
+                        if hasattr(v, "numpy") or (hasattr(v, "shape") and hasattr(v, "dtype")):
+                            import numpy as np
+                            arr = np.asarray(v)
+                            sample[k] = torch.from_numpy(arr).to(device)
+                except ImportError:
+                    pass
+            return sample
+
+        return BIDSImageDataset(
+            bids_root=data_dir,
+            transform=_device_transform if type == "torch" and device != "cpu" else None,
+        )
+
+    def to_monai_dicts(
+        self,
+        image_entities: list[str] | None = None,
+        *,
+        label_target: str | None = None,
+        mask_entity: str | None = None,
+        datatype: str = "anat",
+        extension: str = ".nii.gz",
+        include_metadata: bool = False,
+        train_frac: float = 0.7,
+        val_frac: float = 0.15,
+        seed: int = 42,
+    ) -> dict:
+        """Build MONAI-style datalist dicts for CacheDataset / PersistentDataset.
+
+        Parameters
+        ----------
+        image_entities:
+            BIDS suffixes to use as image inputs, e.g. ``["T1w", "T2w"]``.
+            When multiple suffixes share the same MONAI key (default: all map
+            to ``"image"``), they are returned as a list for multi-channel use.
+        label_target:
+            Column in participants.tsv to use as the label, e.g.
+            ``"diagnosis"``.
+        mask_entity:
+            BIDS suffix for the segmentation mask, e.g. ``"seg"``.  Mapped
+            to the MONAI ``"label"`` key.
+        include_metadata:
+            When True, include sidecar JSON fields in each dict.
+
+        Returns
+        -------
+        dict with keys ``"training"``, ``"validation"``, ``"test"``,
+        ``"label_classes"``  (int → canonical label mapping).
+
+        Examples
+        --------
+        >>> ds = Dataset("ds000001")
+        >>> ds.download(subjects=["01", "02"], suffixes=["T1w"])
+        >>> dicts = ds.to_monai_dicts(image_entities=["T1w"], label_target="diagnosis")
+        >>> from monai.data import CacheDataset
+        >>> train_set = CacheDataset(data=dicts["training"], transform=transform)
+        """
+        from qortex.runtime.loader import MONAIDictBuilder
+
+        data_dir = self._resolve_data_dir()
+
+        image_keys: dict[str, str] = {}
+        if image_entities:
+            if len(image_entities) == 1:
+                image_keys = {image_entities[0]: "image"}
+            else:
+                for i, ent in enumerate(image_entities):
+                    image_keys[ent] = "image" if i == 0 else f"image{i+1}"
+        else:
+            image_keys = {"T1w": "image"}
+
+        seg_suffix: str | None = mask_entity
+
+        builder = MONAIDictBuilder(
+            bids_root=data_dir,
+            image_keys=image_keys,
+            datatype=datatype,
+            extension=extension,
+        )
+        return builder.build(
+            label_column=label_target,
+            seg_suffix=seg_suffix,
+            seg_key="label",
+            include_metadata=include_metadata,
+            train_frac=train_frac,
+            val_frac=val_frac,
+            seed=seed,
+        )
+
+    def to_torch_dataloader(
+        self,
+        *,
+        suffix: str = "T1w",
+        datatype: str = "anat",
+        extension: str = ".nii.gz",
+        label_column: str | None = None,
+        batch_size: int = 4,
+        num_workers: int = 0,
+        shuffle: bool = True,
+        transform=None,
+    ):
+        """Return a PyTorch DataLoader from locally downloaded BIDS image data.
+
+        Parameters
+        ----------
+        suffix:
+            BIDS suffix for the image files (e.g. ``"T1w"``, ``"bold"``).
+        label_column:
+            Column in participants.tsv for labels. ``None`` = no labels.
+        batch_size / num_workers / shuffle:
+            Standard DataLoader arguments.
+        transform:
+            Optional callable applied to each sample dict before batching.
+
+        Returns
+        -------
+        torch.utils.data.DataLoader
+
+        Examples
+        --------
+        >>> ds = Dataset("ds000001")
+        >>> ds.download(subjects=["01", "02", "03"], suffixes=["T1w"])
+        >>> loader = ds.to_torch_dataloader(
+        ...     suffix="T1w", label_column="diagnosis",
+        ...     batch_size=4, num_workers=2, shuffle=True,
+        ... )
+        >>> for batch in loader:
+        ...     images = batch["image"]  # (B, 1, X, Y, Z)
+        """
+        from qortex.runtime import BIDSImageDataset
+
+        data_dir = self._resolve_data_dir()
+        ds = BIDSImageDataset(
+            bids_root=data_dir,
+            suffix=suffix,
+            datatype=datatype,
+            extension=extension,
+            label_column=label_column,
+            transform=transform,
+        )
+        return ds.to_dataloader(
+            batch_size=batch_size,
+            num_workers=num_workers,
+            shuffle=shuffle,
+        )
+
+    def to_torcheeg_epochs(
+        self,
+        *,
+        modality: str = "eeg",
+        event_id: str | list[str] | None = None,
+        tmin: float = -0.2,
+        tmax: float = 0.5,
+        resample_hz: float | None = None,
+        stack_to_grid: bool = False,
+        grid_size: tuple[int, int] = (9, 9),
+    ):
+        """Return a TorchEEG-compatible epoch Dataset from locally downloaded EEG.
+
+        Parameters
+        ----------
+        event_id:
+            Trial type(s) to include.  ``None`` = all.
+        tmin / tmax:
+            Epoch window in seconds relative to event onset.  Pre-stimulus
+            baseline is captured when ``tmin < 0``.
+        resample_hz:
+            Resample all recordings before epoch extraction.
+        stack_to_grid:
+            Reshape ``(n_ch, n_t)`` → ``(rows, cols, n_t)`` 2D electrode grid
+            for spatial CNN-based models.
+
+        Returns
+        -------
+        TorchEEGBridge
+            Implements ``__len__``/``__getitem__`` returning
+            ``{"eeg": FloatTensor, "label": int}`` — TorchEEG's expected format.
+
+        Examples
+        --------
+        >>> ds = Dataset("ds004130")
+        >>> ds.download(modalities=["eeg"])
+        >>> epoch_ds = ds.to_torcheeg_epochs(event_id="stimulus", tmin=-0.2, tmax=0.5)
+        >>> loader = torch.utils.data.DataLoader(epoch_ds, batch_size=64)
+        """
+        from qortex.runtime import BIDSEpochDataset, TorchEEGBridge
+
+        data_dir = self._resolve_data_dir()
+        epoch_duration = tmax - tmin
+
+        bids_epochs = BIDSEpochDataset(
+            bids_root=data_dir,
+            modality=modality,
+            epoch_duration_s=epoch_duration,
+            tmin=tmin,
+            event_id=event_id,
+            resample_hz=resample_hz,
+        )
+        return TorchEEGBridge(
+            bids_epochs,
+            stack_to_grid=stack_to_grid,
+            grid_size=grid_size,
+        )
+
+    def map_labels(
+        self,
+        *,
+        source_tsv: str = "participants",
+        target_column: str,
+        transform=None,
+        label_map: dict | None = None,
+    ) -> dict[str, Any]:
+        """Read and transform a participants.tsv column into a subject→label mapping.
+
+        Useful for injecting external labels (age buckets, diagnosis scores,
+        composite phenotypes) into downstream Datasets without re-downloading.
+
+        Parameters
+        ----------
+        source_tsv:
+            Which TSV file to read: ``"participants"`` (default) maps to
+            ``participants.tsv`` at the dataset root; any BIDS-relative path
+            is accepted.
+        target_column:
+            Column to extract, e.g. ``"age"``, ``"diagnosis"``.
+        transform:
+            Optional callable applied to each raw value before returning.
+            Example: ``transform=lambda x: float(x) / 100.0`` to normalize age.
+        label_map:
+            Optional raw → canonical value mapping applied before ``transform``.
+
+        Returns
+        -------
+        dict
+            ``{subject_id: label}`` mapping where subject_id is the BIDS
+            ``sub-XX`` string.
+
+        Examples
+        --------
+        >>> ds = Dataset("ds000001")
+        >>> age_map = ds.map_labels(
+        ...     target_column="age",
+        ...     transform=lambda x: (float(x) - 18) / 50,  # normalise 18-68 → 0-1
+        ... )
+        >>> age_map["sub-01"]
+        0.42
+        """
+        import csv
+
+        manifest = self.manifest()
+        tsv_path = (
+            "participants.tsv"
+            if source_tsv == "participants"
+            else source_tsv
+        )
+        fr = next((f for f in manifest.files if f.path == tsv_path), None)
+        if fr is None or not fr.urls:
+            raise FileNotFoundError(
+                f"TSV file {tsv_path!r} not found in manifest."
+            )
+
+        from qortex.client.remote import RemoteFileGateway
+        with RemoteFileGateway() as gw:
+            text = gw.fetch_text(fr.urls[0])
+
+        lines = text.strip().splitlines()
+        reader = csv.DictReader(lines, delimiter="\t")
+        result: dict[str, Any] = {}
+        for row in reader:
+            pid = row.get("participant_id", "").strip()
+            if not pid:
+                continue
+            if not pid.startswith("sub-"):
+                pid = f"sub-{pid}"
+            raw = row.get(target_column)
+            if raw is None:
+                continue
+            if label_map:
+                raw = label_map.get(str(raw), raw)
+            try:
+                val = transform(raw) if transform is not None else raw
+            except Exception:
+                val = raw
+            result[pid] = val
+        return result
+
+    def train_test_split(
+        self,
+        *,
+        test_size: float = 0.2,
+        val_size: float = 0.1,
+        stratify_by: str | None = None,
+        group_by: str = "subject",
+        seed: int = 42,
+    ) -> dict[str, list[str]]:
+        """Split subject IDs into train / val / test ensuring no subject leakage.
+
+        Subject-level splitting: all files for a subject go to one split.
+        When ``stratify_by`` is given, the split is class-balanced.
+
+        Parameters
+        ----------
+        test_size:
+            Fraction of subjects for the test split (0–1).
+        val_size:
+            Fraction of subjects for the validation split (0–1).
+        stratify_by:
+            Column in participants.tsv to stratify on (e.g. ``"diagnosis"``).
+            When None, subjects are split without stratification.
+        group_by:
+            Grouping level.  ``"subject"`` (default) splits at the subject
+            level; ``"session"`` splits at the session level (allows same
+            subject in multiple splits — less conservative).
+        seed:
+            Reproducibility seed.
+
+        Returns
+        -------
+        dict with keys ``"train"``, ``"val"``, ``"test"`` — each a list of
+        BIDS subject IDs (e.g. ``["sub-01", "sub-02", ...]``).
+
+        Examples
+        --------
+        >>> ds = Dataset("ds000001")
+        >>> splits = ds.train_test_split(
+        ...     test_size=0.2, stratify_by="diagnosis", group_by="subject"
+        ... )
+        >>> splits["train"]
+        ['sub-01', 'sub-03', ...]
+        """
+        import hashlib
+
+        manifest = self.manifest()
+        all_subjects = sorted({
+            f"sub-{s}" if not s.startswith("sub-") else s
+            for s in manifest.summary.subjects
+        })
+
+        # Optional stratification
+        label_map: dict[str, str] = {}
+        if stratify_by:
+            try:
+                label_map = self.map_labels(target_column=stratify_by)
+            except Exception as exc:
+                log.warning("train_test_split: cannot load stratify_by=%r: %s", stratify_by, exc)
+
+        # Group subjects by label for stratified split
+        if label_map and stratify_by:
+            strata: dict[str, list[str]] = {}
+            for sub in all_subjects:
+                label = str(label_map.get(sub, "unknown"))
+                strata.setdefault(label, []).append(sub)
+        else:
+            strata = {"_all": all_subjects}
+
+        train_ids: list[str] = []
+        val_ids: list[str] = []
+        test_ids: list[str] = []
+
+        for label_group in strata.values():
+            # Deterministic shuffle keyed by seed + subject hash
+            ordered = sorted(
+                label_group,
+                key=lambda s: hashlib.sha256(f"{seed}:{s}".encode()).hexdigest(),
+            )
+            n = len(ordered)
+            n_test = max(1, round(n * test_size))
+            n_val = max(0, round(n * val_size))
+            n_train = n - n_test - n_val
+
+            train_ids.extend(ordered[:n_train])
+            val_ids.extend(ordered[n_train: n_train + n_val])
+            test_ids.extend(ordered[n_train + n_val:])
+
+        return {
+            "train": sorted(train_ids),
+            "val": sorted(val_ids),
+            "test": sorted(test_ids),
+        }
+
+    # ── Remote lazy streaming ──────────────────────────────────────────────
+
+    def stream_header(
+        self,
+        *,
+        subject: str,
+        session: str | None = None,
+        modality: str = "T1w",
+        run: str | None = None,
+    ):
+        """Fetch the NIfTI or EDF header for a remote file via byte-range requests.
+
+        No full file download is required — only the header bytes are fetched.
+
+        Parameters
+        ----------
+        subject:
+            Subject ID (with or without the ``sub-`` prefix).
+        session:
+            Session ID (with or without the ``ses-`` prefix).  ``None`` = any.
+        modality:
+            BIDS suffix, e.g. ``"T1w"``, ``"bold"``, ``"eeg"``.
+        run:
+            Run label, e.g. ``"1"``.  ``None`` = any.
+
+        Returns
+        -------
+        NiftiStreamHeader | EDFStreamHeader
+            Parsed header object.
+
+        Examples
+        --------
+        >>> hdr = Dataset("ds000001").stream_header(subject="01", modality="T1w")
+        >>> hdr.shape, hdr.voxel_sizes_mm
+        ((256, 256, 176), (1.0, 1.0, 1.0))
+        """
+        url = self._resolve_modality_url(
+            subject=subject, session=session, modality=modality, run=run
+        )
+        if modality.lower() in ("eeg", "edf", "bdf"):
+            from qortex.stream import EDFStreamer
+            return EDFStreamer(url).header()
+        else:
+            from qortex.stream import NiftiStreamer
+            return NiftiStreamer(url).header()
+
+    def stream_slice(
+        self,
+        *,
+        subject: str,
+        modality: str = "bold",
+        run: str | None = None,
+        session: str | None = None,
+        time_index: int = 0,
+        axis: int = 2,
+        slice_index: int | None = None,
+    ) -> Any:
+        """Stream a 2D slice or 3D volume from a remote NIfTI file.
+
+        Parameters
+        ----------
+        subject:
+            Subject ID.
+        modality:
+            BIDS suffix, e.g. ``"bold"``, ``"T1w"``, ``"dwi"``.
+        time_index:
+            Volume index for 4D fMRI (ignored for 3D anatomicals).
+        axis:
+            Slicing axis for 2D extraction (0=sagittal, 1=coronal, 2=axial).
+        slice_index:
+            Which slice along ``axis`` to extract.  ``None`` = center slice.
+
+        Returns
+        -------
+        np.ndarray
+            2D array (slice) or 3D array (volume when ``slice_index=None``
+            and ``axis`` is not specified).
+
+        Examples
+        --------
+        >>> sl = Dataset("ds000001").stream_slice(
+        ...     subject="01", modality="bold", run="1", time_index=150
+        ... )
+        >>> sl.shape  # (64, 64)
+        """
+        import numpy as np
+        from qortex.stream import NiftiStreamer
+
+        url = self._resolve_modality_url(
+            subject=subject, session=session, modality=modality, run=run
+        )
+        streamer = NiftiStreamer(url)
+        hdr = streamer.header()
+
+        if slice_index is None:
+            if hdr.is_4d:
+                return streamer.get_volume(t=time_index)
+            return streamer.get_volume(t=0)
+
+        return streamer.get_slice(axis=axis, index=slice_index, t=time_index)
+
+    def get_lazy_array(
+        self,
+        *,
+        subject: str,
+        modality: str = "T1w",
+        session: str | None = None,
+        run: str | None = None,
+    ) -> Any:
+        """Return a lazy nibabel ArrayProxy without downloading the full file.
+
+        The proxy fetches data on-demand when sliced, using nibabel's built-in
+        lazy evaluation for local paths.  For remote URLs, returns the
+        NiftiStreamer's ``get_lazy_array()`` object (header + deferred load).
+
+        Parameters
+        ----------
+        subject:
+            Subject ID.
+        modality:
+            BIDS suffix.
+
+        Returns
+        -------
+        nibabel.ArrayProxy or NiftiStreamer-proxy object
+
+        Examples
+        --------
+        >>> arr = Dataset("ds000001").get_lazy_array(subject="01", modality="T1w")
+        >>> center = arr[128, 128, 88]   # triggers partial load on remote
+        """
+        from qortex.stream import NiftiStreamer
+
+        url = self._resolve_modality_url(
+            subject=subject, session=session, modality=modality, run=run
+        )
+        streamer = NiftiStreamer(url)
+        return streamer.get_lazy_array()
+
+    def prefetch_metadata(
+        self,
+        modalities: list[str] | None = None,
+        *,
+        concurrency: int = 16,
+    ) -> dict[str, Any]:
+        """Prefetch remote headers for all subjects concurrently.
+
+        Populates the NiftiStreamer/EDFStreamer header cache for all files of
+        the specified modalities, enabling subsequent ``stream_slice`` calls to
+        skip the header fetch round-trip.
+
+        Parameters
+        ----------
+        modalities:
+            BIDS suffixes to prefetch headers for.  ``None`` = all image files.
+        concurrency:
+            Number of parallel Range requests to fire simultaneously.
+
+        Returns
+        -------
+        dict
+            ``{manifest_path: header_object}`` mapping for all successfully
+            prefetched files.
+
+        Examples
+        --------
+        >>> Dataset("ds000001").prefetch_metadata(modalities=["eeg", "meg"])
+        """
+        import concurrent.futures
+        from qortex.client.remote import _pick_url
+        from qortex.stream import EDFStreamer, NiftiStreamer
+
+        manifest = self.manifest()
+        signal_exts = {".edf", ".bdf", ".fif"}
+        nifti_exts = {".nii", ".nii.gz"}
+
+        def _is_target(fr) -> bool:
+            if modalities:
+                if fr.suffix not in modalities:
+                    return False
+            ext = "." + ".".join(fr.path.rsplit(".", 2)[1:]) if ".gz" in fr.path else fr.extension
+            return ext.lower() in (signal_exts | nifti_exts)
+
+        targets = [fr for fr in manifest.files if _is_target(fr)]
+        if not targets:
+            log.warning("prefetch_metadata: no matching files for modalities=%r", modalities)
+            return {}
+
+        def _fetch_one(fr):
+            url = _pick_url(fr)
+            if not url:
+                return fr.path, None
+            try:
+                if any(fr.path.lower().endswith(ext) for ext in (".edf", ".bdf")):
+                    hdr = EDFStreamer(url).header()
+                else:
+                    hdr = NiftiStreamer(url).header()
+                return fr.path, hdr
+            except Exception as exc:
+                log.debug("prefetch_metadata: failed for %s: %s", fr.path, exc)
+                return fr.path, None
+
+        results: dict[str, Any] = {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as pool:
+            futures = {pool.submit(_fetch_one, fr): fr for fr in targets}
+            for fut in concurrent.futures.as_completed(futures):
+                path, hdr = fut.result()
+                if hdr is not None:
+                    results[path] = hdr
+
+        log.info(
+            "prefetch_metadata: fetched %d/%d headers for modalities=%r",
+            len(results), len(targets), modalities,
+        )
+        return results
+
+    # ── Internal resolver ─────────────────────────────────────────────────
+
+    def _resolve_modality_url(
+        self,
+        *,
+        subject: str,
+        session: str | None,
+        modality: str,
+        run: str | None,
+    ) -> str:
+        from qortex.client.remote import _pick_url
+
+        sub = subject.removeprefix("sub-")
+        ses = session.removeprefix("ses-") if session else None
+
+        manifest = self.manifest()
+        signal_suffixes = {"eeg", "meg", "ieeg", "edf", "bdf"}
+        candidates = [
+            fr for fr in manifest.files
+            if fr.subject == sub
+            and (ses is None or fr.session == ses)
+            and fr.suffix == modality
+            and (run is None or fr.run == run)
+        ]
+        if not candidates:
+            raise FileNotFoundError(
+                f"No file found for sub={sub!r} ses={ses!r} "
+                f"suffix={modality!r} run={run!r}"
+            )
+        url = _pick_url(candidates[0])
+        if not url:
+            raise FileNotFoundError(
+                f"No URL for {candidates[0].path!r}"
+            )
+        return url
 
     # ── ML adapters ───────────────────────────────────────────────────────
 
@@ -1335,6 +2023,18 @@ __all__ = [
     "PagedResults",
     "live_search",
     "facets",
+    # Stream
+    "NiftiStreamer",
+    "EDFStreamer",
+    # Runtime
+    "BIDSImageDataset",
+    "BIDSSignalDataset",
+    "BIDSEpochDataset",
+    "MONAIDictBuilder",
+    "TorchEEGBridge",
+    # Cohort / federated
+    "FederatedCohort",
+    "FederatedSubject",
     # Core entities
     "LocalIndexReport",
     "EventLabelSummary",
