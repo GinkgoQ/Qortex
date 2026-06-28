@@ -153,6 +153,12 @@ class RuntimeEngine:
                         err_msg = f"Output write error on window {idx}: {exc}"
                         log.warning(err_msg)
                         errors.append(err_msg)
+
+                # Emit structured EventMarker when trigger fires
+                if trigger_fired and trigger is not None:
+                    _emit_trigger_event(
+                        trigger, idx, output, self._outputs, self._source.source_id
+                    )
                 self._profiler.end_output_write()
 
                 self._profiler.commit_window()
@@ -164,6 +170,7 @@ class RuntimeEngine:
         latency_report = self._profiler.report()
         artifact_contract = self._make_artifact_contract(latency_report)
 
+        n_outputs_written = sum(getattr(o, "n_written", 0) for o in self._outputs)
         success = n_ok > 0 and not any(e for e in errors)
         return PipelineRunReport(
             success=success,
@@ -174,6 +181,8 @@ class RuntimeEngine:
             outputs=[{"n_written": getattr(o, "n_written", 0)} for o in self._outputs],
             errors=errors,
             warnings=warnings,
+            n_windows_processed=n_ok,
+            n_outputs_written=n_outputs_written,
         )
 
     def _make_artifact_contract(self, latency_report) -> ArtifactContract:
@@ -202,25 +211,86 @@ class RuntimeEngine:
         )
 
 
-# ── Helper ────────────────────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _emit_trigger_event(
+    trigger: "TriggerSpec",
+    window_idx: int,
+    output: "ModelOutput",
+    adapters: list["OutputAdapter"],
+    source_id: str,
+) -> None:
+    """Write a structured EventMarkerOutput to all output adapters that support it.
+
+    Called only when the trigger condition is satisfied.  The marker includes
+    the trigger class, probability, and emit payload so downstream consumers
+    (BCI decoders, alert systems) can act on it without inspecting every window.
+    """
+    from qortex.neuroai.outputs.types import EventMarkerOutput
+    import datetime
+
+    probs = output.probabilities or {}
+    triggered_class = trigger.when.get("class", "")
+
+    marker = EventMarkerOutput(
+        event_type="trigger",
+        label=triggered_class,
+        confidence=float(probs.get(triggered_class, 0.0)),
+        window_index=window_idx,
+        source_id=source_id,
+        emit_payload=trigger.emit,
+        timestamp_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    )
+
+    for adapter in adapters:
+        write_marker = getattr(adapter, "write_marker", None)
+        if callable(write_marker):
+            try:
+                write_marker(marker)
+            except Exception as exc:
+                log.warning("EventMarker write failed on %s: %s", type(adapter).__name__, exc)
+
 
 def _extract_array(data_item: Any):
     """Extract the underlying numpy array from a QortexData object.
 
     Source adapters set QortexAbstraction.data to the actual numpy array.
     Raw numpy arrays are passed through directly.
+
+    For QortexEventTable, the .data field is a Polars DataFrame.  Numeric
+    columns are stacked into a (n_rows, n_numeric_cols) float32 array so the
+    standard preprocessing chain can process tabular data without special-casing
+    every downstream transform.
     """
     import numpy as np
     if isinstance(data_item, np.ndarray):
         return data_item
-    # QortexTimeSeries / QortexVolume carry their array in .data
-    arr = getattr(data_item, "data", None)
-    if isinstance(arr, np.ndarray):
-        return arr
+
+    # QortexTimeSeries / QortexVolume carry their numpy array in .data
+    raw = getattr(data_item, "data", None)
+    if isinstance(raw, np.ndarray):
+        return raw
+
+    # QortexEventTable.data is a Polars DataFrame — extract numeric columns
+    if raw is not None and type(raw).__name__ == "DataFrame":
+        try:
+            numeric_cols = [c for c in raw.columns if raw[c].dtype.is_numeric()]
+            if not numeric_cols:
+                raise TypeError(
+                    "QortexEventTable has no numeric columns; cannot convert to array. "
+                    "Only numeric columns are extracted for model inference."
+                )
+            return raw.select(numeric_cols).to_numpy(allow_copy=True).astype(np.float32)
+        except Exception as exc:
+            raise TypeError(
+                f"Failed to convert QortexEventTable DataFrame to numpy array: {exc}"
+            ) from exc
+
     # Torch tensor
     if hasattr(data_item, "numpy"):
         return data_item.numpy()
     if hasattr(data_item, "detach"):
         return data_item.detach().cpu().numpy()
+
     # Fall through — TransformExecutor._coerce_numpy will raise with a clear message
     return data_item

@@ -41,9 +41,13 @@ source:
 
 Groups `.dcm` files by `SeriesInstanceUID`. Sorts slices by `InstanceNumber` or `ImagePositionPatient` z-coordinate. Applies `RescaleSlope` and `RescaleIntercept` to convert to Hounsfield units. Builds a 4×4 affine from `ImageOrientationPatient`, `ImagePositionPatient`, `PixelSpacing`, and `SliceThickness`.
 
-Returns `QortexVolume` with `axes="zyx"`, `units="HU"`, `coordinate_frame="patient_lps"`.
+Returns `QortexVolume` with `axes=["z","y","x"]`, `units="HU"`, `coordinate_frame="patient_lps"`, `axis_convention="spatial_zyx"`. `SourceProfile` includes `voxel_sizes_mm` and `spatial_shape` for downstream compatibility checks.
 
-Patient names and identifiers are never written to logs.
+**PHI handling.** `PatientName`, `PatientID`, `PatientBirthDate`, `PatientSex`, `PatientAge`, `PatientAddress`, `ReferringPhysicianName`, and `InstitutionName` are never written to `SourceProfile` fields, logs, or provenance records. The `source_id` is derived from the directory name only. The `extra["phi_redacted"] = True` flag in `SourceProfile` confirms redaction occurred.
+
+**Preprocessing.** The `PreprocessPlanner` auto-inserts a `rescale_intensity` transform for DICOM sources to map HU values to `[0, 1]`, since most deep learning models expect normalized inputs. Add `rescale_intensity` to `preprocessing.deny` to suppress this.
+
+**Coordinate frame.** DICOM uses LPS (Left-Posterior-Superior). If the model's `InputContract.axis_convention` is `RAS`, the `CompatibilityEngine` inserts a `reorient(from=LPS, to=RAS)` transform automatically.
 
 Auto-detection: a directory without `dataset_description.json` but containing `.dcm` files is routed to `DICOMFolderAdapter`.
 

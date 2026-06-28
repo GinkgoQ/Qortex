@@ -336,8 +336,11 @@ pipe.replay("recording.xdf", speed=2.0)
 | `bids` | BIDS derivative directory |
 | `coco` | COCO JSON |
 | `yolo` | Per-image `.txt` with normalized boxes |
+| `overlay` | Annotated images with boxes/masks/labels drawn on source frames |
 | `websocket` | JSON payload over WebSocket |
 | `http` | JSON POST with retry and auth |
+
+The `overlay` adapter accepts a `source_image` key in the metadata dict (numpy `[H, W]` or `[H, W, C]`) and renders detection boxes, segmentation masks, or classification labels onto it using Pillow or OpenCV.
 
 ### Artifact directory
 
@@ -394,9 +397,12 @@ cd src/qortex_rs && maturin develop --release
 | Visual QC (manifest audit, fMRI, DWI, overlays, masks) | Useful; scenario-tested |
 | BIDS Validator wrapper | Useful; does not fabricate results |
 | EEG / MEG / MRI / DWI / PET loaders | Real optional-dependency loaders; need fixture coverage |
-| NeuroAI sources (DICOM, NWB, XDF, LSL, BrainFlow, image) | Implemented; integration tests pending |
+| NeuroAI sources (DICOM, NWB, XDF, LSL, BrainFlow, image) | Implemented; DICOM has PHI redaction + affine; integration tests pending |
 | NeuroAI models (HF, ONNX, Torch, MONAI, Ultralytics) | Implemented; integration tests pending |
-| NeuroAI outputs (NIfTI, DICOM-SEG, BIDS, COCO, YOLO, HTTP) | Implemented; integration tests pending |
+| NeuroAI outputs (JSONL, Parquet, CSV, NIfTI, DICOM-SEG, BIDS, COCO, YOLO, overlay, HTTP) | Implemented; overlay renders bounding boxes and masks on source images |
+| NeuroAI compatibility engine | Implemented; checks channels, SR, spatial shape, voxel spacing, coordinate frame, fMRI TR |
+| NeuroAI preprocessing planner | Implemented; auto-inserts rescale_intensity for DICOM/MRI, bandpass for EEG |
+| NeuroAI trigger system | Implemented; fires structured EventMarkerOutput to all output adapters |
 | NeuroAI ring buffer (Python + Rust) | Implemented; Rust is optional |
 | Dashboard | Experimental entrypoint; not a product |
 

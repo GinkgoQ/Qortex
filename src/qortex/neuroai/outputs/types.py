@@ -132,11 +132,14 @@ class TimeSeriesPredictionOutput:
 class EventMarkerOutput:
     """Structured output for closed-loop trigger events."""
     label: str
-    value: float | str
-    timestamp: float            # Unix epoch
-    duration: float | None = None
+    timestamp_utc: str          # ISO-8601 UTC string
+    event_type: str = "trigger"
+    value: float | str | None = None
     confidence: float | None = None
-    source_window: dict | None = None   # which data window triggered this
+    window_index: int | None = None
+    source_id: str | None = None
+    duration_s: float | None = None
+    emit_payload: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

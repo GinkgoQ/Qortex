@@ -51,6 +51,27 @@ runtime:
   num_threads: null           # ONNX/Torch thread count, null = default
 ```
 
+## Validation
+
+`PipelineSpec.validate()` returns a list of error strings before anything is loaded. The CLI runs it automatically; call it explicitly in Python before `check()`:
+
+```python
+errors = pipe._spec.validate()
+if errors:
+    for e in errors:
+        print(e)
+```
+
+Checks performed:
+- `source.type` is present
+- `model.id` and `model.provider` are present
+- `model.provider` is a known value (`huggingface`, `onnx`, `torch`, `torchscript`, `monai`, `braindecode`, `ultralytics`, `custom`, `plugin`)
+- `trust_remote_code=True` is flagged as a security warning
+- At least one output is declared
+- `window.duration_s > 0` and `window.step_s > 0` (when provided)
+- `window.step_s <= window.duration_s`
+- All values in `preprocessing.allow` and `preprocessing.deny` are valid `TransformKind` names
+
 ## Python API
 
 ### Construction
@@ -167,6 +188,33 @@ pipe.replay("recording.xdf", speed=2.0, output_dir=Path("replay_out/"))
 ```
 
 `replay()` swaps the pipeline's source adapter to read from `source_path` and runs the full pipeline. `speed=2.0` plays back twice as fast as real-time (for XDF/EDF sources that simulate timing via `source.replay(speed)`). `output_dir` redirects output paths.
+
+## Trigger system
+
+A `trigger` block causes the runtime to evaluate a condition against each prediction and fire a structured `EventMarkerOutput` when the condition is met.
+
+```yaml
+trigger:
+  when:
+    class: motor_imagery
+    probability_gte: 0.85
+    stable_for: 3          # must fire on 3 consecutive windows
+  emit:
+    lsl_value: "1"
+    action: send_cue
+```
+
+When the trigger fires, the runtime:
+
+1. Calls `out_adapter.write_marker(EventMarkerOutput(...))` on every output adapter that exposes `write_marker`.
+2. Sets `metadata["trigger_fired"] = True` in the normal `write()` call for all adapters.
+3. Resets the consecutive-window counter.
+
+Supported `when` keys: `class`, `probability_gte`, `stable_for`.
+
+The `EventMarkerOutput` emitted contains: `event_type`, `label`, `confidence`, `window_index`, `source_id`, `timestamp_utc`, `emit_payload`.
+
+Adapters that implement `write_marker`: `OverlayOutputAdapter` (writes a `.json` trigger sidecar), `JSONLOutputAdapter` (appends a marker record), `LSLMarkerOutputAdapter` (pushes the trigger label as a marker string).
 
 ## Accessing intermediate state
 

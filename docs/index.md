@@ -24,7 +24,7 @@
     <ul class="tq-feature-list">
       <li><code>can_train("trial_type")</code> — manifest verdict before any download</li>
       <li><code>minimum("first-batch")</code> — exact files and byte count for a concrete ML goal</li>
-      <li><code>doctor(recipe)</code> — 15-point BIDS readiness check: events, companions, label coverage, splits</li>
+      <li><code>doctor(recipe)</code> — 15-point BIDS readiness check: events, companions, splits</li>
       <li>Selective download by subject · task · modality · suffix — resumable, size-limited</li>
       <li>Parquet · Zarr · HDF5 · WebDataset · HuggingFace · TFRecord — subject-level splits, leakage verified</li>
       <li>MRI · fMRI · DWI · PET · MEG · EEG · iEEG · fNIRS — uniform inspect / convert API</li>
@@ -48,23 +48,24 @@ ds = Dataset(<span class="tq-cs">"ds004130"</span>)
 <span class="tq-c"># no download yet</span>
 
 ds.can_train(<span class="tq-cs">"trial_type"</span>)
-<span class="tq-c"># True  (2 classes · 240 windows · 86 subjects)</span>
+<span class="tq-c"># True (2 classes · 240 windows · 86 subjects)</span>
 
 ds.minimum(<span class="tq-cs">"first-batch"</span>)
 <span class="tq-c"># 2 subjects · 4 files · 0.81 GB</span>
 
 ds.download(subjects=[<span class="tq-cs">"01"</span>, <span class="tq-cs">"02"</span>], datatypes=[<span class="tq-cs">"func"</span>])
-<span class="tq-c"># ████████████  100%  831 MB</span>
+<span class="tq-c"># ████████████ 100% 831 MB</span>
 
 art = ds.convert(
-    format=<span class="tq-cs">"parquet"</span>,
-    window=<span class="tq-ck">dict</span>(mode=<span class="tq-cs">"event_aligned"</span>, tmin=<span class="tq-cn">-0.2</span>, tmax=<span class="tq-cn">0.8</span>),
-    label_col=<span class="tq-cs">"trial_type"</span>,
+format=<span class="tq-cs">"parquet"</span>,
+window=<span class="tq-ck">dict</span>(mode=<span class="tq-cs">"event_aligned"</span>, tmin=<span class="tq-cn">-0.2</span>, tmax=<span class="tq-cn">0.8</span>),
+label_col=<span class="tq-cs">"trial_type"</span>,
 )
 <span class="tq-c"># train 180 · val 30 · test 30 samples</span>
 
 X, y = art.sklearn(split=<span class="tq-cs">"train"</span>)
-<span class="tq-c"># X: (180, 64, 256)   y: (180,)</span></code></pre>
+<span class="tq-c"># X: (180, 64, 256) y: (180,)</span></code></pre>
+
   </div>
 </section>
 
@@ -74,50 +75,50 @@ Three phases. Each is independent — inspect without downloading, download with
 
 **Before download — remote manifest only**
 
-| Call | Returns |
-|------|---------|
-| `Dataset("ds_id")` | Manifest: subjects, files, entities — no data transferred |
-| `ds.can_train(target_col)` | `True/False` + blocking reasons |
-| `ds.minimum(goal)` | File list + byte count for `"first-batch"`, `"label-check"`, `"validation"` |
-| `ds.label_landscape()` | Per-class trial counts and subject coverage across all events.tsv |
-| `ds.doctor()` | Full readiness report — events, companions, sizes, split feasibility |
-| `DatasetQuery().modality("eeg").has_events().min_subjects(30).fetch()` | Filtered catalog results |
-| `client.search_datasets_rich(modality="MRI", sort_by="downloads")` | Live API results with engagement |
+| Call                                                                   | Returns                                                                     |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `Dataset("ds_id")`                                                     | Manifest: subjects, files, entities — no data transferred                   |
+| `ds.can_train(target_col)`                                             | `True/False` + blocking reasons                                             |
+| `ds.minimum(goal)`                                                     | File list + byte count for `"first-batch"`, `"label-check"`, `"validation"` |
+| `ds.label_landscape()`                                                 | Per-class trial counts and subject coverage across all events.tsv           |
+| `ds.doctor()`                                                          | Full readiness report — events, companions, sizes, split feasibility        |
+| `DatasetQuery().modality("eeg").has_events().min_subjects(30).fetch()` | Filtered catalog results                                                    |
+| `client.search_datasets_rich(modality="MRI", sort_by="downloads")`     | Live API results with engagement                                            |
 
 **After selective download**
 
-| Call | Returns |
-|------|---------|
-| `ds.download(subjects, datatypes, suffixes, max_size_gb)` | Resumable selective transfer |
-| `ds.doctor(recipe="eeg-classification")` | Modality-specific checks post-download |
-| `ds.visual_audit(output_dir)` | Center-slice thumbnails — no full volume loaded |
-| `ds.get_validation_issues(tag)` | BIDS validator errors and warnings |
+| Call                                                      | Returns                                         |
+| --------------------------------------------------------- | ----------------------------------------------- |
+| `ds.download(subjects, datatypes, suffixes, max_size_gb)` | Resumable selective transfer                    |
+| `ds.doctor(recipe="eeg-classification")`                  | Modality-specific checks post-download          |
+| `ds.visual_audit(output_dir)`                             | Center-slice thumbnails — no full volume loaded |
+| `ds.get_validation_issues(tag)`                           | BIDS validator errors and warnings              |
 
 **Convert to artifact**
 
-| Call | Returns |
-|------|---------|
+| Call                                           | Returns                                          |
+| ---------------------------------------------- | ------------------------------------------------ |
 | `ds.convert(format, window, label_col, split)` | Artifact with subject-level train/val/test split |
-| `art.sklearn(split)` | `(X, y)` numpy arrays |
-| `art.torch(split)` | PyTorch `Dataset` |
-| `art.huggingface(split)` | HuggingFace `Dataset` |
-| `art.braindecode(split)` | BrainDecode `BaseConcatDataset` |
+| `art.sklearn(split)`                           | `(X, y)` numpy arrays                            |
+| `art.torch(split)`                             | PyTorch `Dataset`                                |
+| `art.huggingface(split)`                       | HuggingFace `Dataset`                            |
+| `art.braindecode(split)`                       | BrainDecode `BaseConcatDataset`                  |
 
 ## Implementation status
 
-| Area | Status |
-|------|--------|
-| Manifest inspection | Remote file tree, typed Manifest, BIDS entities extracted |
-| Selective download | Subject · session · task · modality · suffix · size filters; automatic resume |
-| BIDS validation | Wraps official validator; cached, normalized JSON output |
-| Catalog search | Local DuckDB + live API; `DatasetQuery` fluent builder with 10 filters |
-| Readiness checks | `doctor` · `minimum` · `can-train` · `first-batch` · `leakage-check` · `content-status` |
-| Conversion | Parquet · Zarr · HDF5 · WebDataset · HuggingFace · TFRecord |
-| ML adapters | PyTorch · Lightning · scikit-learn · HuggingFace · BrainDecode · Dask |
-| Visual QC — NIfTI | Ortho · lightbox · fMRI QC · DWI QC · PET overlay · one center slice per file |
-| Visual QC — EEG/MEG | Butterfly · PSD · spectrogram · topomap · epoched previews via MNE |
-| Visual QC — DICOM | Series browser with PHI protection |
-| Surface rendering | Not implemented — GIFTI/CIFTI falls to summary-only |
+| Area                | Status                                                                                  |
+| ------------------- | --------------------------------------------------------------------------------------- |
+| Manifest inspection | Remote file tree, typed Manifest, BIDS entities extracted                               |
+| Selective download  | Subject · session · task · modality · suffix · size filters; automatic resume           |
+| BIDS validation     | Wraps official validator; cached, normalized JSON output                                |
+| Catalog search      | Local DuckDB + live API; `DatasetQuery` fluent builder with 10 filters                  |
+| Readiness checks    | `doctor` · `minimum` · `can-train` · `first-batch` · `leakage-check` · `content-status` |
+| Conversion          | Parquet · Zarr · HDF5 · WebDataset · HuggingFace · TFRecord                             |
+| ML adapters         | PyTorch · Lightning · scikit-learn · HuggingFace · BrainDecode · Dask                   |
+| Visual QC — NIfTI   | Ortho · lightbox · fMRI QC · DWI QC · PET overlay · one center slice per file           |
+| Visual QC — EEG/MEG | Butterfly · PSD · spectrogram · topomap · epoched previews via MNE                      |
+| Visual QC — DICOM   | Series browser with PHI protection                                                      |
+| Surface rendering   | Not implemented — GIFTI/CIFTI falls to summary-only                                     |
 
 ## Where to start
 

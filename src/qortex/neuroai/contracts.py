@@ -86,6 +86,8 @@ class AxisConvention(str, Enum):
     RAS    = "RAS"
     LAS    = "LAS"
     LPS    = "LPS"
+    spatial_zyx     = "spatial_zyx"      # (Z, Y, X) — DICOM/NIfTI native
+    spatial_xyz     = "spatial_xyz"      # (X, Y, Z)
     channels_first  = "channels_first"   # (C, ...) or (B, C, ...)
     channels_last   = "channels_last"    # (..., C) or (B, ..., C)
     time_channels   = "time_channels"    # (T, C)

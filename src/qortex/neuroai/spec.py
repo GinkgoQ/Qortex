@@ -393,20 +393,84 @@ class PipelineSpec:
         return hashlib.sha256(canonical.encode()).hexdigest()
 
     def validate(self) -> list[str]:
-        """Return a list of validation errors; empty = valid."""
+        """Return a list of validation errors; empty = valid.
+
+        Checks:
+        - Required fields (source.type, model.id, model.provider)
+        - Security flags (trust_remote_code)
+        - At least one output declared
+        - Window timing sanity (duration_s > 0, step_s > 0, step_s <= duration_s)
+        - All preprocessing.allow values are valid TransformKind names
+        - Provider must be a known value
+        """
         errors: list[str] = []
+
+        # Required fields
         if not self.source.type:
             errors.append("source.type is required")
         if not self.model.id:
             errors.append("model.id is required")
         if not self.model.provider:
             errors.append("model.provider is required")
+
+        # Known providers
+        _KNOWN_PROVIDERS = {"huggingface", "onnx", "torch", "torchscript",
+                            "monai", "braindecode", "ultralytics", "custom", "plugin"}
+        if self.model.provider and self.model.provider.lower() not in _KNOWN_PROVIDERS:
+            errors.append(
+                f"model.provider {self.model.provider!r} is not a recognised provider. "
+                f"Known: {', '.join(sorted(_KNOWN_PROVIDERS))}"
+            )
+
+        # Security gate
         if self.model.trust_remote_code:
-            # This is a security-sensitive flag; always surface it
             errors.append(
                 "SECURITY: trust_remote_code=True allows arbitrary code execution. "
                 "Ensure the model source is trusted."
             )
+
+        # Outputs
         if not self.outputs:
-            errors.append("At least one output must be specified")
+            errors.append("At least one output must be specified in 'outputs'")
+
+        # Window timing
+        if self.window is not None:
+            if self.window.duration_s is not None and self.window.duration_s <= 0:
+                errors.append(
+                    f"window.duration must be > 0 (got {self.window.duration_s})"
+                )
+            if self.window.step_s is not None and self.window.step_s <= 0:
+                errors.append(
+                    f"window.step must be > 0 (got {self.window.step_s})"
+                )
+            if (
+                self.window.duration_s is not None
+                and self.window.step_s is not None
+                and self.window.step_s > self.window.duration_s
+            ):
+                errors.append(
+                    f"window.step ({self.window.step_s}s) must be <= "
+                    f"window.duration ({self.window.duration_s}s)"
+                )
+
+        # preprocessing.allow — check against known TransformKind values
+        _VALID_TRANSFORMS = {
+            "resample", "channel_select", "channel_reorder", "channel_map",
+            "bandpass", "normalize", "window", "cast_dtype", "rescale_intensity",
+            "reorient", "resample_spatial", "pad_or_crop",
+            "add_batch_dim", "add_channel_dim", "to_tensor",
+        }
+        for tk in self.preprocessing.allow:
+            if tk not in _VALID_TRANSFORMS:
+                errors.append(
+                    f"preprocessing.allow contains unknown transform {tk!r}. "
+                    f"Valid: {', '.join(sorted(_VALID_TRANSFORMS))}"
+                )
+        for tk in self.preprocessing.deny:
+            if tk not in _VALID_TRANSFORMS:
+                errors.append(
+                    f"preprocessing.deny contains unknown transform {tk!r}. "
+                    f"Valid: {', '.join(sorted(_VALID_TRANSFORMS))}"
+                )
+
         return errors

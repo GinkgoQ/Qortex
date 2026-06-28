@@ -20,6 +20,7 @@ import numpy as np
 
 from qortex.neuroai.contracts import (
     CompatibilityReport,
+    EvidenceStatus,
     InputContract,
     ModelProfile,
     PreprocessPlan,
@@ -58,7 +59,7 @@ class PreprocessPlanner:
     Usage::
 
         planner = PreprocessPlanner()
-        plan = planner.build_plan(compat_report)
+        plan = planner.build_plan(compat_report, source_profile=source_profile)
         print(plan.summary())
     """
 
@@ -68,6 +69,7 @@ class PreprocessPlanner:
         *,
         window_duration_s: float | None = None,
         extra_normalisation: bool = True,
+        source_profile: "SourceProfile | None" = None,
     ) -> PreprocessPlan:
         """Convert a CompatibilityReport into an executable PreprocessPlan.
 
@@ -87,6 +89,25 @@ class PreprocessPlanner:
             Ordered, documented transform chain.
         """
         transforms = list(compat_report.required_transforms)
+
+        # Auto-insert rescale_intensity for DICOM/MRI sources when not already present.
+        # DICOM pixel values after Rescale Slope/Intercept are in Hounsfield Units
+        # (-1024..+3071 for CT) or in raw ADC units for MRI; most models expect [0,1] or [-1,1].
+        if source_profile is not None:
+            src_mod = str(getattr(source_profile, "modality", "") or "").lower()
+            needs_rescale = src_mod in ("dicom", "ct", "mri", "fmri", "dwi", "pet")
+            already_rescaled = any(
+                _kind_str(t) in ("rescale_intensity", "normalize") for t in transforms
+            )
+            if needs_rescale and not already_rescaled:
+                transforms.append(TransformDescriptor(
+                    kind=TransformKind.rescale_intensity,
+                    required_by="source_modality",
+                    params={"out_min": 0.0, "out_max": 1.0},
+                    reversible=False,
+                    irreversible_reason="Linear rescaling to [0,1] uses per-volume min/max",
+                    evidence_status=EvidenceStatus.inferred,
+                ))
 
         # Append normalization if not already present
         if extra_normalisation and not any(

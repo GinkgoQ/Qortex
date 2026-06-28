@@ -134,6 +134,15 @@ class CompatibilityEngine:
             source, contract, transforms, warnings, evidence
         )
 
+        # ── Voxel spacing check (volume sources) ──────────────────────────────
+        self._check_voxel_spacing(source, contract, warnings, unknowns, evidence)
+
+        # ── Coordinate frame check ─────────────────────────────────────────────
+        self._check_coordinate_frame(source, contract, transforms, warnings, evidence)
+
+        # ── fMRI timebase / TR check ───────────────────────────────────────────
+        self._check_fmri_timebase(source, contract, warnings, unknowns, evidence)
+
         # ── Memory estimate ───────────────────────────────────────────────────
         mem_mb = self._estimate_memory(source, model)
         if mem_mb > 8192:
@@ -492,6 +501,138 @@ class CompatibilityEngine:
         evidence.append({"check": "axis_convention", "status": "ok",
                          "source": src_str, "required": req_str})
         return EvidenceStatus.confirmed
+
+    def _check_voxel_spacing(
+        self,
+        source: SourceProfile,
+        contract: InputContract,
+        warnings: list,
+        unknowns: list,
+        evidence: list,
+    ) -> None:
+        req_vox = contract.voxel_sizes_mm
+        src_vox = source.voxel_sizes_mm
+
+        if req_vox is None:
+            return  # model does not declare spacing requirements
+        if src_vox is None:
+            unknowns.append("source.voxel_sizes_mm is unknown — cannot verify spacing match")
+            return
+
+        # Check element-wise within 10% tolerance
+        if len(req_vox) != len(src_vox):
+            warnings.append(WarningItem(
+                code="VOXEL_SPACING_DIM_MISMATCH",
+                message=f"Source voxel size has {len(src_vox)} dims but model expects "
+                        f"{len(req_vox)}. Spacing check skipped.",
+                severity="warning",
+            ))
+            return
+
+        mismatched = [
+            (i, float(src_vox[i]), float(req_vox[i]))
+            for i in range(len(req_vox))
+            if abs(float(src_vox[i]) - float(req_vox[i])) / max(float(req_vox[i]), 1e-6) > 0.10
+        ]
+        if mismatched:
+            details = ", ".join(f"dim{i}: {s:.2f}mm vs {r:.2f}mm" for i, s, r in mismatched)
+            warnings.append(WarningItem(
+                code="VOXEL_SPACING_MISMATCH",
+                message=f"Voxel spacing mismatch (>10%): {details}. "
+                        "Consider using resample_spatial to match the model's expected resolution.",
+                severity="warning",
+                evidence={"source_mm": list(src_vox), "required_mm": list(req_vox)},
+                suggestion="Add 'resample_spatial' to preprocessing.allow in the pipeline YAML.",
+            ))
+        else:
+            evidence.append({"check": "voxel_spacing", "status": "ok",
+                             "source_mm": list(src_vox), "required_mm": list(req_vox)})
+
+    def _check_coordinate_frame(
+        self,
+        source: SourceProfile,
+        contract: InputContract,
+        transforms: list,
+        warnings: list,
+        evidence: list,
+    ) -> None:
+        src_conv = source.axis_convention
+        req_conv = contract.axis_convention
+
+        if req_conv is None or src_conv is None:
+            return
+
+        src_str = src_conv.value if hasattr(src_conv, "value") else str(src_conv)
+        req_str = req_conv.value if hasattr(req_conv, "value") else str(req_conv)
+
+        # Spatial coordinate frame mismatch (LPS vs RAS)
+        _LPS = {"LPS", "spatial_zyx"}
+        _RAS = {"RAS", "spatial_xyz"}
+
+        src_is_lps = src_str.upper() in _LPS or "lps" in src_str.lower()
+        req_is_ras = req_str.upper() in _RAS or req_str.upper() == "RAS"
+        req_is_lps = req_str.upper() in _LPS or req_str.upper() == "LPS"
+
+        if src_is_lps and req_is_ras:
+            transforms.append(TransformDescriptor(
+                kind=TransformKind.reorient,
+                required_by="input_contract.axis_convention",
+                params={"from": "LPS", "to": "RAS"},
+                reversible=True,
+                evidence_status=EvidenceStatus.inferred,
+            ))
+            warnings.append(WarningItem(
+                code="COORDINATE_FRAME_MISMATCH",
+                message="Source uses LPS (DICOM) convention; model expects RAS (NIfTI). "
+                        "A reorient transform will flip the coordinate frame.",
+                severity="warning",
+                evidence={"source": src_str, "required": req_str},
+                suggestion="Verify the model was trained on LPS or RAS volumes.",
+            ))
+        elif not src_is_lps and req_is_lps:
+            warnings.append(WarningItem(
+                code="COORDINATE_FRAME_MISMATCH",
+                message=f"Source coordinate frame {src_str!r} ≠ model requirement {req_str!r}. "
+                        "Manual reorientation may be required.",
+                severity="warning",
+            ))
+
+    def _check_fmri_timebase(
+        self,
+        source: SourceProfile,
+        contract: InputContract,
+        warnings: list,
+        unknowns: list,
+        evidence: list,
+    ) -> None:
+        """Warn when source TR does not match the model's expected TR."""
+        src_mod = str(source.modality or "").lower()
+        if src_mod not in ("fmri", "bold", "func"):
+            return  # only applies to fMRI
+
+        src_tr = source.tr_s
+        req_tr = getattr(contract, "tr_s", None)
+
+        if req_tr is None:
+            unknowns.append("model.tr_s (repetition time) is not specified for fMRI source")
+            return
+        if src_tr is None:
+            unknowns.append("source.tr_s (repetition time) is unknown — cannot verify fMRI TR")
+            return
+
+        if abs(src_tr - req_tr) / max(req_tr, 1e-6) > 0.05:  # >5% mismatch
+            warnings.append(WarningItem(
+                code="FMRI_TR_MISMATCH",
+                message=f"Source TR={src_tr:.3f}s but model expects TR={req_tr:.3f}s. "
+                        "Timing-dependent features (HRF, connectivity) will be incorrect.",
+                severity="warning",
+                evidence={"source_tr_s": src_tr, "required_tr_s": req_tr},
+                suggestion="Resample the fMRI volume or choose a model trained on "
+                           f"TR={src_tr:.2f}s data.",
+            ))
+        else:
+            evidence.append({"check": "fmri_tr", "status": "ok",
+                             "source_tr_s": src_tr, "required_tr_s": req_tr})
 
     def _estimate_memory(self, source: SourceProfile, model: ModelProfile) -> float:
         """Rough memory estimate in MB."""

@@ -90,8 +90,16 @@ def make_output_adapter(spec: OutputSpec, *, pipeline_ref: str | None = None) ->
         from qortex.neuroai.outputs.http_out import HTTPCallbackOutputAdapter
         return HTTPCallbackOutputAdapter(path, pipeline_ref=pipeline_ref)
 
+    if out_type in ("overlay", "image_overlay", "video_overlay"):
+        from qortex.neuroai.outputs.overlay_out import OverlayOutputAdapter
+        return OverlayOutputAdapter(
+            spec,
+            output_dir=path or "annotated_frames",
+            pipeline_ref=pipeline_ref,
+        )
+
     raise ValueError(
         f"Unknown output type: {out_type!r}. "
         f"Supported: 'jsonl', 'parquet', 'csv', 'lsl_marker', 'nifti', "
-        f"'dicom_seg', 'dicom_sr', 'bids', 'coco', 'yolo', 'websocket', 'http'."
+        f"'dicom_seg', 'dicom_sr', 'bids', 'coco', 'yolo', 'websocket', 'http', 'overlay'."
     )

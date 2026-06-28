@@ -109,6 +109,36 @@ outputs:
 
 Creates a `highdicom.sr.EnhancedSR` structured report using TID 1500 MeasurementReport. Used for `RegressionOutput` and `ReportOutput` types. Falls back to `.json` on `highdicom` API failure.
 
+## Image overlay
+
+### Overlay
+
+```yaml
+outputs:
+  - type: overlay
+    path: annotated_frames/
+    extra:
+      format: png        # png | jpg (default: png)
+      alpha: 0.45        # mask transparency, 0–1 (default: 0.45)
+      line_width: 2      # bounding-box border width in pixels
+```
+
+Renders model predictions on top of source images and saves annotated frames to disk. Requires Pillow or OpenCV (checked at runtime; falls back automatically between the two).
+
+The source image must be passed through `metadata["source_image"]` as a `[H, W]` or `[H, W, C]` array when calling `out_adapter.write(output, metadata={"source_image": frame, ...})`.
+
+What gets drawn per output type:
+
+| Output type | Rendered annotation |
+|---|---|
+| `DetectionOutput` | Coloured bounding boxes with class label and confidence |
+| `SegmentationOutput` | Per-class colour overlay at configured `alpha` transparency |
+| `ClassificationOutput` | Black banner with `class_name: confidence%` in the top-left corner |
+
+When no `source_image` is provided (pure signal pipelines), the adapter writes a JSON sidecar per window instead of a frame.
+
+When a trigger fires, `write_marker(EventMarkerOutput)` writes a companion `trigger_{frame_idx}.json` next to the annotated frame.
+
 ## Annotation outputs
 
 ### BIDS derivative
@@ -192,12 +222,13 @@ TimeSeriesPredictionOutput(
 )
 
 EventMarkerOutput(
+    event_type="trigger",
     label="motor_imagery",
-    value=1,
-    timestamp=1234.56,
-    duration=4.0,
+    timestamp_utc="2024-06-28T12:00:00+00:00",
     confidence=0.92,
-    source_window=42,
+    window_index=42,
+    source_id="bids:ds004130",
+    emit_payload={"lsl_value": "1", "action": "send_cue"},
 )
 
 VolumePredictionOutput(
