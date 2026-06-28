@@ -47,4 +47,4 @@ Qortex works with any BIDS-formatted data stored on OpenNeuro. It has been desig
 - DWI
 - PET
 
-Surface data (GIFTI/CIFTI) is partially supported: inspection works but rendering falls through to a summary-only output.
+Surface data (GIFTI/CIFTI) is partially supported: typed inspection and QC summaries work for GIFTI meshes/scalars/labels and CIFTI dense matrices. Advanced workbench-style surface interaction and volume-to-surface projection are still future work.

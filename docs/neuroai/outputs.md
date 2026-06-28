@@ -15,7 +15,7 @@ outputs:
     append: false
 ```
 
-One JSON object per prediction window. Schema varies by output type (classification, detection, segmentation, etc.) but always includes `pipeline_ref`, `window_index`, `timestamp`, and `output_type`.
+One JSON object per prediction window. Schema varies by output type (classification, detection, segmentation, etc.) but always includes timestamp, index, `window_index`, source, pipeline hash, and `output_type` when available.
 
 ### Parquet
 
@@ -25,7 +25,7 @@ outputs:
     path: predictions.parquet
 ```
 
-Columnar output. Columns: `timestamp`, `output_type`, `class_name`, `class_index`, `confidence`, `regression_value`, `source_id`, `model_id`, `window_index`, `extra_json`. Complex fields (bounding boxes, masks) are serialized into `extra_json`.
+Columnar output for offline analytics. Core columns include timestamp, output type, class, class index, top probability, regression value, pipeline hash, and run metadata. Probability vectors are flattened into per-class columns for direct filtering and aggregation.
 
 ### CSV
 
@@ -36,7 +36,7 @@ outputs:
     append: true
 ```
 
-Same columns as Parquet. `append: true` opens in append mode so multiple runs accumulate in one file.
+Appendable CSV for lightweight analytics and spreadsheet inspection. It writes stable columns for timestamp, index, pipeline hash, output type, class, class index, top probability, regression value, window index, trigger state, source, probabilities JSON, runtime metadata JSON, model-output metadata JSON, and compact summaries for raw arrays, masks, and embeddings. `append: true` opens in append mode so multiple runs accumulate in one file.
 
 ## Streaming outputs
 

@@ -328,7 +328,7 @@ pipe.replay("recording.xdf", speed=2.0)
 |---|---|
 | `jsonl` | One JSON line per prediction window |
 | `parquet` | Columnar predictions with metadata |
-| `csv` | Flat CSV with window index and extra JSON column |
+| `csv` | Analytics-friendly CSV with probabilities, metadata, trigger state, source, pipeline hash, and compact summaries for array payloads |
 | `lsl_marker` | LSL marker stream (`pylsl`) |
 | `nifti` | NIfTI mask with affine (`nibabel`) |
 | `dicom_seg` | DICOM-SEG object (`highdicom`) |

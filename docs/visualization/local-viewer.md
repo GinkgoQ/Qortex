@@ -61,9 +61,9 @@ qortex visualize ds004130 --subject 01 --data-dir data/ds004130/ --output figure
 
 ## Surface files (GIFTI/CIFTI)
 
-Surface files are detected by extension (`.surf.gii`, `.func.gii`, `.dscalar.nii`, `.dtseries.nii`). Rendering falls through to a summary-only output — the intent is `INTENT_SURFACE` and the figure shows metadata only (number of vertices, data range, sampling density).
+Surface files are detected by extension (`.surf.gii`, `.func.gii`, `.dscalar.nii`, `.dtseries.nii`). The intent is `INTENT_SURFACE`. GIFTI files are inspected as mesh/scalar/label assets and rendered as surface QC summaries with vertices, faces, bounds, labels, array roles, and value ranges. CIFTI files are inspected as dense matrices and rendered as axis-aware matrix summaries with sampled data ranges.
 
-Full surface rendering requires a surface viewer not currently implemented. This is a known limitation.
+This is a QC viewer, not a replacement for Connectome Workbench. Advanced interactions such as full multi-view workbench-style surface scenes and volume-to-surface projection remain future work.
 
 ## Saving output
 
