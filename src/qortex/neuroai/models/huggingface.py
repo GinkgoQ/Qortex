@@ -176,9 +176,11 @@ class HuggingFaceAdapter(ModelAdapter):
                     trust_remote_code=self._spec.trust_remote_code,
                 ).to(device)
         except Exception as exc:
-            from qortex.core.exceptions import QortexError
-            raise type("ModelAdapterError", (QortexError,), {})(
-                f"Failed to load model {self._spec.id!r}: {exc}"
+            from qortex.core.exceptions import ModelAdapterError
+            raise ModelAdapterError(
+                f"Failed to load model {self._spec.id!r}: {exc}",
+                model_id=self._spec.id,
+                provider="huggingface",
             ) from exc
 
         self._loaded = True

@@ -69,16 +69,17 @@ class LSLSourceAdapter(SourceAdapter):
         if not target:
             return SourceProfile(
                 source_id="lsl:no_stream",
+                source_type="lsl",
                 modality="unknown",
                 n_channels=0,
                 sampling_rate_hz=None,
                 path=None,
+                evidence_status=EvidenceStatus.missing,
                 evidence={"n_channels": EvidenceStatus.missing},
                 warnings=[WarningItem(
                     code="LSL_NO_STREAM",
                     message=f"No LSL stream found matching {self._query}",
                     severity="warning",
-                    evidence={},
                     suggestion="Start the LSL source before calling probe().",
                 )],
             )
@@ -93,9 +94,11 @@ class LSLSourceAdapter(SourceAdapter):
 
         return SourceProfile(
             source_id=f"lsl:{info.name()}",
+            source_type="lsl",
             modality=stream_type if stream_type in ("eeg", "meg", "ecg", "emg") else "signal",
             n_channels=n_channels,
             sampling_rate_hz=srate if srate > 0 else None,
+            channel_names=ch_names,
             channel_specs=channel_specs,
             dtype="float32",
             axis_convention=AxisConvention.channels_time,
@@ -141,12 +144,12 @@ class LSLSourceAdapter(SourceAdapter):
         return [QortexTimeSeries(
             data=arr,
             shape=arr.shape,
-            axes="channels_time",
+            axes=["channels", "time"],
             dtype="float32",
             units="uV",
-            sampling_rate_hz=srate,
+            sampling_frequency_hz=srate,
             channel_names=_extract_lsl_channel_names(target[0]),
-            provenance={"source_type": "lsl", "stream_name": target[0].name()},
+            source_provenance={"source_type": "lsl", "stream_name": target[0].name()},
         )]
 
     def stream(self) -> Iterator[QortexData]:
@@ -193,12 +196,12 @@ class LSLSourceAdapter(SourceAdapter):
                     yield QortexTimeSeries(
                         data=win,
                         shape=win.shape,
-                        axes="channels_time",
+                        axes=["channels", "time"],
                         dtype="float32",
                         units="uV",
-                        sampling_rate_hz=srate,
+                        sampling_frequency_hz=srate,
                         channel_names=ch_names,
-                        provenance={
+                        source_provenance={
                             "source_type": "lsl",
                             "stream_name": info.name(),
                             "window_index": window_idx,

@@ -334,7 +334,7 @@ class LocalFileAdapter(SourceAdapter):
             modality=Modality.tabular,
             abstraction="event_table",
             n_channels=len(numeric_columns) if numeric_columns else None,
-            channel_names=numeric_columns or None,
+            channel_names=numeric_columns,
             evidence_status=EvidenceStatus.confirmed if columns else EvidenceStatus.inferred,
             extra={
                 "n_rows": n_events,

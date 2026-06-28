@@ -91,7 +91,6 @@ class BIDSSourceAdapter(SourceAdapter):
         if first_signal:
             sidecar = self._read_sidecar(first_signal)
             sfreq = sidecar.get("SamplingFrequency")
-            ch_names_sidecar = sidecar.get("ChannelCount")
             try:
                 import mne
                 raw = mne.io.read_raw(str(first_signal), preload=False, verbose=False)

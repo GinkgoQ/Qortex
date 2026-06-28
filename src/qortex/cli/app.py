@@ -1840,3 +1840,396 @@ def _build_candidate_list(task: str, modality: str, provider: str, limit: int) -
             pass  # Fall back to curated list
 
     return candidates[:limit]
+
+
+# ── check ─────────────────────────────────────────────────────────────────────
+
+check_app = typer.Typer(
+    name="check",
+    help="Targeted data integrity checks.",
+    no_args_is_help=True,
+)
+app.add_typer(check_app, name="check")
+
+
+@check_app.command("events")
+def check_events(
+    dataset: Path = typer.Argument(..., help="BIDS dataset root"),
+    modality: Optional[str] = typer.Option(None, "--modality", "-m"),
+    require_trial_type: bool = typer.Option(False, "--require-trial-type"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Write JSON report here"),
+) -> None:
+    """Validate event timing, onset ranges, and BIDS entity matching."""
+    from qortex.checks.domains.events import EventsChecker
+    import json
+    checker = EventsChecker(modality=modality, require_trial_type=require_trial_type)
+    report = checker.run(dataset)
+    typer.echo(f"Events check: {report.status.value}  ({len(report.blockers)} blockers, {len(report.warnings)} warnings)")
+    for f in report.blockers + report.warnings:
+        typer.echo(f"  [{f.severity.value}] {f.code}: {f.message}")
+    if output:
+        output.write_text(json.dumps(report.to_dict(), indent=2))
+        typer.echo(f"  Report written to {output}")
+    if report.status.value == "BLOCK":
+        raise typer.Exit(1)
+
+
+@check_app.command("units")
+def check_units(
+    dataset: Path = typer.Argument(..., help="BIDS dataset root"),
+    modality: Optional[str] = typer.Option(None, "--modality", "-m"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o"),
+) -> None:
+    """Validate declared units against observed signal scale."""
+    from qortex.checks.domains.units import UnitsChecker
+    import json
+    checker = UnitsChecker(modality=modality)
+    report = checker.run(dataset)
+    typer.echo(f"Units check: {report.status.value}  ({len(report.blockers)} blockers, {len(report.warnings)} warnings)")
+    for f in report.blockers + report.warnings:
+        typer.echo(f"  [{f.severity.value}] {f.code}: {f.message}")
+    if output:
+        output.write_text(json.dumps(report.to_dict(), indent=2))
+    if report.status.value == "BLOCK":
+        raise typer.Exit(1)
+
+
+@check_app.command("geometry")
+def check_geometry(
+    dataset: Path = typer.Argument(..., help="BIDS dataset root"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o"),
+) -> None:
+    """Validate NIfTI affine, qform/sform, and DWI gradient tables."""
+    from qortex.checks.domains.geometry import GeometryChecker
+    import json
+    checker = GeometryChecker()
+    report = checker.run(dataset)
+    typer.echo(f"Geometry check: {report.status.value}  ({len(report.blockers)} blockers, {len(report.warnings)} warnings)")
+    for f in report.blockers + report.warnings:
+        typer.echo(f"  [{f.severity.value}] {f.code}: {f.message}")
+    if output:
+        output.write_text(json.dumps(report.to_dict(), indent=2))
+    if report.status.value == "BLOCK":
+        raise typer.Exit(1)
+
+
+@check_app.command("leakage")
+def check_leakage(
+    dataset: Path = typer.Argument(..., help="BIDS dataset root"),
+    target: Optional[str] = typer.Option(None, "--target", "-t", help="Target column in participants.tsv"),
+    split_unit: str = typer.Option("subject", "--split-unit", help="subject / session / run"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o"),
+) -> None:
+    """Validate ML label availability and train/test leakage risk."""
+    from qortex.checks.domains.leakage import LeakageChecker
+    import json
+    checker = LeakageChecker(target=target, split_unit=split_unit)
+    report = checker.run(dataset)
+    typer.echo(f"Leakage check: {report.status.value}  ({len(report.blockers)} blockers, {len(report.warnings)} warnings)")
+    for f in report.blockers + report.warnings:
+        typer.echo(f"  [{f.severity.value}] {f.code}: {f.message}")
+    if output:
+        output.write_text(json.dumps(report.to_dict(), indent=2))
+    if report.status.value == "BLOCK":
+        raise typer.Exit(1)
+
+
+@check_app.command("structure")
+def check_structure(
+    dataset: Path = typer.Argument(..., help="BIDS dataset root"),
+    modality: Optional[str] = typer.Option(None, "--modality", "-m"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o"),
+) -> None:
+    """Validate BIDS layout, companion-file closure, and entity consistency."""
+    from qortex.checks.domains.structure import StructureChecker
+    import json
+    checker = StructureChecker(modality=modality)
+    report = checker.run(dataset)
+    typer.echo(f"Structure check: {report.status.value}  ({len(report.blockers)} blockers, {len(report.warnings)} warnings)")
+    for f in report.blockers + report.warnings:
+        typer.echo(f"  [{f.severity.value}] {f.code}: {f.message}")
+    if output:
+        output.write_text(json.dumps(report.to_dict(), indent=2))
+    if report.status.value == "BLOCK":
+        raise typer.Exit(1)
+
+
+@check_app.command("metadata")
+def check_metadata(
+    dataset: Path = typer.Argument(..., help="BIDS dataset root"),
+    modality: Optional[str] = typer.Option(None, "--modality", "-m"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o"),
+) -> None:
+    """Cross-check BIDS JSON sidecars against raw file headers."""
+    from qortex.checks.domains.metadata import MetadataChecker
+    import json
+    checker = MetadataChecker(modality=modality)
+    report = checker.run(dataset)
+    typer.echo(f"Metadata check: {report.status.value}  ({len(report.blockers)} blockers, {len(report.warnings)} warnings)")
+    for f in report.blockers + report.warnings:
+        typer.echo(f"  [{f.severity.value}] {f.code}: {f.message}")
+    if output:
+        output.write_text(json.dumps(report.to_dict(), indent=2))
+    if report.status.value == "BLOCK":
+        raise typer.Exit(1)
+
+
+@check_app.command("dwi-gradients")
+def check_dwi_gradients(
+    dataset: Path = typer.Argument(..., help="BIDS dataset root"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o"),
+) -> None:
+    """Validate DWI bval/bvec integrity and volume count consistency."""
+    from qortex.checks.domains.geometry import GeometryChecker
+    import json
+    checker = GeometryChecker(check_affine=False, check_voxel_size_consistency=False, check_dwi_gradients=True)
+    report = checker.run(dataset)
+    typer.echo(f"DWI gradients check: {report.status.value}  ({len(report.blockers)} blockers, {len(report.warnings)} warnings)")
+    for f in report.blockers + report.warnings:
+        typer.echo(f"  [{f.severity.value}] {f.code}: {f.message}")
+    if output:
+        output.write_text(json.dumps(report.to_dict(), indent=2))
+    if report.status.value == "BLOCK":
+        raise typer.Exit(1)
+
+
+@check_app.command("eeg-channels")
+def check_eeg_channels(
+    dataset: Path = typer.Argument(..., help="BIDS dataset root"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o"),
+) -> None:
+    """Validate EEG channel metadata and unit consistency."""
+    from qortex.checks.domains.units import UnitsChecker
+    import json
+    checker = UnitsChecker(modality="eeg")
+    report = checker.run(dataset)
+    typer.echo(f"EEG channels check: {report.status.value}  ({len(report.blockers)} blockers, {len(report.warnings)} warnings)")
+    for f in report.blockers + report.warnings:
+        typer.echo(f"  [{f.severity.value}] {f.code}: {f.message}")
+    if output:
+        output.write_text(json.dumps(report.to_dict(), indent=2))
+    if report.status.value == "BLOCK":
+        raise typer.Exit(1)
+
+
+# ── preflight ─────────────────────────────────────────────────────────────────
+
+@app.command()
+def preflight(
+    dataset: Path = typer.Argument(..., help="BIDS dataset root"),
+    goal: str = typer.Option(..., "--goal", "-g", help="visualize / convert / train / neuroai-run"),
+    modality: Optional[str] = typer.Option(None, "--modality", "-m"),
+    target: Optional[str] = typer.Option(None, "--target", "-t", help="Label column for train goal"),
+    split_unit: str = typer.Option("subject", "--split-unit"),
+    pipeline: Optional[Path] = typer.Option(None, "--pipeline", "-p", help="Pipeline YAML for neuroai-run goal"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Write JSON report"),
+    strict: bool = typer.Option(False, "--strict", help="Exit 1 on WARN as well as BLOCK"),
+) -> None:
+    """Run a goal-aware preflight check before data processing.
+
+    Examples::
+
+        qortex preflight ./dataset --goal visualize --modality mri
+        qortex preflight ./dataset --goal train --target diagnosis --split-unit subject
+        qortex preflight ./dataset --goal neuroai-run --pipeline pipeline.yaml
+    """
+    import json
+    from qortex.checks import run_preflight
+    report = run_preflight(
+        dataset,
+        goal=goal,
+        modality=modality,
+        target=target,
+        split_unit=split_unit,
+        pipeline_yaml=pipeline,
+    )
+    typer.echo(f"\nPreflight [{goal}]: {report.status.value}")
+    typer.echo(f"  Checks run: {len(report.checks)}")
+    typer.echo(f"  Blockers:   {len(report.blockers)}")
+    typer.echo(f"  Warnings:   {len(report.warnings)}")
+    for f in report.blockers:
+        typer.echo(f"  [BLOCK] {f.code}: {f.message}")
+    for f in report.warnings[:10]:
+        typer.echo(f"  [WARN]  {f.code}: {f.message}")
+    if output:
+        output.write_text(json.dumps(report.to_dict(), indent=2))
+        typer.echo(f"  Report written to {output}")
+    if report.status.value == "BLOCK":
+        raise typer.Exit(1)
+    if strict and report.status.value == "WARN":
+        raise typer.Exit(1)
+
+
+# ── neuro-classic ─────────────────────────────────────────────────────────────
+
+neuro_classic_app = typer.Typer(
+    name="neuro-classic",
+    help="Classical computational neuroscience methods.",
+    no_args_is_help=True,
+)
+app.add_typer(neuro_classic_app, name="neuro-classic")
+
+
+@neuro_classic_app.command("signal-qc")
+def nc_signal_qc(
+    dataset: Path = typer.Argument(..., help="BIDS dataset root"),
+    modality: str = typer.Option("eeg", "--modality", "-m"),
+    max_files: Optional[int] = typer.Option(None, "--max-files"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o"),
+) -> None:
+    """Run signal QC on all EEG/MEG files (flatline, NaN, saturation, amplitude).
+
+    Requires MNE: pip install 'qortex[eeg]'
+    """
+    import json
+    from qortex.neuroclassic import run_signal_qc_on_dataset
+    typer.echo(f"Running signal QC on {dataset} (modality={modality}) …")
+    report = run_signal_qc_on_dataset(dataset, modality=modality, max_files=max_files)
+    typer.echo(f"  Files processed: {len(report.results)}")
+    typer.echo(f"  With warnings:   {report.to_dict()['n_with_warnings']}")
+    typer.echo(f"  With blockers:   {report.to_dict()['n_with_blockers']}")
+    for r in report.results:
+        if r.blockers or r.warnings:
+            typer.echo(f"\n  {r.scope}")
+            for b in r.blockers:
+                typer.echo(f"    [BLOCK] {b}")
+            for w in r.warnings[:3]:
+                typer.echo(f"    [WARN]  {w}")
+    if output:
+        output.write_text(json.dumps(report.to_dict(), indent=2))
+        typer.echo(f"\nReport written to {output}")
+
+
+@neuro_classic_app.command("image-qc")
+def nc_image_qc(
+    dataset: Path = typer.Argument(..., help="BIDS dataset root"),
+    modality: str = typer.Option("mri", "--modality", "-m"),
+    max_files: Optional[int] = typer.Option(None, "--max-files"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o"),
+) -> None:
+    """Run image QC on all NIfTI files (NaN, constant, tSNR, volume outliers).
+
+    Requires nibabel: pip install 'qortex[mri]'
+    """
+    import json
+    from qortex.neuroclassic import run_image_qc_on_dataset
+    typer.echo(f"Running image QC on {dataset} (modality={modality}) …")
+    report = run_image_qc_on_dataset(dataset, modality=modality, max_files=max_files)
+    typer.echo(f"  Files processed: {len(report.results)}")
+    typer.echo(f"  With blockers:   {report.to_dict()['n_with_blockers']}")
+    for r in report.results:
+        if r.blockers:
+            typer.echo(f"\n  {r.scope}")
+            for b in r.blockers:
+                typer.echo(f"    [BLOCK] {b}")
+    if output:
+        output.write_text(json.dumps(report.to_dict(), indent=2))
+        typer.echo(f"\nReport written to {output}")
+
+
+@neuro_classic_app.command("eeg-psd")
+def nc_eeg_psd(
+    dataset: Path = typer.Argument(..., help="BIDS dataset root"),
+    max_files: Optional[int] = typer.Option(None, "--max-files"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o"),
+) -> None:
+    """Run EEG PSD and spectral slope summary.
+
+    Requires MNE + scipy: pip install 'qortex[eeg]'
+    """
+    import json
+    from qortex.neuroclassic import run_signal_qc_on_dataset
+    typer.echo(f"Running EEG PSD summary on {dataset} …")
+    report = run_signal_qc_on_dataset(dataset, modality="eeg", max_files=max_files)
+    typer.echo(f"  Files processed: {len(report.results)}")
+    for r in report.results:
+        psd_metrics = [m for m in r.metrics if "line_noise" in m.name or "psd_slope" in m.name]
+        if psd_metrics:
+            typer.echo(f"\n  {r.scope}")
+            for m in psd_metrics[:5]:
+                typer.echo(f"    {m.name}: {m.value}")
+    if output:
+        output.write_text(json.dumps(report.to_dict(), indent=2))
+        typer.echo(f"\nReport written to {output}")
+
+
+@neuro_classic_app.command("connectivity")
+def nc_connectivity(
+    dataset: Path = typer.Argument(..., help="BIDS dataset root"),
+    method: str = typer.Option("correlation", "--method", help="correlation (more methods TBD)"),
+    threshold: Optional[float] = typer.Option(None, "--threshold"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o"),
+) -> None:
+    """Compute connectivity matrix and graph metrics.
+
+    Currently supports Pearson correlation connectivity.
+    Requires MNE: pip install 'qortex[eeg]'
+    """
+    import json
+    from qortex.neuroclassic import compute_pearson_connectivity, compute_graph_metrics
+    import numpy as np
+    typer.echo(f"Connectivity method '{method}' — scanning {dataset} for EEG files …")
+    try:
+        import mne
+    except ImportError:
+        typer.echo("Error: MNE is required. Run: pip install 'qortex[eeg]'")
+        raise typer.Exit(1)
+
+    results = []
+    for f in sorted(Path(dataset).rglob("*.edf"))[:5]:  # demo: first 5 files
+        try:
+            raw = mne.io.read_raw_edf(str(f), preload=True, verbose=False)
+            data = raw.get_data().astype(np.float32)
+            conn = compute_pearson_connectivity(
+                data,
+                channel_names=list(raw.info.ch_names),
+                sampling_hz=float(raw.info["sfreq"]),
+                threshold=threshold,
+                scope=str(f),
+            )
+            gm = compute_graph_metrics(conn, scope=str(f))
+            results.append(gm.to_dict())
+            typer.echo(
+                f"  {f.name}: nodes={gm.n_nodes}, edges={gm.n_edges}, "
+                f"density={gm.density:.3f}, CC={gm.clustering_coefficient:.3f}"
+            )
+        except Exception as exc:
+            typer.echo(f"  {f.name}: ERROR — {exc}")
+
+    if output and results:
+        output.write_text(json.dumps(results, indent=2))
+        typer.echo(f"\nResults written to {output}")
+
+
+@neuro_classic_app.command("cohort-anomalies")
+def nc_cohort_anomalies(
+    dataset: Path = typer.Argument(..., help="BIDS dataset root"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o"),
+) -> None:
+    """Detect cohort-level amplitude outliers across subjects.
+
+    Requires MNE: pip install 'qortex[eeg]'
+    """
+    import json
+    from qortex.neuroclassic import run_signal_qc_on_dataset, build_cohort_metric_report
+    typer.echo(f"Running cohort anomaly detection on {dataset} …")
+    report = run_signal_qc_on_dataset(dataset, modality="eeg")
+    if not report.results:
+        typer.echo("No EEG files found.")
+        raise typer.Exit(0)
+
+    # Build cohort report on n_flatline_channels metric
+    cohort = build_cohort_metric_report(
+        report.results,
+        method_name="signal_qc",
+        metric_name="n_flatline_channels",
+        modality="eeg",
+    )
+    typer.echo(f"  Subjects profiled: {cohort.n_subjects}")
+    typer.echo(f"  n_flatline mean: {cohort.mean:.2f}, std: {cohort.std:.2f}")
+    if cohort.outlier_indices:
+        outlier_files = [report.results[i].scope for i in cohort.outlier_indices]
+        typer.echo(f"  Outliers ({len(cohort.outlier_indices)}): {outlier_files[:5]}")
+    if output:
+        output.write_text(json.dumps(cohort.to_dict(), indent=2))
+        typer.echo(f"\nReport written to {output}")

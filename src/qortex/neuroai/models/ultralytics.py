@@ -59,10 +59,8 @@ class UltralyticsAdapter(ModelAdapter):
             task=self._task,
             revision=None,
             model_hash=None,
-            n_parameters=None,
             input_contract=self.required_input(),
             output_contract=self.output_schema(),
-            extra={"yolo_task": self._task},
         )
 
     def required_input(self) -> InputContract:
@@ -70,14 +68,10 @@ class UltralyticsAdapter(ModelAdapter):
             modality="image",
             n_channels=3,
             sampling_rate_hz=None,
-            spatial_shape=[3, 640, 640],
+            spatial_shape=(640, 640),
             dtype="float32",
-            axis_convention=AxisConvention.batch_channels_spatial,
-            evidence={
-                "n_channels": EvidenceStatus.confirmed,
-                "spatial_shape": EvidenceStatus.confirmed,
-                "modality": EvidenceStatus.confirmed,
-            },
+            axis_convention=AxisConvention.batch_channels_xyz,
+            evidence_status=EvidenceStatus.confirmed,
         )
 
     def output_schema(self) -> OutputContract:
@@ -92,8 +86,6 @@ class UltralyticsAdapter(ModelAdapter):
         return OutputContract(
             output_type=output_type,
             n_classes=None,
-            class_labels={},
-            evidence={"output_type": EvidenceStatus.confirmed},
         )
 
     def load(self, runtime: RuntimeSpec) -> None:

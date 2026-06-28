@@ -70,10 +70,11 @@ class DICOMWebAdapter(SourceAdapter):
 
         return SourceProfile(
             source_id=f"dicomweb:{self._base_url}",
+            source_type="dicomweb",
             modality=modality,
             n_channels=1,
             sampling_rate_hz=None,
-            spatial_shape=[n_instances, rows, cols],
+            spatial_shape=(n_instances, rows, cols),
             dtype="float32",
             axis_convention=AxisConvention.spatial_zyx,
             path=self._base_url,
@@ -129,13 +130,13 @@ class DICOMWebAdapter(SourceAdapter):
             yield QortexVolume(
                 data=volume,
                 shape=volume.shape,
-                axes="zyx",
+                axes=["z", "y", "x"],
                 dtype="float32",
                 units="HU",
                 affine=None,
-                voxel_sizes=None,
+                voxel_sizes_mm=None,
                 coordinate_frame="patient_lps",
-                provenance={
+                source_provenance={
                     "source_type": "dicomweb",
                     "base_url": self._base_url,
                     "study_uid": study_uid,

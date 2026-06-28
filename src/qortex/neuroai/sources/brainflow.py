@@ -78,9 +78,11 @@ class BrainFlowAdapter(SourceAdapter):
 
         return SourceProfile(
             source_id=f"brainflow:board_{board_id}",
+            source_type="brainflow",
             modality="eeg",
             n_channels=n_channels,
             sampling_rate_hz=srate,
+            channel_names=ch_names,
             channel_specs=channel_specs,
             dtype="float64",
             axis_convention=AxisConvention.channels_time,
@@ -120,12 +122,12 @@ class BrainFlowAdapter(SourceAdapter):
         return [QortexTimeSeries(
             data=eeg_data,
             shape=eeg_data.shape,
-            axes="channels_time",
+            axes=["channels", "time"],
             dtype="float32",
             units="uV",
-            sampling_rate_hz=srate,
+            sampling_frequency_hz=srate,
             channel_names=ch_names,
-            provenance={"source_type": "brainflow", "board_id": board_id},
+            source_provenance={"source_type": "brainflow", "board_id": board_id},
         )]
 
     def stream(self) -> Iterator[QortexData]:
@@ -172,12 +174,12 @@ class BrainFlowAdapter(SourceAdapter):
                     yield QortexTimeSeries(
                         data=win,
                         shape=win.shape,
-                        axes="channels_time",
+                        axes=["channels", "time"],
                         dtype="float32",
                         units="uV",
-                        sampling_rate_hz=srate,
+                        sampling_frequency_hz=srate,
                         channel_names=ch_names,
-                        provenance={
+                        source_provenance={
                             "source_type": "brainflow",
                             "board_id": board_id,
                             "window_index": window_idx,

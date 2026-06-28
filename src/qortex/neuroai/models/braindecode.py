@@ -65,7 +65,6 @@ class BrainDecodeAdapter(ModelAdapter):
             task=self._spec.task or "eeg_classification",
             revision=self._spec.revision,
             model_hash=None,
-            n_parameters=None,
             input_contract=self.required_input(),
             output_contract=self.output_schema(),
         )
@@ -78,20 +77,16 @@ class BrainDecodeAdapter(ModelAdapter):
             spatial_shape=None,
             dtype="float32",
             axis_convention=AxisConvention.batch_channels_time,
-            evidence={
-                "n_channels": EvidenceStatus.confirmed if self._n_channels else EvidenceStatus.unknown,
-                "sampling_rate": EvidenceStatus.unknown,
-            },
+            evidence_status=(
+                EvidenceStatus.confirmed if self._n_channels else EvidenceStatus.unknown
+            ),
         )
 
     def output_schema(self) -> OutputContract:
         return OutputContract(
             output_type="classification",
             n_classes=self._n_classes,
-            class_labels={i: n for i, n in enumerate(self._class_names)},
-            evidence={
-                "n_classes": EvidenceStatus.confirmed if self._n_classes else EvidenceStatus.unknown,
-            },
+            classes=self._class_names,
         )
 
     def load(self, runtime: RuntimeSpec) -> None:

@@ -47,10 +47,14 @@ pipe = Pipeline.from_yaml("pipeline.yaml")
 
 report = pipe.check()
 print(report.summary())
-# status: runnable
-# transforms: [resample_250→128Hz, z_score_per_channel]
-# blockers: []
-# unknowns: [channel_labels]
+# CompatibilityReport: COMPATIBLE_WITH_TRANSFORMS
+#   source=local_file:sub-01.edf  model=braindecode/EEGNet
+#   Required transforms (2):
+#     • resample(from_hz=250.0, to_hz=128.0)  [irreversible]  ...
+#     • normalize(method=zscore)  [irreversible]  ...
+#   Warnings (1):
+#     ⚠ channel labels inferred from index, not names
+#   Unknowns: model.sampling_rate_hz is not specified
 
 if report.is_runnable:
     run = pipe.run(artifact_dir="artifacts/run_001")

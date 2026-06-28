@@ -75,8 +75,11 @@ neuroai = [
   "huggingface-hub>=0.23",
   "transformers>=4.40",
 ]
+stats       = ["scipy>=1.11"]
+graph       = ["scipy>=1.11"]
+neuroclassic = ["scipy>=1.11"]
 all = [
-  "qortex[eeg,mri,dwi,zarr,hdf5,torch,lightning,hf,ray,dask,braindecode,sklearn,validation,dashboard,visual-all,nwb,lsl,brainflow,onnx,ultralytics,monai,dicom-full,dicomweb]"
+  "qortex[eeg,mri,dwi,zarr,hdf5,torch,lightning,hf,ray,dask,braindecode,sklearn,validation,dashboard,visual-all,nwb,lsl,brainflow,onnx,ultralytics,monai,dicom-full,dicomweb,stats,graph,neuroclassic]"
 ]
 
 [project.scripts]

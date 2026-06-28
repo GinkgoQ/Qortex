@@ -67,14 +67,8 @@ class MONAIBundleAdapter(ModelAdapter):
             task=task,
             revision=self._metadata.get("version"),
             model_hash=None,
-            n_parameters=None,
             input_contract=self.required_input(),
             output_contract=self.output_schema(),
-            extra={
-                "spatial_dims": spatial_dims,
-                "bundle_dir": str(self._bundle_dir),
-                "monai_version": self._metadata.get("monai_version", "unknown"),
-            },
         )
 
     def required_input(self) -> InputContract:
@@ -90,11 +84,10 @@ class MONAIBundleAdapter(ModelAdapter):
             sampling_rate_hz=None,
             spatial_shape=shape,
             dtype="float32",
-            axis_convention=AxisConvention.batch_channels_spatial,
-            evidence={
-                "n_channels": EvidenceStatus.confirmed if in_channels else EvidenceStatus.inferred,
-                "spatial_shape": EvidenceStatus.inferred,
-            },
+            axis_convention=AxisConvention.batch_channels_xyz,
+            evidence_status=(
+                EvidenceStatus.confirmed if in_channels else EvidenceStatus.inferred
+            ),
         )
 
     def output_schema(self) -> OutputContract:
@@ -102,11 +95,7 @@ class MONAIBundleAdapter(ModelAdapter):
         return OutputContract(
             output_type="segmentation",
             n_classes=n_classes,
-            class_labels={},
-            evidence={
-                "output_type": EvidenceStatus.confirmed,
-                "n_classes": EvidenceStatus.confirmed if n_classes else EvidenceStatus.inferred,
-            },
+            produces_probabilities=False,
         )
 
     def load(self, runtime: RuntimeSpec) -> None:

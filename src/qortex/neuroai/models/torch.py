@@ -90,16 +90,19 @@ class TorchModelAdapter(ModelAdapter):
             log.warning("TorchModelAdapter.inspect(): %s", exc)
 
         task = self._spec.task or "unknown"
+        contract = self.required_input()
+        # Embed shape hint into contract evidence so it survives serialisation
+        if input_shape:
+            contract.evidence_status = EvidenceStatus.inferred
         return ModelProfile(
             model_id=str(self._model_path),
             provider="torch",
             task=task,
             revision=None,
             model_hash=model_hash,
-            n_parameters=n_params,
-            input_contract=self.required_input(),
+            estimated_params=n_params,
+            input_contract=contract,
             output_contract=self.output_schema(),
-            extra={"is_torchscript": is_ts, "input_shape_inferred": input_shape},
         )
 
     def required_input(self) -> InputContract:
@@ -110,7 +113,7 @@ class TorchModelAdapter(ModelAdapter):
             spatial_shape=None,
             dtype="float32",
             axis_convention=AxisConvention.batch_channels_time,
-            evidence={"all": EvidenceStatus.inferred},
+            evidence_status=EvidenceStatus.inferred,
         )
 
     def output_schema(self) -> OutputContract:
@@ -118,8 +121,6 @@ class TorchModelAdapter(ModelAdapter):
         return OutputContract(
             output_type=_task_to_output_type(task),
             n_classes=None,
-            class_labels={},
-            evidence={"output_type": EvidenceStatus.inferred},
         )
 
     def load(self, runtime: RuntimeSpec) -> None:

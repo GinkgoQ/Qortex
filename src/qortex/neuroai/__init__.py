@@ -3,13 +3,17 @@
 The NeuroAI runtime provides:
 
   * Declarative YAML pipeline specs
-  * Source adapters: local files, BIDS datasets, LSL streams
-  * Model adapters: HuggingFace, ONNX, PyTorch, MONAI bundles
+  * Source adapters: local EDF/BDF/FIF, BIDS, DICOM/DICOMweb, NWB, XDF, LSL,
+    BrainFlow, image/video
+  * Model adapters: HuggingFace, ONNX, PyTorch/TorchScript, MONAI bundles,
+    Braindecode, Ultralytics YOLO, custom plugins
   * Compatibility engine: checks source↔model feasibility before weight loading
   * Preprocessing planner: builds the minimal, documented transform chain
-  * Output adapters: JSONL, Parquet, LSL markers
+  * Output adapters: JSONL, Parquet, CSV, LSL markers, WebSocket, HTTP,
+    NIfTI, DICOM-SEG, DICOM-SR, BIDS derivatives, COCO JSON, YOLO txt, overlay
+  * Closed-loop trigger system: class-conditional event markers to all outputs
   * Latency profiler: per-stage p50/p95/p99 benchmarking
-  * Provenance: every artifact carries a full ArtifactContract
+  * Provenance: every artifact carries a full ArtifactContract (9-file directory)
 
 Quickstart::
 

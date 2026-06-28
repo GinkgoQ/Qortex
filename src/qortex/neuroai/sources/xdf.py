@@ -76,16 +76,17 @@ class XDFAdapter(SourceAdapter):
         if not target:
             return SourceProfile(
                 source_id=f"xdf:{self._path.name}",
+                source_type="xdf",
                 modality="unknown",
                 n_channels=0,
                 sampling_rate_hz=None,
                 path=str(self._path),
+                evidence_status=EvidenceStatus.missing,
                 evidence={"n_channels": EvidenceStatus.missing},
                 warnings=[WarningItem(
                     code="NO_MATCHING_STREAM",
                     message=f"No stream matched query {self._query}",
                     severity="warning",
-                    evidence={},
                     suggestion="Check spec.query type/name.",
                 )],
             )
@@ -106,9 +107,11 @@ class XDFAdapter(SourceAdapter):
 
         return SourceProfile(
             source_id=f"xdf:{self._path.name}",
+            source_type="xdf",
             modality=stream_type if stream_type in ("eeg", "meg", "ecg", "emg") else "signal",
             n_channels=n_channels,
             sampling_rate_hz=srate if srate > 0 else None,
+            channel_names=[s.name for s in channel_specs],
             channel_specs=channel_specs,
             dtype="float32",
             axis_convention=AxisConvention.channels_time,
@@ -150,7 +153,7 @@ class XDFAdapter(SourceAdapter):
                 if self._window_spec
                 else iter([ts])
             )
-            srate = ts.sampling_rate_hz or 1.0
+            srate = ts.sampling_frequency_hz or 1.0
             win_size = int(
                 (self._window_spec.duration_s if self._window_spec else ts.shape[-1] / srate)
                 * srate
@@ -200,12 +203,12 @@ class XDFAdapter(SourceAdapter):
         return QortexTimeSeries(
             data=arr,
             shape=arr.shape,
-            axes="channels_time",
+            axes=["channels", "time"],
             dtype="float32",
             units="uV",
-            sampling_rate_hz=srate if srate > 0 else None,
+            sampling_frequency_hz=srate if srate > 0 else None,
             channel_names=ch_names,
-            provenance={
+            source_provenance={
                 "source_type": "xdf",
                 "path": str(self._path),
                 "stream_name": str(info.get("name", ["unknown"])[0]),
@@ -239,7 +242,7 @@ def _extract_channel_names(info: dict, n_channels: int) -> list[str]:
 
 
 def _window_timeseries(ts: QortexTimeSeries, window_spec: WindowSpec) -> Iterator[QortexTimeSeries]:
-    srate = ts.sampling_rate_hz or 1.0
+    srate = ts.sampling_frequency_hz or 1.0
     win_size = int(window_spec.duration_s * srate)
     step_size = int(getattr(window_spec, "step_s", window_spec.duration_s) * srate)
     n_samples = ts.shape[-1]
@@ -252,8 +255,8 @@ def _window_timeseries(ts: QortexTimeSeries, window_spec: WindowSpec) -> Iterato
             axes=ts.axes,
             dtype=ts.dtype,
             units=ts.units,
-            sampling_rate_hz=ts.sampling_rate_hz,
+            sampling_frequency_hz=ts.sampling_frequency_hz,
             channel_names=ts.channel_names,
-            provenance={**ts.provenance, "window_start_s": start / srate},
+            source_provenance={**ts.source_provenance, "window_start_s": start / srate},
         )
         start += step_size

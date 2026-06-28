@@ -97,10 +97,11 @@ class ImageVideoAdapter(SourceAdapter):
 
         return SourceProfile(
             source_id=f"image:{self._path.name}",
+            source_type="image",
             modality="image",
             n_channels=n_channels,
             sampling_rate_hz=None,
-            spatial_shape=[n_images, h, w, n_channels],
+            spatial_shape=(n_images, h, w, n_channels),
             dtype="uint8",
             axis_convention=AxisConvention.spatial_zyx,
             path=str(self._path),
@@ -120,13 +121,13 @@ class ImageVideoAdapter(SourceAdapter):
         return QortexVolume(
             data=arr,
             shape=arr.shape,
-            axes="hwc",
+            axes=["h", "w", "c"],
             dtype="uint8",
             units="pixel_intensity",
             affine=None,
-            voxel_sizes=None,
+            voxel_sizes_mm=None,
             coordinate_frame=None,
-            provenance={"source_type": "image", "path": str(path)},
+            source_provenance={"source_type": "image", "path": str(path)},
         )
 
     def _list_image_files(self) -> list[Path]:
@@ -151,10 +152,11 @@ class ImageVideoAdapter(SourceAdapter):
 
         return SourceProfile(
             source_id=f"video:{self._path.name}",
+            source_type="video",
             modality="video",
             n_channels=3,
             sampling_rate_hz=fps,
-            spatial_shape=[n_frames, height, width, 3],
+            spatial_shape=(n_frames, height, width, 3),
             dtype="uint8",
             axis_convention=AxisConvention.spatial_zyx,
             path=str(self._path),
@@ -181,13 +183,13 @@ class ImageVideoAdapter(SourceAdapter):
         return QortexVolume(
             data=arr,
             shape=arr.shape,
-            axes="nhwc",
+            axes=["n", "h", "w", "c"],
             dtype="uint8",
             units="pixel_intensity",
             affine=None,
-            voxel_sizes=None,
+            voxel_sizes_mm=None,
             coordinate_frame=None,
-            provenance={"source_type": "video", "path": str(self._path)},
+            source_provenance={"source_type": "video", "path": str(self._path)},
         )
 
     def _stream_video(self) -> Iterator[QortexVolume]:
@@ -209,13 +211,13 @@ class ImageVideoAdapter(SourceAdapter):
                     yield QortexVolume(
                         data=arr,
                         shape=arr.shape,
-                        axes="nhwc",
+                        axes=["n", "h", "w", "c"],
                         dtype="uint8",
                         units="pixel_intensity",
                         affine=None,
-                        voxel_sizes=None,
+                        voxel_sizes_mm=None,
                         coordinate_frame=None,
-                        provenance={
+                        source_provenance={
                             "source_type": "video",
                             "path": str(self._path),
                             "window_index": window_idx,

@@ -152,17 +152,49 @@ class QortexPlugin:
 `inspect()` returns a `ModelProfile`:
 
 ```python
-profile.model_id            # str — HF ID, path, or name
-profile.provider            # str
-profile.task                # str | None
-profile.input_shape         # tuple[int | None, ...] | None
-profile.output_shape        # tuple[int | None, ...] | None
-profile.input_dtype         # str — "float32" etc.
-profile.modality            # expected modality, if declared
-profile.n_outputs           # int | None — number of classes or output dims
-profile.label_map           # dict[int, str] | None
-profile.framework           # "torch" | "onnx" | "huggingface" | ...
-profile.evidence            # dict[str, EvidenceStatus]
+profile.model_id              # str — HF ID, local path, or model name
+profile.provider              # str — "huggingface" | "onnx" | "torch" | ...
+profile.task                  # str | None — "eeg_classification" | "segmentation" | ...
+profile.revision              # str | None — git revision or None
+profile.model_hash            # str | None — SHA-256 of weights file when available
+profile.license               # str | None — SPDX license identifier
+profile.trusted               # bool — True when trust_remote_code was accepted
+profile.input_contract        # InputContract | None — formal input requirements
+profile.output_contract       # OutputContract | None — formal output schema
+profile.estimated_params      # int | None — number of model parameters
+profile.estimated_memory_mb   # float | None — estimated GPU/CPU memory in MB
+profile.supported_devices     # list[str] — declared supported devices
+profile.warnings              # list[WarningItem] — non-fatal inspection warnings
 ```
 
-As with `SourceProfile`, every field carries an `EvidenceStatus`. The compatibility engine uses these to distinguish hard blockers from uncertainties.
+The **`InputContract`** inside `profile.input_contract` carries what the model formally requires:
+
+```python
+contract = profile.input_contract
+
+contract.modality             # "eeg" | "mri" | "image" | ...
+contract.axis_convention      # AxisConvention — e.g. batch_channels_time
+contract.n_channels           # int | None — required channel count
+contract.sampling_rate_hz     # float | None — required sampling frequency
+contract.window_duration_s    # float | None — required window length
+contract.spatial_shape        # tuple[int, ...] | None — (H, W) or (Z, Y, X)
+contract.voxel_sizes_mm       # tuple[float, ...] | None — spatial resolution
+contract.dtype                # str — "float32" (default)
+contract.evidence_status      # EvidenceStatus — confirmed | inferred | unknown
+```
+
+The **`OutputContract`** inside `profile.output_contract` declares what the model produces:
+
+```python
+out = profile.output_contract
+
+out.output_type               # "classification" | "segmentation" | "detection" | ...
+out.classes                   # list[str] — class names (empty when unknown)
+out.n_classes                 # int | None
+out.output_dtype              # str — "float32"
+out.produces_probabilities    # bool — True when output is a probability distribution
+```
+
+The compatibility engine reads `input_contract` to check modality, channel count, sampling rate, spatial shape, and axis convention against `SourceProfile`. Fields with `evidence_status=unknown` produce `uncertain` compatibility rather than a blocker.
+
+The plugin adapter raises `ModelAdapterError` (not `CompatibilityError`) when `trust_remote_code` is not set.

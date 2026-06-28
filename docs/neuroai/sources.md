@@ -137,19 +137,24 @@ Images (`.png`, `.jpg`, `.tif`, `.bmp`, `.webp`) are loaded with PIL/Pillow. Vid
 `probe()` returns a `SourceProfile` regardless of adapter:
 
 ```python
-profile.source_id           # str — path or stream name
+profile.source_id           # str — path, stream name, or directory name
+profile.source_type         # str — "local_file" | "bids" | "dicom" | "lsl" | ...
 profile.modality            # "eeg" | "meg" | "mri" | "dicom" | ...
 profile.n_channels          # int | None
 profile.sampling_rate_hz    # float | None
 profile.duration_s          # float | None — None for live streams
-profile.channel_names       # list[str] | None
-profile.shape               # tuple[int, ...] | None — for volumes
-profile.dtype               # str — "float32" etc.
-profile.coordinate_frame    # str | None — "patient_lps" for DICOM
-profile.evidence            # dict[str, EvidenceStatus]
+profile.channel_names       # list[str] — empty when unknown
+profile.spatial_shape       # tuple[int, ...] | None — (Z, Y, X) or (H, W) for volumes
+profile.voxel_sizes_mm      # tuple[float, ...] | None — spatial resolution
+profile.dtype               # str | None — "float32" etc.
+profile.axis_convention     # AxisConvention | str | None — e.g. "spatial_zyx" for DICOM
+profile.evidence_status     # EvidenceStatus — overall confidence level
+profile.evidence            # dict[str, EvidenceStatus | str] — per-field evidence
+profile.warnings            # list[WarningItem] — non-fatal probe issues
+profile.extra               # dict — adapter-specific metadata (e.g. "phi_redacted")
 ```
 
-All fields carry an `EvidenceStatus`: `confirmed` (read from file), `inferred` (derived from other fields), `missing`, or `unknown`. The `CompatibilityEngine` uses these statuses to decide whether a mismatch is a hard blocker or an uncertainty.
+The overall `evidence_status` is `confirmed` when all header fields were read directly from the file, `inferred` when derived, and `unknown` for live streams. The `CompatibilityEngine` uses these statuses to decide whether a mismatch is a hard blocker or an uncertainty.
 
 ## Internal data types
 

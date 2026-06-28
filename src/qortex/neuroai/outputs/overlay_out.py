@@ -83,7 +83,7 @@ class OverlayOutputAdapter(OutputAdapter):
         self._fmt = fmt.lstrip(".")
         self._pipeline_ref = pipeline_ref
         self._frame_idx = 0
-        self.n_written = 0
+        self._n_written = 0
 
     # ── OutputAdapter interface ───────────────────────────────────────────────
 
@@ -104,7 +104,7 @@ class OverlayOutputAdapter(OutputAdapter):
             annotated = self._render(source_image, output, meta)
             out_path = self._dir / f"frame_{self._frame_idx:06d}.{self._fmt}"
             _save_image(annotated, out_path, fmt=self._fmt)
-            self.n_written += 1
+            self._n_written += 1
             log.debug("Overlay written: %s", out_path.name)
         except Exception as exc:
             raise OutputAdapterError(
