@@ -11,8 +11,9 @@ module can import without optional extras installed.
 from __future__ import annotations
 
 import logging
+from importlib.util import find_spec
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Iterator
 
 import numpy as np
 
@@ -21,6 +22,7 @@ from qortex.neuroai.contracts import (
     ChannelSpec,
     EvidenceStatus,
     Modality,
+    QortexEventTable,
     QortexTimeSeries,
     QortexVolume,
     SourceProfile,
@@ -112,9 +114,7 @@ class LocalFileAdapter(SourceAdapter):
     # ── Signal probing ────────────────────────────────────────────────────────
 
     def _probe_signal(self) -> SourceProfile:
-        try:
-            import mne
-        except ImportError:
+        if find_spec("mne") is None:
             raise ImportError(
                 "Signal file probing requires MNE. "
                 "Install with: pip install 'qortex[eeg]'"
@@ -169,7 +169,6 @@ class LocalFileAdapter(SourceAdapter):
         )
 
     def _load_signal(self) -> QortexTimeSeries:
-        import mne
         raw = self._open_mne_raw(preload=True)
         if self._channel_names:
             raw.pick_channels(self._channel_names)
@@ -189,7 +188,6 @@ class LocalFileAdapter(SourceAdapter):
         )
 
     def _stream_windowed(self) -> Iterator[QortexTimeSeries]:
-        import mne
         ws = self._window_spec
         raw = self._open_mne_raw(preload=True)
         if self._channel_names:
@@ -302,19 +300,30 @@ class LocalFileAdapter(SourceAdapter):
 
     def _probe_generic(self) -> SourceProfile:
         columns: list[str] = []
+        numeric_columns: list[str] = []
         n_events: int = 0
         ext = self._ext
         try:
             if ext == ".parquet":
                 import polars as pl
                 lazy = pl.scan_parquet(str(self._path))
-                columns = lazy.columns
+                schema = lazy.collect_schema()
+                columns = schema.names()
+                numeric_columns = [
+                    name for name, dtype in schema.items()
+                    if dtype.is_numeric()
+                ]
                 n_events = lazy.select(pl.len()).collect().item()
             elif ext in (".csv", ".tsv"):
                 sep = "\t" if ext == ".tsv" else ","
                 import polars as pl
                 lazy = pl.scan_csv(str(self._path), separator=sep)
-                columns = lazy.columns
+                schema = lazy.collect_schema()
+                columns = schema.names()
+                numeric_columns = [
+                    name for name, dtype in schema.items()
+                    if dtype.is_numeric()
+                ]
                 n_events = lazy.select(pl.len()).collect().item()
         except Exception:
             pass
@@ -323,14 +332,18 @@ class LocalFileAdapter(SourceAdapter):
             source_type="local_file",
             path=str(self._path),
             modality=Modality.tabular,
-            n_channels=len(columns) if columns else None,
-            channel_names=columns or None,
+            abstraction="event_table",
+            n_channels=len(numeric_columns) if numeric_columns else None,
+            channel_names=numeric_columns or None,
             evidence_status=EvidenceStatus.confirmed if columns else EvidenceStatus.inferred,
-            extra={"n_rows": n_events, "columns": columns},
+            extra={
+                "n_rows": n_events,
+                "columns": columns,
+                "numeric_columns": numeric_columns,
+            },
         )
 
-    def _load_generic(self) -> "QortexEventTable":
-        from qortex.neuroai.contracts import QortexEventTable
+    def _load_generic(self) -> QortexEventTable:
         ext = self._ext
         if ext == ".parquet":
             import polars as pl

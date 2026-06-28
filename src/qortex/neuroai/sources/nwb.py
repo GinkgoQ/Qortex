@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Iterator
 
 import numpy as np
 
@@ -17,7 +17,6 @@ from qortex.neuroai.contracts import (
     AxisConvention,
     ChannelSpec,
     EvidenceStatus,
-    Modality,
     QortexTimeSeries,
     SourceProfile,
     WarningItem,
@@ -71,10 +70,20 @@ class NWBAdapter(SourceAdapter):
             if not series_list:
                 return SourceProfile(
                     source_id=f"nwb:{self._path.name}",
+                    source_type="nwb",
+                    path=str(self._path),
                     modality="unknown",
+                    abstraction="timeseries",
                     n_channels=0,
                     sampling_rate_hz=None,
-                    path=str(self._path),
+                    evidence_status=EvidenceStatus.missing,
+                    warnings=[
+                        WarningItem(
+                            code="NWB_NO_ACQUISITION_SERIES",
+                            message="No readable acquisition TimeSeries found in NWB file.",
+                            severity="error",
+                        )
+                    ],
                     evidence={"n_channels": EvidenceStatus.missing},
                 )
 
@@ -90,13 +99,18 @@ class NWBAdapter(SourceAdapter):
 
             return SourceProfile(
                 source_id=f"nwb:{self._path.name}",
+                source_type="nwb",
+                path=str(self._path),
                 modality="eeg",
+                abstraction="timeseries",
                 n_channels=n_channels,
                 sampling_rate_hz=srate,
+                channel_names=ch_names,
                 channel_specs=channel_specs,
                 dtype="float64",
                 axis_convention=AxisConvention.channels_time,
-                path=str(self._path),
+                duration_s=duration_s,
+                evidence_status=EvidenceStatus.confirmed,
                 extra={
                     "duration_s": duration_s,
                     "n_series": len(series_list),
@@ -125,12 +139,13 @@ class NWBAdapter(SourceAdapter):
                     results.append(QortexTimeSeries(
                         data=data,
                         shape=data.shape,
-                        axes="channels_time",
+                        axes=["channels", "times"],
                         dtype=str(data.dtype),
                         units=getattr(series, "unit", "V"),
-                        sampling_rate_hz=srate,
+                        sampling_frequency_hz=srate,
                         channel_names=_get_channel_names(series, data.shape[0]),
-                        provenance={
+                        timebase="seconds_since_recording_start",
+                        source_provenance={
                             "source_type": "nwb",
                             "path": str(self._path),
                             "series_name": series.name,
@@ -214,9 +229,15 @@ def _get_channel_names(series, n_channels: int) -> list[str]:
 
 
 def _window_timeseries(ts: QortexTimeSeries, window_spec: WindowSpec) -> Iterator[QortexTimeSeries]:
-    srate = ts.sampling_rate_hz or 1.0
+    srate = ts.sampling_frequency_hz or 1.0
+    if window_spec.duration_s is None:
+        yield ts
+        return
     win_size = int(window_spec.duration_s * srate)
-    step_size = int(getattr(window_spec, "step_s", window_spec.duration_s) * srate)
+    step_s = window_spec.step_s if window_spec.step_s is not None else (
+        window_spec.duration_s * (1.0 - window_spec.overlap_frac)
+    )
+    step_size = max(1, int(step_s * srate))
     data = ts.data
     n_samples = data.shape[-1]
     start = 0
@@ -228,8 +249,12 @@ def _window_timeseries(ts: QortexTimeSeries, window_spec: WindowSpec) -> Iterato
             axes=ts.axes,
             dtype=ts.dtype,
             units=ts.units,
-            sampling_rate_hz=ts.sampling_rate_hz,
+            sampling_frequency_hz=ts.sampling_frequency_hz,
             channel_names=ts.channel_names,
-            provenance={**ts.provenance, "window_start_s": start / srate},
+            timebase=ts.timebase,
+            source_provenance={
+                **ts.source_provenance,
+                "window_start_s": start / srate,
+            },
         )
         start += step_size

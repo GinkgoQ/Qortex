@@ -13,12 +13,10 @@ from __future__ import annotations
 
 import importlib.util
 import logging
-import types
 from pathlib import Path
 from typing import Any
 
 from qortex.neuroai.contracts import (
-    EvidenceStatus,
     InputContract,
     ModelProfile,
     OutputContract,
@@ -46,7 +44,7 @@ class CustomPluginAdapter(ModelAdapter):
 
     Raises
     ------
-    CompatibilityError
+    ModelAdapterError
         When ``trust_remote_code`` is not explicitly enabled.
     FileNotFoundError
         When the plugin file does not exist.
@@ -56,11 +54,13 @@ class CustomPluginAdapter(ModelAdapter):
 
     def __init__(self, spec: ModelSpec) -> None:
         if not spec.trust_remote_code:
-            from qortex.core.exceptions import CompatibilityError
-            raise CompatibilityError(
+            from qortex.core.exceptions import ModelAdapterError
+            raise ModelAdapterError(
                 "CustomPluginAdapter requires spec.trust_remote_code=True. "
                 "Set trust_remote_code=True in your ModelSpec to enable custom plugin loading. "
-                "WARNING: Only load plugins from sources you fully trust."
+                "WARNING: Only load plugins from sources you fully trust.",
+                model_id=spec.id,
+                provider=spec.provider,
             )
         self._spec = spec
         self._plugin_path = Path(spec.id).expanduser().resolve()

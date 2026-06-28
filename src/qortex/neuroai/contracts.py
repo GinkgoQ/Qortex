@@ -25,10 +25,10 @@ from enum import Enum
 from typing import Any, Literal
 
 try:
-    from pydantic import BaseModel, Field, field_validator
+    from pydantic import BaseModel, Field
     _PYDANTIC = True
 except ImportError:
-    from dataclasses import dataclass, field as Field
+    from dataclasses import field as Field
     BaseModel = object  # fallback shim
     _PYDANTIC = False
 
@@ -248,6 +248,7 @@ class SourceProfile(BaseModel if _PYDANTIC else object):
     n_subjects: int | None = None
     available_suffixes: list[str] = Field(default_factory=list) if _PYDANTIC else []
     evidence_status: EvidenceStatus = EvidenceStatus.confirmed
+    evidence: dict[str, EvidenceStatus | str] = Field(default_factory=dict) if _PYDANTIC else {}
     warnings: list[WarningItem] = Field(default_factory=list) if _PYDANTIC else []
     extra: dict[str, Any] = Field(default_factory=dict) if _PYDANTIC else {}
 
@@ -257,6 +258,7 @@ class SourceProfile(BaseModel if _PYDANTIC else object):
             self.channel_specs = []
             self.available_suffixes = []
             self.evidence_status = EvidenceStatus.confirmed
+            self.evidence = {}
             self.warnings = []
             self.extra = {}
             for k, v in kwargs.items():

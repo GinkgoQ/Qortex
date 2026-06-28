@@ -1,0 +1,7 @@
+alpha_power,beta_power,theta_power,artifact_ratio,label
+0.82,0.34,0.19,0.03,restable
+0.76,0.41,0.24,0.05,restable
+0.31,0.88,0.47,0.22,alert
+0.28,0.91,0.52,0.31,alert
+0.69,0.52,0.29,0.08,restable
+0.22,0.96,0.61,0.44,alert

@@ -26,11 +26,9 @@ Output is a ``CompatibilityReport`` with a ``status`` of:
 from __future__ import annotations
 
 import logging
-import math
 from typing import Any
 
 from qortex.neuroai.contracts import (
-    AxisConvention,
     CompatibilityReport,
     CompatibilityStatus,
     EvidenceStatus,
@@ -200,8 +198,8 @@ class CompatibilityEngine:
         warnings: list,
         evidence: list,
     ) -> None:
-        src_mod = str(source.modality or "").lower()
-        req_mod = str(contract.modality or "").lower()
+        src_mod = _contract_value(source.modality).lower()
+        req_mod = _contract_value(contract.modality).lower()
 
         if not req_mod or req_mod == "unknown":
             evidence.append({"check": "modality", "status": "unknown"})
@@ -340,13 +338,24 @@ class CompatibilityEngine:
     ) -> EvidenceStatus:
         src_sr = source.sampling_rate_hz
         req_sr = contract.sampling_rate_hz
+        src_mod = _contract_value(source.modality).lower()
+        req_mod = _contract_value(contract.modality).lower()
+        temporal_context = (
+            src_mod in {"eeg", "meg", "ieeg", "fnirs", "timeseries", "fmri", "dwi", "lsl", "xdf"}
+            or req_mod in {"eeg", "meg", "ieeg", "fnirs", "timeseries", "fmri", "dwi"}
+            or contract.window_duration_s is not None
+        )
 
         if req_sr is None:
-            unknowns.append("model.sampling_rate_hz is not specified")
-            return EvidenceStatus.unknown
+            if temporal_context:
+                unknowns.append("model.sampling_rate_hz is not specified")
+                return EvidenceStatus.unknown
+            return EvidenceStatus.confirmed
         if src_sr is None:
-            unknowns.append("source.sampling_rate_hz is unknown")
-            return EvidenceStatus.unknown
+            if temporal_context:
+                unknowns.append("source.sampling_rate_hz is unknown")
+                return EvidenceStatus.unknown
+            return EvidenceStatus.confirmed
 
         if abs(src_sr - req_sr) / max(req_sr, 1) > 0.01:  # > 1% difference
             if preprocess.allows("resample"):
@@ -442,8 +451,8 @@ class CompatibilityEngine:
         warnings: list,
         evidence: list,
     ) -> EvidenceStatus:
-        src_dtype = source.dtype or "float64"
-        req_dtype = contract.dtype or "float32"
+        src_dtype = _contract_value(source.dtype or "float64")
+        req_dtype = _contract_value(contract.dtype or "float32")
 
         if src_dtype != req_dtype:
             transforms.append(TransformDescriptor(
@@ -478,8 +487,8 @@ class CompatibilityEngine:
         if req_conv is None or src_conv is None:
             return EvidenceStatus.unknown
 
-        src_str = src_conv.value if hasattr(src_conv, "value") else str(src_conv)
-        req_str = req_conv.value if hasattr(req_conv, "value") else str(req_conv)
+        src_str = _contract_value(src_conv)
+        req_str = _contract_value(req_conv)
 
         if src_str != req_str:
             # Most common case: source is channels_time, model wants batch_channels_time
@@ -562,8 +571,8 @@ class CompatibilityEngine:
         if req_conv is None or src_conv is None:
             return
 
-        src_str = src_conv.value if hasattr(src_conv, "value") else str(src_conv)
-        req_str = req_conv.value if hasattr(req_conv, "value") else str(req_conv)
+        src_str = _contract_value(src_conv)
+        req_str = _contract_value(req_conv)
 
         # Spatial coordinate frame mismatch (LPS vs RAS)
         _LPS = {"LPS", "spatial_zyx"}
@@ -606,7 +615,7 @@ class CompatibilityEngine:
         evidence: list,
     ) -> None:
         """Warn when source TR does not match the model's expected TR."""
-        src_mod = str(source.modality or "").lower()
+        src_mod = _contract_value(source.modality).lower()
         if src_mod not in ("fmri", "bold", "func"):
             return  # only applies to fMRI
 
@@ -649,3 +658,13 @@ class CompatibilityEngine:
             batch_bytes *= 4  # float32
         batch_mb = batch_bytes / 1e6
         return model_mb * _MEMORY_MULTIPLIER + batch_mb
+
+
+def _contract_value(value: Any) -> str:
+    """Return the semantic scalar value for enum/string contract fields."""
+    if value is None:
+        return ""
+    enum_value = getattr(value, "value", None)
+    if enum_value is not None:
+        return str(enum_value)
+    return str(value)

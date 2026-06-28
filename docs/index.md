@@ -118,7 +118,7 @@ Three phases. Each is independent — inspect without downloading, download with
 | Visual QC — NIfTI   | Ortho · lightbox · fMRI QC · DWI QC · PET overlay · one center slice per file           |
 | Visual QC — EEG/MEG | Butterfly · PSD · spectrogram · topomap · epoched previews via MNE                      |
 | Visual QC — DICOM   | Series browser with PHI protection                                                      |
-| Surface rendering   | Not implemented — GIFTI/CIFTI falls to summary-only                                     |
+| Surface rendering   | GIFTI mesh/scalar/label QC and CIFTI dense-matrix summary with typed surface inspection  |
 
 ## Where to start
 

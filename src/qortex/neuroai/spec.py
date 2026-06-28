@@ -277,7 +277,6 @@ class TriggerSpec:
         """Return True if the trigger condition is satisfied by this prediction."""
         class_name = self.when.get("class")
         prob_gte = self.when.get("probability_gte")
-        stable_for = int(self.when.get("stable_for", 1))
 
         if class_name is None:
             return False
@@ -324,16 +323,19 @@ class PipelineSpec:
     @classmethod
     def from_yaml(cls, path: str | Path) -> "PipelineSpec":
         """Load a PipelineSpec from a YAML file."""
-        try:
-            import yaml
-        except ImportError:
-            raise ImportError(
-                "YAML loading requires PyYAML. "
-                "Install with: pip install 'qortex[neuroai]'"
-            ) from None
-
         content = Path(path).read_text(encoding="utf-8")
-        d = yaml.safe_load(content)
+        try:
+            from ruamel.yaml import YAML
+            d = YAML(typ="safe").load(content)
+        except ImportError:
+            try:
+                import yaml
+            except ImportError:
+                raise ImportError(
+                    "YAML loading requires ruamel.yaml or PyYAML. "
+                    "Install qortex with its declared runtime dependencies."
+                ) from None
+            d = yaml.safe_load(content)
         return cls.from_dict(d)
 
     @classmethod
@@ -382,10 +384,19 @@ class PipelineSpec:
 
     def to_yaml(self) -> str:
         try:
-            import yaml
+            from ruamel.yaml import YAML
+            from io import StringIO
+            buf = StringIO()
+            yaml = YAML()
+            yaml.default_flow_style = False
+            yaml.dump(self.to_dict(), buf)
+            return buf.getvalue()
         except ImportError:
-            return json.dumps(self.to_dict(), indent=2)
-        return yaml.dump(self.to_dict(), default_flow_style=False, sort_keys=False)
+            try:
+                import yaml
+            except ImportError:
+                return json.dumps(self.to_dict(), indent=2)
+            return yaml.dump(self.to_dict(), default_flow_style=False, sort_keys=False)
 
     def content_hash(self) -> str:
         """SHA-256 hash of the canonical spec content for provenance."""
@@ -397,8 +408,9 @@ class PipelineSpec:
 
         Checks:
         - Required fields (source.type, model.id, model.provider)
-        - Security flags (trust_remote_code)
+        - Local plugin security gate
         - At least one output declared
+        - Output, runtime, trigger, and source sanity
         - Window timing sanity (duration_s > 0, step_s > 0, step_s <= duration_s)
         - All preprocessing.allow values are valid TransformKind names
         - Provider must be a known value
@@ -422,16 +434,59 @@ class PipelineSpec:
                 f"Known: {', '.join(sorted(_KNOWN_PROVIDERS))}"
             )
 
-        # Security gate
-        if self.model.trust_remote_code:
+        provider = (self.model.provider or "").lower()
+        source_type = (self.source.type or "").lower()
+
+        # Security gate for local executable plugins.
+        if provider in {"plugin", "custom"} and not self.model.trust_remote_code:
             errors.append(
-                "SECURITY: trust_remote_code=True allows arbitrary code execution. "
-                "Ensure the model source is trusted."
+                "model.trust_remote_code=True is required for provider='plugin' or "
+                "provider='custom' because local Python model code will be executed"
             )
+
+        # File-backed sources should fail early when the path is missing.
+        _FILE_SOURCE_TYPES = {
+            "local_file", "file", "local", "bids", "dicom", "dicom_folder",
+            "nwb", "xdf", "image", "video", "img",
+        }
+        if source_type in _FILE_SOURCE_TYPES:
+            if not self.source.path:
+                errors.append(f"source.path is required for source.type={self.source.type!r}")
+            else:
+                try:
+                    src_path = Path(self.source.path).expanduser()
+                    if not src_path.exists():
+                        errors.append(f"source.path does not exist: {self.source.path!r}")
+                except (OSError, RuntimeError) as exc:
+                    errors.append(f"source.path is not readable: {self.source.path!r} ({exc})")
 
         # Outputs
         if not self.outputs:
             errors.append("At least one output must be specified in 'outputs'")
+        _KNOWN_OUTPUTS = {
+            "jsonl", "json_lines", "json", "parquet", "csv", "lsl_marker", "lsl",
+            "nifti", "nii", "nifti_mask", "dicom_seg", "dicomseg",
+            "dicom_sr", "dicomsr", "bids", "bids_derivative", "coco",
+            "coco_json", "yolo", "yolo_txt", "websocket", "ws", "http",
+            "http_callback", "webhook", "overlay", "image_overlay", "video_overlay",
+        }
+        _URL_OUTPUTS = {"websocket", "ws", "http", "http_callback", "webhook"}
+        for idx, out in enumerate(self.outputs):
+            out_type = (out.type or "").lower().strip()
+            if not out_type:
+                errors.append(f"outputs[{idx}].type is required")
+                continue
+            if out_type not in _KNOWN_OUTPUTS:
+                errors.append(
+                    f"outputs[{idx}].type {out.type!r} is not supported. "
+                    f"Known: {', '.join(sorted(_KNOWN_OUTPUTS))}"
+                )
+            if out_type in _URL_OUTPUTS and not out.path:
+                errors.append(f"outputs[{idx}].path must be a URL for output type {out.type!r}")
+            if out_type in {"lsl_marker", "lsl"} and out.path:
+                errors.append(
+                    f"outputs[{idx}].path is ignored for LSL outputs; use stream_name instead"
+                )
 
         # Window timing
         if self.window is not None:
@@ -452,6 +507,30 @@ class PipelineSpec:
                     f"window.step ({self.window.step_s}s) must be <= "
                     f"window.duration ({self.window.duration_s}s)"
                 )
+            if not 0.0 <= self.window.overlap_frac < 1.0:
+                errors.append(
+                    f"window.overlap must be >= 0 and < 1 (got {self.window.overlap_frac})"
+                )
+            if self.window.tmin < 0:
+                errors.append(f"window.tmin must be >= 0 (got {self.window.tmin})")
+
+        # Runtime sanity. Device availability is checked at adapter load time;
+        # these are contract-level checks that do not touch hardware.
+        if self.runtime.batch_size <= 0:
+            errors.append(f"runtime.batch_size must be > 0 (got {self.runtime.batch_size})")
+        if self.runtime.num_workers < 0:
+            errors.append(f"runtime.num_workers must be >= 0 (got {self.runtime.num_workers})")
+        if self.runtime.latency_budget_ms is not None and self.runtime.latency_budget_ms <= 0:
+            errors.append(
+                f"runtime.latency_budget_ms must be > 0 (got {self.runtime.latency_budget_ms})"
+            )
+        if self.runtime.optimize not in {"safe", "speed", "memory"}:
+            errors.append(
+                f"runtime.optimize must be one of safe, speed, memory "
+                f"(got {self.runtime.optimize!r})"
+            )
+        if not str(self.runtime.device or "").strip():
+            errors.append("runtime.device must not be empty")
 
         # preprocessing.allow — check against known TransformKind values
         _VALID_TRANSFORMS = {
@@ -472,5 +551,39 @@ class PipelineSpec:
                     f"preprocessing.deny contains unknown transform {tk!r}. "
                     f"Valid: {', '.join(sorted(_VALID_TRANSFORMS))}"
                 )
+
+        if self.preprocessing.mode not in {"auto", "explicit", "none"}:
+            errors.append(
+                f"preprocessing.mode must be one of auto, explicit, none "
+                f"(got {self.preprocessing.mode!r})"
+            )
+
+        if self.trigger is not None:
+            when = self.trigger.when or {}
+            emit = self.trigger.emit or {}
+            if not when:
+                errors.append("trigger.when must not be empty when trigger is provided")
+            if "class" not in when:
+                errors.append("trigger.when.class is required for class-based triggers")
+            if "probability_gte" in when:
+                try:
+                    prob = float(when["probability_gte"])
+                    if not 0.0 <= prob <= 1.0:
+                        errors.append(
+                            f"trigger.when.probability_gte must be between 0 and 1 (got {prob})"
+                        )
+                except (TypeError, ValueError):
+                    errors.append("trigger.when.probability_gte must be numeric")
+            if "stable_for" in when:
+                try:
+                    stable_for = int(when["stable_for"])
+                    if stable_for <= 0:
+                        errors.append(
+                            f"trigger.when.stable_for must be > 0 (got {stable_for})"
+                        )
+                except (TypeError, ValueError):
+                    errors.append("trigger.when.stable_for must be an integer")
+            if not emit:
+                errors.append("trigger.emit must describe the event payload to emit")
 
         return errors
