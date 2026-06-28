@@ -1,7 +1,8 @@
 """qortex.neuroclassic — Classical computational neuroscience layer.
 
 Deterministic, non-LLM methods for signal QC, image QC, connectivity,
-statistical diagnostics, and cohort profiling.
+statistical diagnostics, cohort profiling, information-theoretic diagnostics,
+and leakage-safe split optimisation.
 
 Methods are integrated into Qortex's contract, provenance, and report system.
 Every method returns a structured report — not raw arrays.
@@ -9,7 +10,7 @@ Every method returns a structured report — not raw arrays.
 CLI namespace: ``qortex neuro-classic <method> <dataset>``
 
 Extras:
-    pip install 'qortex[neuroclassic]'   # core classical methods
+    pip install 'qortex[neuroclassic]'   # core classical methods (scipy)
     pip install 'qortex[eeg]'            # MNE-based signal loading
     pip install 'qortex[mri]'            # nibabel-based image loading
 
@@ -22,8 +23,13 @@ Usage::
     qc = compute_signal_qc(data, sampling_frequency_hz=256.0, scope="sub-01_eeg")
     print(qc.n_flatline, qc.n_nan, qc.warnings)
 
-    from qortex.neuroclassic import run_signal_qc_on_dataset
-    report = run_signal_qc_on_dataset("./dataset", modality="eeg")
+    from qortex.neuroclassic import compute_spectral_entropy
+    se = compute_spectral_entropy(data, sampling_frequency_hz=256.0)
+    print(se.mean_entropy)  # bits
+
+    from qortex.neuroclassic import assign_leakage_safe_splits, SplitConstraints
+    result = assign_leakage_safe_splits(rows, constraints=SplitConstraints(group_columns=["site"]))
+    print(result.optimality_status, result.assignments)
 """
 
 from qortex.neuroclassic._base import (
@@ -65,6 +71,21 @@ from qortex.neuroclassic.stats import (
     compute_statistical_diagnostics,
 )
 
+from qortex.neuroclassic.infoth import (
+    AutocorrelationReport,
+    ChannelAutocorrelation,
+    ChannelSpectralEntropy,
+    SpectralEntropyReport,
+    compute_autocorrelation_summary,
+    compute_spectral_entropy,
+)
+
+from qortex.neuroclassic.split_optimizer import (
+    SplitAssignmentResult,
+    SplitConstraints,
+    assign_leakage_safe_splits,
+)
+
 __all__ = [
     # Base types
     "CohortMetricReport",
@@ -88,11 +109,22 @@ __all__ = [
     "GraphMetricReport",
     "compute_graph_metrics",
     "compute_pearson_connectivity",
-    # Stats
+    # Statistics
     "ConfoundAssociation",
     "SplitBalanceSummary",
     "StatisticalDiagnosticReport",
     "VariableSummary",
     "build_cohort_metric_report",
     "compute_statistical_diagnostics",
+    # Information theory
+    "AutocorrelationReport",
+    "ChannelAutocorrelation",
+    "ChannelSpectralEntropy",
+    "SpectralEntropyReport",
+    "compute_autocorrelation_summary",
+    "compute_spectral_entropy",
+    # Split optimisation
+    "SplitAssignmentResult",
+    "SplitConstraints",
+    "assign_leakage_safe_splits",
 ]

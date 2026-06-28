@@ -5,6 +5,14 @@ All results include sample size, missingness, method, parameters, and limitation
 Returns LOW_CONFIDENCE or UNKNOWN when sample size is too small.
 
 No causal claims.  No clinical interpretations.
+
+Algorithms
+----------
+Cramér's V         : bias-corrected (Bergsma 2013) chi-squared association for cat×cat
+Pearson r          : linear association for num×num
+Cohen's d (SMD)    : standardised mean difference for num×cat (pooled SD)
+Permutation test   : deterministic two-tailed p-value via LCG-shuffled permutations
+                     (fixed seed → reproducible without numpy dependency)
 """
 
 from __future__ import annotations
@@ -25,6 +33,8 @@ from qortex.neuroclassic._base import (
 __version__ = "0.1.0"
 
 _MIN_N_FOR_STATS = 5
+_PERMUTATION_N = 999   # two-tailed permutation test iterations
+_PERMUTATION_SEED = 42 # deterministic — recorded in provenance
 
 
 @dataclass
@@ -82,7 +92,10 @@ class StatisticalDiagnosticReport:
             modality="tabular",
             scope=self.scope,
             inputs={"n_samples": self.n_samples},
-            parameters={},
+            parameters={
+                "permutation_n": _PERMUTATION_N,
+                "permutation_seed": _PERMUTATION_SEED,
+            },
             assumptions=["Confound associations are not causal relationships."],
             metrics=metrics,
             warnings=self.warnings,
@@ -134,12 +147,23 @@ class VariableSummary:
 
 @dataclass
 class ConfoundAssociation:
-    """Association between a target variable and a potential confound."""
+    """Association between a target variable and a potential confound.
+
+    Attributes
+    ----------
+    method : str
+        "cramers_v"       — categorical × categorical (bias-corrected)
+        "pearson_r"       — numeric × numeric
+        "cohens_d_smd"    — numeric × categorical (standardised mean difference)
+    p_value_permutation : float | None
+        Two-tailed permutation p-value (n=999, fixed seed).  None when
+        sample size < MIN_N_FOR_STATS or method is unsuitable.
+    """
     variable_a: str      # e.g. target (diagnosis)
     variable_b: str      # e.g. confound (site, sex)
-    method: str          # "cramers_v", "pearson_r", "point_biserial", "smd"
+    method: str          # "cramers_v", "pearson_r", "cohens_d_smd"
     effect_size: float | None
-    p_value: float | None = None    # None if permutation test was skipped
+    p_value_permutation: float | None = None
     n_pairs: int = 0
     interpretation: str = ""
     low_confidence: bool = False
@@ -150,7 +174,7 @@ class ConfoundAssociation:
             "variable_b": self.variable_b,
             "method": self.method,
             "effect_size": self.effect_size,
-            "p_value": self.p_value,
+            "p_value_permutation": self.p_value_permutation,
             "n_pairs": self.n_pairs,
             "interpretation": self.interpretation,
             "low_confidence": self.low_confidence,
@@ -235,7 +259,7 @@ def compute_statistical_diagnostics(
         valid = [v for v in values if v not in null_vals]
 
         # Try numeric
-        numeric_vals = []
+        numeric_vals: list[float] = []
         for v in valid:
             try:
                 numeric_vals.append(float(v))
@@ -243,7 +267,6 @@ def compute_statistical_diagnostics(
                 pass
 
         if len(numeric_vals) == len(valid) and numeric_vals:
-            # Numeric variable
             import statistics
             summary = VariableSummary(
                 name=col,
@@ -258,7 +281,6 @@ def compute_statistical_diagnostics(
                 max_val=max(numeric_vals),
             )
         else:
-            # Categorical
             counts = Counter(valid)
             dominant_frac = (
                 max(counts.values()) / len(valid) if valid else None
@@ -278,7 +300,7 @@ def compute_statistical_diagnostics(
 
     report.n_missing = n_missing_total
 
-    # Class imbalance
+    # Class imbalance for target column
     if target and target in report.variables:
         tgt_summary = report.variables[target]
         if tgt_summary.class_counts:
@@ -304,7 +326,9 @@ def compute_statistical_diagnostics(
                 continue
             conf_values = [r.get(conf_col, "n/a") for r in rows]
             assoc = _compute_association(
-                target, target_values, conf_col, conf_values, n
+                target, target_values, conf_col, conf_values, n,
+                target_summary=report.variables.get(target),
+                confound_summary=report.variables.get(conf_col),
             )
             if assoc is not None:
                 report.confound_associations.append(assoc)
@@ -345,7 +369,7 @@ def build_cohort_metric_report(
     return cr.compute()
 
 
-# ── Statistical helpers ───────────────────────────────────────────────────────
+# ── Association computation ───────────────────────────────────────────────────
 
 def _compute_association(
     name_a: str,
@@ -353,6 +377,8 @@ def _compute_association(
     name_b: str,
     vals_b: list[str],
     n: int,
+    target_summary: VariableSummary | None = None,
+    confound_summary: VariableSummary | None = None,
 ) -> ConfoundAssociation | None:
     null_set = {"n/a", "N/A", "", "nan", "NaN", None}
     pairs = [
@@ -373,16 +399,21 @@ def _compute_association(
     a_vals = [p[0] for p in pairs]
     b_vals = [p[1] for p in pairs]
 
-    # Try numeric × numeric → Pearson r
     a_num = _try_float_list(a_vals)
     b_num = _try_float_list(b_vals)
+
+    # ── Numeric × Numeric → Pearson r + permutation p ────────────────────────
     if a_num is not None and b_num is not None:
         r = _pearson_r(a_num, b_num)
+        p_val = None
+        if r is not None and len(a_num) >= _MIN_N_FOR_STATS:
+            p_val = _permutation_test_pearson_r(a_num, b_num)
         return ConfoundAssociation(
             variable_a=name_a,
             variable_b=name_b,
             method="pearson_r",
             effect_size=abs(r) if r is not None else None,
+            p_value_permutation=p_val,
             n_pairs=len(pairs),
             interpretation=(
                 f"|r| = {abs(r):.3f} (numerical association; not causal)"
@@ -391,13 +422,39 @@ def _compute_association(
             low_confidence=len(pairs) < 20,
         )
 
-    # Categorical × categorical → Cramér's V
+    # ── Numeric × Categorical → Cohen's d (SMD) ──────────────────────────────
+    a_is_num = a_num is not None
+    b_is_num = b_num is not None
+    if a_is_num != b_is_num:
+        # One side is numeric, other is categorical
+        num_vals = a_num if a_is_num else b_num
+        cat_vals = b_vals if a_is_num else a_vals
+        d, p_val = _cohens_d_and_permutation(num_vals, cat_vals)  # type: ignore[arg-type]
+        return ConfoundAssociation(
+            variable_a=name_a,
+            variable_b=name_b,
+            method="cohens_d_smd",
+            effect_size=d,
+            p_value_permutation=p_val,
+            n_pairs=len(pairs),
+            interpretation=(
+                f"SMD (Cohen's d) = {d:.3f} (numeric-categorical association; not causal)"
+                if d is not None else "Could not compute Cohen's d."
+            ),
+            low_confidence=len(pairs) < 20,
+        )
+
+    # ── Categorical × Categorical → Cramér's V + permutation p ──────────────
     v = _cramers_v_from_lists(a_vals, b_vals)
+    p_val = None
+    if v is not None and len(a_vals) >= _MIN_N_FOR_STATS:
+        p_val = _permutation_test_cramers_v(a_vals, b_vals)
     return ConfoundAssociation(
         variable_a=name_a,
         variable_b=name_b,
         method="cramers_v",
         effect_size=v,
+        p_value_permutation=p_val,
         n_pairs=len(pairs),
         interpretation=(
             f"Cramér's V = {v:.3f} (categorical association; not causal)"
@@ -406,6 +463,8 @@ def _compute_association(
         low_confidence=len(pairs) < 20,
     )
 
+
+# ── Statistical helpers ───────────────────────────────────────────────────────
 
 def _try_float_list(vals: list[str]) -> list[float] | None:
     try:
@@ -441,6 +500,7 @@ def _pearson_r(x: list[float], y: list[float]) -> float | None:
 
 
 def _cramers_v_from_lists(x: list[str], y: list[str]) -> float | None:
+    """Bias-corrected Cramér's V (Bergsma 2013 correction)."""
     n = len(x)
     if n < 5:
         return None
@@ -464,8 +524,149 @@ def _cramers_v_from_lists(x: list[str], y: list[str]) -> float | None:
                 chi2 += (table[i][j] - exp) ** 2 / exp
     phi2 = chi2 / n
     k = min(r, c)
+    # Bergsma (2013) bias correction
     phi2c = max(0.0, phi2 - (k - 1) / (n - 1))
-    rc = (r - (r - 1) / (n - 1)) * (c - (c - 1) / (n - 1)) - 1
-    if rc <= 0 or k <= 1:
+    r_corr = r - (r - 1) ** 2 / (n - 1)
+    c_corr = c - (c - 1) ** 2 / (n - 1)
+    denom = min(r_corr, c_corr) - 1
+    if denom <= 0:
         return None
-    return math.sqrt(phi2c / (min(r, c) - 1))
+    return math.sqrt(phi2c / denom)
+
+
+def _standardized_mean_difference(
+    group_a: list[float],
+    group_b: list[float],
+) -> float | None:
+    """Cohen's d via pooled standard deviation.
+
+    |mean_a - mean_b| / sqrt(((na-1)*var_a + (nb-1)*var_b) / (na+nb-2))
+    """
+    na, nb = len(group_a), len(group_b)
+    if na < 2 or nb < 2:
+        return None
+    mean_a = sum(group_a) / na
+    mean_b = sum(group_b) / nb
+    var_a = sum((x - mean_a) ** 2 for x in group_a) / (na - 1)
+    var_b = sum((x - mean_b) ** 2 for x in group_b) / (nb - 1)
+    pooled_var = ((na - 1) * var_a + (nb - 1) * var_b) / (na + nb - 2)
+    if pooled_var <= 0:
+        return None
+    return abs(mean_a - mean_b) / math.sqrt(pooled_var)
+
+
+def _cohens_d_and_permutation(
+    num_vals: list[float],
+    cat_vals: list[str],
+) -> tuple[float | None, float | None]:
+    """Compute Cohen's d for the largest binary group split + permutation p-value."""
+    # Group numeric values by categorical label
+    groups: dict[str, list[float]] = {}
+    for v, c in zip(num_vals, cat_vals):
+        groups.setdefault(c, []).append(v)
+
+    if len(groups) < 2:
+        return None, None
+
+    # Take the two largest groups for d computation
+    sorted_groups = sorted(groups.items(), key=lambda kv: len(kv[1]), reverse=True)
+    g_a = sorted_groups[0][1]
+    g_b = sorted_groups[1][1]
+
+    d = _standardized_mean_difference(g_a, g_b)
+    if d is None:
+        return None, None
+
+    # Permutation test: shuffle category labels, re-compute d
+    p_val = _permutation_test_smd(num_vals, cat_vals,
+                                   sorted_groups[0][0], sorted_groups[1][0], d)
+    return d, p_val
+
+
+def _lcg_shuffle(lst: list, seed: int) -> tuple[list, int]:
+    """In-place Fisher-Yates shuffle using a linear congruential generator.
+
+    Returns (shuffled_list, new_seed).  Deterministic — suitable for
+    permutation tests where exact reproducibility matters.
+    """
+    n = len(lst)
+    state = seed
+    for i in range(n - 1, 0, -1):
+        state = (1664525 * state + 1013904223) % (2 ** 32)
+        j = state % (i + 1)
+        lst[i], lst[j] = lst[j], lst[i]
+    return lst, state
+
+
+def _permutation_test_pearson_r(
+    x: list[float],
+    y: list[float],
+    n_permutations: int = _PERMUTATION_N,
+    seed: int = _PERMUTATION_SEED,
+) -> float | None:
+    """Two-tailed permutation p-value for |Pearson r|.
+
+    Uses a deterministic LCG shuffle (no numpy).  Seed is fixed so the
+    p-value is reproducible from the same data.
+    """
+    observed = _pearson_r(x, y)
+    if observed is None:
+        return None
+    observed_abs = abs(observed)
+    count = 0
+    y_perm = list(y)
+    state = seed
+    for _ in range(n_permutations):
+        y_perm, state = _lcg_shuffle(y_perm, state)
+        r_perm = _pearson_r(x, y_perm)
+        if r_perm is not None and abs(r_perm) >= observed_abs:
+            count += 1
+    return (count + 1) / (n_permutations + 1)
+
+
+def _permutation_test_cramers_v(
+    a_vals: list[str],
+    b_vals: list[str],
+    n_permutations: int = _PERMUTATION_N,
+    seed: int = _PERMUTATION_SEED,
+) -> float | None:
+    """Two-tailed permutation p-value for Cramér's V.
+
+    Permutes b_vals while keeping a_vals fixed; counts how often the
+    permuted V ≥ observed V.
+    """
+    observed = _cramers_v_from_lists(a_vals, b_vals)
+    if observed is None:
+        return None
+    count = 0
+    b_perm = list(b_vals)
+    state = seed
+    for _ in range(n_permutations):
+        b_perm, state = _lcg_shuffle(b_perm, state)
+        v_perm = _cramers_v_from_lists(a_vals, b_perm)
+        if v_perm is not None and v_perm >= observed:
+            count += 1
+    return (count + 1) / (n_permutations + 1)
+
+
+def _permutation_test_smd(
+    num_vals: list[float],
+    cat_vals: list[str],
+    label_a: str,
+    label_b: str,
+    observed_d: float,
+    n_permutations: int = _PERMUTATION_N,
+    seed: int = _PERMUTATION_SEED,
+) -> float | None:
+    """Two-tailed permutation p-value for Cohen's d (permute category labels)."""
+    count = 0
+    cats_perm = list(cat_vals)
+    state = seed
+    for _ in range(n_permutations):
+        cats_perm, state = _lcg_shuffle(cats_perm, state)
+        g_a = [v for v, c in zip(num_vals, cats_perm) if c == label_a]
+        g_b = [v for v, c in zip(num_vals, cats_perm) if c == label_b]
+        d_perm = _standardized_mean_difference(g_a, g_b)
+        if d_perm is not None and d_perm >= observed_d:
+            count += 1
+    return (count + 1) / (n_permutations + 1)

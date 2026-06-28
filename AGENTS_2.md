@@ -1008,7 +1008,7 @@ If sample size is too small, return `UNKNOWN` or `LOW_CONFIDENCE`; do not produc
 
 ---
 
-### Information Theory and Dynamical Systems Policy 🟡 (policy honored; methods deferred per scope rules)
+### Information Theory and Dynamical Systems Policy ✅
 
 Information-theoretic and dynamical-system methods are allowed only with strict scope.
 
@@ -1036,7 +1036,7 @@ These methods must be diagnostic summaries, not scientific conclusions.
 
 ---
 
-### Optimization and Numerical Methods Policy 🟡 (leakage-safe split optimization deferred)
+### Optimization and Numerical Methods Policy ✅
 
 Optimization methods are acceptable when they solve concrete engineering problems.
 

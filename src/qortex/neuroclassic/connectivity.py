@@ -3,6 +3,14 @@
 Every connectivity feature declares its construction path explicitly.
 No graph metrics are computed on ambiguous or undeclared graphs.
 
+Graph algorithms used:
+  - BFS shortest paths (Dijkstra-equivalent on unweighted graphs) for
+    global efficiency (harmonic mean of inverse path lengths) and mean
+    path length (arithmetic mean of shortest path lengths).
+  - Brandes (2001) BFS-based algorithm for unnormalized betweenness centrality.
+  - Greedy modularity maximisation (Newman-Girvan Q) for community detection.
+  - Watts-Strogatz null model (Erdős–Rényi approximation) for small-world σ.
+
 Install extras:
     pip install 'qortex[neuroclassic]'
 """
@@ -25,6 +33,9 @@ from qortex.neuroclassic._base import (
 )
 
 __version__ = "0.1.0"
+
+# Cap for BFS-based O(n²) algorithms
+_BFS_NODE_LIMIT = 200
 
 
 @dataclass
@@ -89,7 +100,22 @@ class ConnectivityMatrix:
 
 @dataclass
 class GraphMetricReport:
-    """Graph-theoretic summary computed from a ConnectivityMatrix."""
+    """Graph-theoretic summary computed from a ConnectivityMatrix.
+
+    All metrics are computed on the absolute-value adjacency (undirected,
+    potentially weighted).  The construction_summary field ensures the
+    graph provenance is always recorded alongside the metrics.
+
+    Algorithms:
+      degree/strength/density  — direct sums over adjacency matrix
+      clustering_coefficient   — Watts-Strogatz local CC (binary graph)
+      global_efficiency        — harmonic mean of inverse BFS distances
+      mean_path_length         — arithmetic mean of BFS shortest paths
+      betweenness_centrality   — Brandes (2001) BFS algorithm, normalised
+      community_assignments    — greedy modularity maximisation (Newman Q)
+      modularity               — Newman-Girvan Q of detected communities
+      small_world_sigma        — (C/C_rand)/(L/L_rand), ER null model
+    """
     scope: str
     n_nodes: int
     n_edges: int
@@ -98,10 +124,14 @@ class GraphMetricReport:
     mean_strength: float | None
     clustering_coefficient: float | None
     global_efficiency: float | None
+    mean_path_length: float | None
     modularity: float | None
     n_connected_components: int
     degree: list[float] = field(default_factory=list)
     strength: list[float] = field(default_factory=list)
+    betweenness_centrality: list[float] = field(default_factory=list)
+    community_assignments: list[int] = field(default_factory=list)
+    small_world_sigma: float | None = None
     construction_summary: str = ""
     warnings: list[str] = field(default_factory=list)
     confidence: MethodConfidence = MethodConfidence.HIGH
@@ -114,10 +144,24 @@ class GraphMetricReport:
                          interpretation="Fraction of possible edges present"),
             MetricResult("mean_degree", self.mean_degree),
             MetricResult("mean_strength", self.mean_strength),
-            MetricResult("clustering_coefficient", self.clustering_coefficient),
-            MetricResult("global_efficiency", self.global_efficiency),
-            MetricResult("modularity", self.modularity),
+            MetricResult("clustering_coefficient", self.clustering_coefficient,
+                         interpretation="Mean local clustering coefficient (Watts-Strogatz)"),
+            MetricResult("global_efficiency", self.global_efficiency,
+                         interpretation="Harmonic mean of inverse shortest-path lengths"),
+            MetricResult("mean_path_length", self.mean_path_length,
+                         interpretation="Arithmetic mean of all pairwise BFS shortest paths"),
+            MetricResult("modularity", self.modularity,
+                         interpretation="Newman-Girvan Q of greedy-detected communities"),
             MetricResult("n_connected_components", self.n_connected_components),
+            MetricResult("small_world_sigma", self.small_world_sigma,
+                         interpretation=(
+                             "σ > 1 indicates small-world topology relative to "
+                             "Erdős–Rényi null model with same density"
+                         )),
+            MetricResult("betweenness_centrality", self.betweenness_centrality,
+                         interpretation="Normalised betweenness (Brandes 2001) per node"),
+            MetricResult("community_assignments", self.community_assignments,
+                         interpretation="Community label per node from greedy modularity"),
         ]
         return NeuroClassicResult(
             method_name="connectivity_graph",
@@ -126,14 +170,18 @@ class GraphMetricReport:
             scope=self.scope,
             inputs={"n_nodes": self.n_nodes},
             parameters={"construction": self.construction_summary},
-            assumptions=["Graph is undirected unless spec states otherwise.",
-                         "Adjacency matrix is symmetric."],
+            assumptions=[
+                "Graph is undirected (adjacency = |matrix|).",
+                "Self-loops are excluded (diagonal zeroed before computation).",
+                "BFS-based metrics are skipped for n > 200 (too expensive without sparse solvers).",
+            ],
             metrics=metrics,
             warnings=self.warnings,
             confidence=self.confidence,
             provenance={
                 "method": "connectivity_graph",
                 "construction": self.construction_summary,
+                "version": method_version,
             },
         )
 
@@ -147,8 +195,12 @@ class GraphMetricReport:
             "mean_strength": self.mean_strength,
             "clustering_coefficient": self.clustering_coefficient,
             "global_efficiency": self.global_efficiency,
+            "mean_path_length": self.mean_path_length,
             "modularity": self.modularity,
             "n_connected_components": self.n_connected_components,
+            "betweenness_centrality": self.betweenness_centrality,
+            "community_assignments": self.community_assignments,
+            "small_world_sigma": self.small_world_sigma,
             "construction_summary": self.construction_summary,
             "warnings": self.warnings,
             "confidence": self.confidence.value,
@@ -182,7 +234,7 @@ def compute_pearson_connectivity(
     sampling_hz:
         Sampling rate in Hz.
     frequency_band:
-        Optional (low, high) Hz for bandpass filtering before correlation.
+        Optional (low, high) Hz for Butterworth bandpass filtering before correlation.
     threshold:
         Absolute correlation threshold; edges below this are zeroed.
     scope:
@@ -202,7 +254,7 @@ def compute_pearson_connectivity(
     preprocessing = ["z-score per channel before correlation"]
     working_data = data.copy().astype(np.float64)
 
-    # Optional bandpass
+    # Optional Butterworth bandpass
     if frequency_band is not None:
         try:
             from scipy.signal import butter, filtfilt
@@ -220,17 +272,16 @@ def compute_pearson_connectivity(
     win_samples = min(int(time_window_s * sampling_hz), n_t)
     segment = working_data[:, :win_samples]
 
-    # Z-score
+    # Z-score per channel
     mu = np.nanmean(segment, axis=1, keepdims=True)
     sigma = np.nanstd(segment, axis=1, keepdims=True)
     sigma = np.where(sigma > 0, sigma, 1.0)
     segment = (segment - mu) / sigma
 
-    # Pearson correlation
+    # Pearson correlation (only on fully-finite channels)
     valid_mask = np.isfinite(segment).all(axis=1)
-    n_valid = int(valid_mask.sum())
     corr = np.zeros((n_ch, n_ch))
-    if n_valid >= 2:
+    if valid_mask.sum() >= 2:
         valid_seg = segment[valid_mask]
         sub_corr = np.corrcoef(valid_seg)
         idx = np.where(valid_mask)[0]
@@ -238,7 +289,7 @@ def compute_pearson_connectivity(
             for jj, j in enumerate(idx):
                 corr[i, j] = sub_corr[ii, jj]
 
-    # Apply threshold
+    # Apply absolute threshold
     threshold_rule = None
     if threshold is not None:
         corr = np.where(np.abs(corr) >= threshold, corr, 0.0)
@@ -275,19 +326,27 @@ def compute_graph_metrics(
 ) -> GraphMetricReport:
     """Compute graph-theoretic summary from a ConnectivityMatrix.
 
-    All metrics are computed on the absolute-value adjacency matrix
-    (undirected, weighted).  The construction summary is logged explicitly
-    so reports cannot omit how the graph was built.
+    All metrics operate on |adjacency| (undirected, weighted).  The
+    construction summary is propagated so reports always know how the graph
+    was built.
 
-    Valid metrics:
-        degree, strength, density, clustering coefficient,
-        global efficiency, modularity, connected components.
+    Algorithms
+    ----------
+    clustering_coefficient : Watts-Strogatz local CC on binary graph, mean over nodes.
+    global_efficiency      : Harmonic mean of inverse BFS path lengths (E_glob).
+    mean_path_length       : Arithmetic mean of BFS shortest paths (reachable pairs).
+    betweenness_centrality : Brandes (2001) normalised betweenness on binary graph.
+    community_assignments  : Greedy modularity maximisation (one-pass, per-node merge).
+    modularity             : Newman-Girvan Q of final community partition.
+    small_world_sigma      : (C/C_rand)/(L/L_rand) vs Erdős–Rényi null model.
+
+    BFS metrics are skipped (set to None) when n > 200 to avoid O(n²) overhead
+    without sparse solvers.
     """
     adj = np.abs(conn.matrix).astype(np.float64)
     np.fill_diagonal(adj, 0.0)
     n = adj.shape[0]
 
-    # Binary adjacency for some metrics
     binary = (adj > 0).astype(float)
     degrees = binary.sum(axis=1)
     strengths = adj.sum(axis=1)
@@ -297,7 +356,7 @@ def compute_graph_metrics(
     mean_degree = float(degrees.mean())
     mean_strength = float(strengths.mean())
 
-    # Clustering coefficient (Watts-Strogatz, binary)
+    # ── Clustering coefficient (Watts-Strogatz, binary) ───────────────────────
     cc_vals = []
     for i in range(n):
         neighbors = np.where(binary[i] > 0)[0]
@@ -311,26 +370,41 @@ def compute_graph_metrics(
         cc_vals.append(actual_edges / possible_edges if possible_edges > 0 else 0.0)
     clustering_coefficient = float(np.mean(cc_vals)) if cc_vals else None
 
-    # Global efficiency (harmonic mean of inverse path lengths — approx via BFS)
-    global_efficiency = _global_efficiency_approx(binary, n)
+    # ── BFS-based metrics (capped at n = 200) ────────────────────────────────
+    global_efficiency = _global_efficiency_bfs(binary, n)
+    mean_path_length = _mean_path_length_bfs(binary, n)
+    betweenness_centrality = _betweenness_centrality_brandes(binary, n)
 
-    # Connected components (simple BFS)
+    # ── Connected components (BFS) ────────────────────────────────────────────
     n_components = _count_connected_components(binary, n)
 
-    # Modularity (greedy approximation — Louvain-like, simple)
-    modularity = _simple_modularity(adj, degrees, n_edges)
+    # ── Greedy modularity + community assignments ─────────────────────────────
+    modularity, community_assignments = _modularity_and_communities(adj, degrees, n_edges)
 
-    warnings = []
+    # ── Small-world σ (Watts-Strogatz vs ER null) ─────────────────────────────
+    small_world_sigma = _small_world_sigma(
+        n=n,
+        density=density,
+        clustering_coefficient=clustering_coefficient,
+        mean_path_length=mean_path_length,
+    )
+
+    warnings: list[str] = []
     confidence = MethodConfidence.HIGH
     if n_components > 1:
         warnings.append(
             f"Graph has {n_components} connected components. "
-            "Path-length-based metrics (efficiency) are not meaningful across components."
+            "Path-length-based metrics are not meaningful across disconnected components."
         )
         confidence = MethodConfidence.LOW_CONFIDENCE
     if n < 4:
         warnings.append(f"Graph has only {n} nodes; metrics may be unreliable.")
         confidence = MethodConfidence.LOW_CONFIDENCE
+    if n > _BFS_NODE_LIMIT:
+        warnings.append(
+            f"n={n} > {_BFS_NODE_LIMIT}: BFS metrics (efficiency, path length, "
+            "betweenness) were skipped. Install sparse-graph extras for large graphs."
+        )
 
     return GraphMetricReport(
         scope=scope,
@@ -341,33 +415,34 @@ def compute_graph_metrics(
         mean_strength=mean_strength,
         clustering_coefficient=clustering_coefficient,
         global_efficiency=global_efficiency,
+        mean_path_length=mean_path_length,
         modularity=modularity,
         n_connected_components=n_components,
         degree=degrees.tolist(),
         strength=strengths.tolist(),
+        betweenness_centrality=betweenness_centrality,
+        community_assignments=community_assignments,
+        small_world_sigma=small_world_sigma,
         construction_summary=conn.spec.summary(),
         warnings=warnings,
         confidence=confidence,
     )
 
 
-# ── Graph algorithm helpers ───────────────────────────────────────────────────
+# ── Graph algorithm implementations ──────────────────────────────────────────
 
-def _global_efficiency_approx(binary: np.ndarray, n: int) -> float | None:
-    """Global efficiency via BFS (no scipy needed)."""
-    if n > 200:
-        return None  # too expensive without sparse solvers
-
+def _global_efficiency_bfs(binary: np.ndarray, n: int) -> float | None:
+    """Global efficiency = harmonic mean of inverse BFS shortest path lengths."""
+    if n > _BFS_NODE_LIMIT:
+        return None
     total_inv_dist = 0.0
     for i in range(n):
-        # BFS from i
         dist = [-1] * n
         dist[i] = 0
         queue = [i]
         head = 0
         while head < len(queue):
-            u = queue[head]
-            head += 1
+            u = queue[head]; head += 1
             for v in range(n):
                 if binary[u, v] > 0 and dist[v] < 0:
                     dist[v] = dist[u] + 1
@@ -375,9 +450,81 @@ def _global_efficiency_approx(binary: np.ndarray, n: int) -> float | None:
         for j in range(n):
             if j != i and dist[j] > 0:
                 total_inv_dist += 1.0 / dist[j]
-
     n_pairs = n * (n - 1)
     return total_inv_dist / n_pairs if n_pairs > 0 else 0.0
+
+
+def _mean_path_length_bfs(binary: np.ndarray, n: int) -> float | None:
+    """Arithmetic mean of all pairwise BFS shortest paths (reachable pairs only)."""
+    if n > _BFS_NODE_LIMIT:
+        return None
+    total_dist = 0
+    n_reachable = 0
+    for i in range(n):
+        dist = [-1] * n
+        dist[i] = 0
+        queue = [i]
+        head = 0
+        while head < len(queue):
+            u = queue[head]; head += 1
+            for v in range(n):
+                if binary[u, v] > 0 and dist[v] < 0:
+                    dist[v] = dist[u] + 1
+                    queue.append(v)
+        for j in range(n):
+            if j != i and dist[j] > 0:
+                total_dist += dist[j]
+                n_reachable += 1
+    return total_dist / n_reachable if n_reachable > 0 else None
+
+
+def _betweenness_centrality_brandes(binary: np.ndarray, n: int) -> list[float]:
+    """Normalised betweenness centrality via Brandes (2001) BFS algorithm.
+
+    BC(v) = sum_{s≠v≠t} (σ_st(v) / σ_st)
+    Normalised by (n-1)(n-2)/2 for undirected graphs.
+    """
+    if n > _BFS_NODE_LIMIT:
+        return [0.0] * n
+
+    bc = [0.0] * n
+    for s in range(n):
+        stack: list[int] = []
+        pred: list[list[int]] = [[] for _ in range(n)]
+        sigma = [0] * n
+        sigma[s] = 1
+        dist = [-1] * n
+        dist[s] = 0
+        queue = [s]
+        head = 0
+
+        # BFS to compute shortest-path counts and predecessors
+        while head < len(queue):
+            v = queue[head]; head += 1
+            stack.append(v)
+            for w in range(n):
+                if binary[v, w] <= 0:
+                    continue
+                if dist[w] < 0:
+                    dist[w] = dist[v] + 1
+                    queue.append(w)
+                if dist[w] == dist[v] + 1:
+                    sigma[w] += sigma[v]
+                    pred[w].append(v)
+
+        # Back-propagation of dependency scores
+        delta = [0.0] * n
+        while stack:
+            w = stack.pop()
+            for v in pred[w]:
+                ratio = sigma[v] / sigma[w] if sigma[w] > 0 else 0.0
+                delta[v] += ratio * (1.0 + delta[w])
+            if w != s:
+                bc[w] += delta[w]
+
+    # Normalise for undirected graph: divide by (n-1)(n-2)/2
+    norm = (n - 1) * (n - 2) / 2.0 if n > 2 else 1.0
+    return [v / norm for v in bc]
 
 
 def _count_connected_components(binary: np.ndarray, n: int) -> int:
@@ -399,42 +546,67 @@ def _count_connected_components(binary: np.ndarray, n: int) -> int:
     return n_comp
 
 
-def _simple_modularity(adj: np.ndarray, degrees: np.ndarray, n_edges: int) -> float | None:
-    """Newman-Girvan modularity with greedy community detection (simplified)."""
-    if n_edges == 0:
-        return None
+def _modularity_and_communities(
+    adj: np.ndarray,
+    degrees: np.ndarray,
+    n_edges: int,
+) -> tuple[float | None, list[int]]:
+    """Greedy modularity maximisation (one-pass per-node merge).
+
+    Returns (Q, community_labels) where community_labels[i] is the
+    integer community index for node i.  Uses Newman-Girvan Q.
+
+    Strategy: initialise each node in its own community; iterate over
+    all nodes and merge each into the neighbour community that maximises Q.
+    Repeat until no merge improves Q.
+    """
     n = adj.shape[0]
+    if n_edges == 0:
+        return None, list(range(n))
+
     m2 = 2 * n_edges
-
-    # Initialize each node in its own community
     communities = list(range(n))
-    best_q = _modularity_q(adj, communities, degrees, m2)
+    best_q = _compute_q(adj, communities, degrees, m2)
 
-    # Simple greedy merge (not full Louvain — just one pass)
     improved = True
     while improved:
         improved = False
         for i in range(n):
             original_comm = communities[i]
+            best_local_q = best_q
+            best_comm = original_comm
+            # Try merging into each neighbour's community
             for j in range(n):
                 if i == j or adj[i, j] == 0:
                     continue
-                neighbor_comm = communities[j]
-                if neighbor_comm == original_comm:
+                nc = communities[j]
+                if nc == original_comm:
                     continue
-                communities[i] = neighbor_comm
-                q = _modularity_q(adj, communities, degrees, m2)
-                if q > best_q:
-                    best_q = q
-                    improved = True
-                    break
-                else:
-                    communities[i] = original_comm
+                communities[i] = nc
+                q = _compute_q(adj, communities, degrees, m2)
+                if q > best_local_q:
+                    best_local_q = q
+                    best_comm = nc
+                communities[i] = original_comm
+            if best_comm != original_comm:
+                communities[i] = best_comm
+                best_q = best_local_q
+                improved = True
 
-    return best_q
+    # Re-label communities as consecutive integers
+    label_map: dict[int, int] = {}
+    next_label = 0
+    labels = []
+    for c in communities:
+        if c not in label_map:
+            label_map[c] = next_label
+            next_label += 1
+        labels.append(label_map[c])
+
+    return round(best_q, 6), labels
 
 
-def _modularity_q(
+def _compute_q(
     adj: np.ndarray,
     communities: list[int],
     degrees: np.ndarray,
@@ -449,3 +621,49 @@ def _modularity_q(
             for j in members:
                 q += adj[i, j] - degrees[i] * degrees[j] / m2
     return q / m2 if m2 > 0 else 0.0
+
+
+def _small_world_sigma(
+    n: int,
+    density: float,
+    clustering_coefficient: float | None,
+    mean_path_length: float | None,
+) -> float | None:
+    """Small-world coefficient σ = (C / C_rand) / (L / L_rand).
+
+    Null model: Erdős–Rényi random graph with the same n and edge density p.
+
+    Approximations for ER null model:
+      C_rand ≈ p = density          (CC of random graph ≈ edge probability)
+      L_rand ≈ ln(n) / ln(k_mean)  (mean path length of connected ER graph)
+
+    σ > 1 indicates small-world topology.
+    σ is set to None when:
+      - n < 4 or density ≤ 0 (degenerate graph)
+      - mean_path_length or clustering_coefficient are None or zero
+      - mean degree k < 2 (ER graph is likely disconnected)
+    """
+    if clustering_coefficient is None or mean_path_length is None:
+        return None
+    if mean_path_length == 0 or n < 4 or density <= 0:
+        return None
+
+    k_mean = density * (n - 1)  # mean degree in ER null model
+    if k_mean < 2:
+        return None
+
+    c_rand = density                   # ≈ edge probability p
+    try:
+        l_rand = math.log(n) / math.log(k_mean)
+    except (ValueError, ZeroDivisionError):
+        return None
+
+    if l_rand <= 0 or c_rand <= 0:
+        return None
+
+    gamma = clustering_coefficient / c_rand   # normalised clustering
+    lam = mean_path_length / l_rand           # normalised path length
+    if lam == 0:
+        return None
+
+    return round(gamma / lam, 4)

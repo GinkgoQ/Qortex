@@ -78,6 +78,20 @@ neuroai = [
 stats       = ["scipy>=1.11"]
 graph       = ["scipy>=1.11"]
 neuroclassic = ["scipy>=1.11"]
+tutorials = [
+  "mne>=1.7",
+  "mne-bids>=0.15",
+  "nibabel>=5.2",
+  "scikit-learn>=1.5",
+  "scipy>=1.11",
+  "openpyxl>=3.1",
+]
+datasets = [
+  "mne>=1.7",
+  "nibabel>=5.2",
+  "platformdirs>=4.2",
+  "openpyxl>=3.1",
+]
 all = [
   "qortex[eeg,mri,dwi,zarr,hdf5,torch,lightning,hf,ray,dask,braindecode,sklearn,validation,dashboard,visual-all,nwb,lsl,brainflow,onnx,ultralytics,monai,dicom-full,dicomweb,stats,graph,neuroclassic]"
 ]

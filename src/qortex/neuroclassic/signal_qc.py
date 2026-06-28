@@ -54,7 +54,22 @@ _SPEC = NeuroClassicSpec(
 
 @dataclass
 class ChannelQC:
-    """Per-channel quality metrics."""
+    """Per-channel quality metrics.
+
+    Metrics
+    -------
+    is_flatline          : std < flatline_threshold_sd × median_std
+    is_saturated         : fraction at phys min/max > (100-saturation_pct)%
+    peak_to_peak         : max - min over finite samples
+    robust_variance      : MAD-based variance (×1.4826² for normal consistency)
+    line_noise_power_*   : Welch PSD power summed in ±2 Hz band around 50/60 Hz
+    psd_slope            : log-log linear fit slope on 1-40 Hz (1/f exponent)
+    spectral_entropy     : Shannon entropy of normalised Welch PSD (nats / log₂)
+    autocorrelation_lag1 : Pearson lag-1 autocorrelation coefficient
+    autocorrelation_decay_ms : first lag (ms) where ACF drops below 0.5
+    correlation_outlier  : mean abs cross-channel correlation is outlier (>threshold SD below mean)
+    correlation_score    : mean abs correlation with all other channels
+    """
     name: str
     index: int
     is_flatline: bool = False
@@ -69,6 +84,9 @@ class ChannelQC:
     line_noise_power_50hz: float | None = None
     line_noise_power_60hz: float | None = None
     psd_slope: float | None = None
+    spectral_entropy: float | None = None        # bits (log₂); higher = more broadband
+    autocorrelation_lag1: float | None = None    # lag-1 ACF; near 1 = highly autocorrelated
+    autocorrelation_decay_ms: float | None = None  # ms for ACF to drop below 0.5
     correlation_outlier: bool = False
     correlation_score: float | None = None  # mean abs correlation with all other channels
 
@@ -243,8 +261,8 @@ def compute_signal_qc(
     ch_min = data.min(axis=1)  # [n_ch]
     ch_max = data.max(axis=1)
 
-    # PSD (optional)
-    psd_results: dict[int, tuple[float | None, float | None, float | None]] = {}
+    # PSD and spectral entropy (optional)
+    psd_results: dict[int, tuple[float | None, float | None, float | None, float | None]] = {}
     if compute_psd:
         psd_results = _compute_psd_metrics(data, sampling_frequency_hz, line_noise_hz)
 
@@ -290,9 +308,14 @@ def compute_signal_qc(
         # Robust variance: MAD-based
         mad = float(np.median(np.abs(finite_row - np.median(finite_row)))) * 1.4826
 
-        psd_50 = psd_60 = slope = None
+        psd_50 = psd_60 = slope = spec_ent = None
         if i in psd_results:
-            psd_50, psd_60, slope = psd_results[i]
+            psd_50, psd_60, slope, spec_ent = psd_results[i]
+
+        # Autocorrelation metrics
+        acf_lag1, acf_decay_ms = _compute_autocorrelation_metrics(
+            finite_row, sampling_frequency_hz
+        )
 
         corr_outlier = False
         corr_score = None
@@ -316,6 +339,9 @@ def compute_signal_qc(
             line_noise_power_50hz=psd_50,
             line_noise_power_60hz=psd_60,
             psd_slope=slope,
+            spectral_entropy=spec_ent,
+            autocorrelation_lag1=acf_lag1,
+            autocorrelation_decay_ms=acf_decay_ms,
             correlation_outlier=corr_outlier,
             correlation_score=corr_score,
         )
@@ -450,8 +476,13 @@ def _compute_psd_metrics(
     data: np.ndarray,
     sfreq: float,
     line_hz: float | None,
-) -> dict[int, tuple[float | None, float | None, float | None]]:
-    """Per-channel Welch PSD → line noise power and spectral slope."""
+) -> dict[int, tuple[float | None, float | None, float | None, float | None]]:
+    """Per-channel Welch PSD → line noise power, spectral slope, spectral entropy.
+
+    Returns dict of channel_index → (p50_hz, p60_hz, slope, spectral_entropy_bits).
+    Spectral entropy: Shannon entropy (log₂) of the normalised PSD.
+    Higher entropy = more broadband signal.  Lower = narrow-band / line-noise dominated.
+    """
     try:
         from scipy.signal import welch
     except ImportError:
@@ -462,12 +493,12 @@ def _compute_psd_metrics(
     if nperseg < 16:
         return {}
 
-    out: dict[int, tuple[float | None, float | None, float | None]] = {}
+    out: dict[int, tuple[float | None, float | None, float | None, float | None]] = {}
     for i in range(n_ch):
         row = data[i]
         finite = row[np.isfinite(row)]
         if len(finite) < nperseg:
-            out[i] = (None, None, None)
+            out[i] = (None, None, None, None)
             continue
         freqs, psd = welch(finite, fs=sfreq, nperseg=nperseg)
 
@@ -493,8 +524,62 @@ def _compute_psd_metrics(
             except Exception:
                 pass
 
-        out[i] = (p50, p60, slope)
+        # Spectral entropy: Shannon entropy of normalised PSD (log₂ → bits)
+        spec_ent = None
+        psd_pos = psd[psd > 0]
+        if psd_pos.size > 0:
+            p = psd_pos / psd_pos.sum()
+            with np.errstate(divide="ignore"):
+                spec_ent = float(-np.sum(p * np.log2(p)))
+
+        out[i] = (p50, p60, slope, spec_ent)
     return out
+
+
+def _compute_autocorrelation_metrics(
+    row: np.ndarray,
+    sfreq: float,
+    max_lag_s: float = 1.0,
+) -> tuple[float | None, float | None]:
+    """Compute lag-1 ACF and half-life of autocorrelation decay.
+
+    Parameters
+    ----------
+    row:
+        Finite 1-D signal samples (already NaN-filtered by caller).
+    sfreq:
+        Sampling frequency (Hz).
+    max_lag_s:
+        Maximum lag (seconds) to search for half-life.
+
+    Returns
+    -------
+    (lag1_acf, decay_ms)
+        lag1_acf   — Pearson lag-1 autocorrelation coefficient.
+        decay_ms   — First lag (ms) where ACF drops below 0.5.
+                     None if ACF stays ≥ 0.5 throughout the search window.
+    """
+    n = len(row)
+    if n < 10:
+        return None, None
+
+    centered = row - row.mean()
+    var = float(np.mean(centered ** 2))
+    if var == 0.0:
+        return None, None
+
+    lag1_acf = float(np.mean(centered[:-1] * centered[1:])) / var
+
+    # Half-life: first lag where (normalised) ACF drops below 0.5
+    max_lag = min(int(max_lag_s * sfreq), n - 1)
+    decay_ms: float | None = None
+    for lag in range(2, max_lag + 1):
+        acf_val = float(np.mean(centered[: n - lag] * centered[lag:])) / var
+        if acf_val <= 0.5:
+            decay_ms = lag / sfreq * 1000.0
+            break
+
+    return lag1_acf, decay_ms
 
 
 def _compute_correlation_outliers(
