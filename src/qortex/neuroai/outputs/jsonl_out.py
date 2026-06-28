@@ -19,8 +19,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from typing import Any
-
 from qortex.neuroai.models._base import ModelOutput
 from qortex.neuroai.outputs._base import OutputAdapter
 

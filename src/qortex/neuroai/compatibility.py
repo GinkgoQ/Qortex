@@ -46,6 +46,9 @@ log = logging.getLogger(__name__)
 # Memory headroom multiplier: model weights + activations
 _MEMORY_MULTIPLIER = 3.5
 
+# Spatial coordinate frame identifiers (handled by _check_coordinate_frame)
+_SPATIAL_FRAMES = {"LPS", "RAS", "LAS", "SPATIAL_ZYX", "SPATIAL_XYZ"}
+
 
 class CompatibilityEngine:
     """Check source-model compatibility and determine required transforms.
@@ -513,6 +516,13 @@ class CompatibilityEngine:
                 evidence.append({"check": "axis_convention", "status": "transform_required",
                                  "source": src_str, "required": req_str,
                                  "transform": "add_batch_dim"})
+            elif src_str.upper() in _SPATIAL_FRAMES and req_str.upper() in _SPATIAL_FRAMES:
+                # LPS↔RAS (or LAS/spatial_zyx/spatial_xyz) — _check_coordinate_frame handles
+                # the reorient transform and emits a more specific warning.  Skip the generic
+                # AXIS_CONVENTION_MISMATCH so users don't see two overlapping messages.
+                evidence.append({"check": "axis_convention", "status": "transform_required",
+                                 "source": src_str, "required": req_str,
+                                 "transform": "reorient"})
             else:
                 warnings.append(WarningItem(
                     code="AXIS_CONVENTION_MISMATCH",
