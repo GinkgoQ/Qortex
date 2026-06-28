@@ -50,6 +50,7 @@ from qortex.neuroai.preprocess.planner import PreprocessPlanner
 from qortex.neuroai.runtime.engine import RuntimeEngine
 from qortex.neuroai.sources._registry import make_source_adapter
 from qortex.neuroai.spec import PipelineSpec
+from qortex.core.exceptions import RuntimeExecutionError
 
 log = logging.getLogger(__name__)
 
@@ -153,13 +154,17 @@ class Pipeline:
             self._spec.preprocessing,
         )
 
-        # Build preprocessing plan
+        # Build preprocessing plan — pass source_profile so the planner can
+        # auto-insert rescale_intensity for DICOM/MRI modalities; pass
+        # model_provider so to_tensor knows whether to emit torch or numpy.
         planner = PreprocessPlanner()
         self._preprocess_plan = planner.build_plan(
             self._compat_report,
             window_duration_s=(
                 self._spec.window.duration_s if self._spec.window else None
             ),
+            source_profile=self._source_profile,
+            model_provider=self._spec.model.provider,
         )
 
         self._checked = True
@@ -345,6 +350,11 @@ class Pipeline:
     ) -> PipelineRunReport:
         """Replay a recorded session through the pipeline.
 
+        Unlike ``run()``, replay swaps the source adapter so that the same model
+        and output configuration is applied to a different (recorded) data file.
+        Compatibility is re-checked against the replay source, so a new
+        ``CompatibilityReport`` and ``PreprocessPlan`` are always computed.
+
         Parameters
         ----------
         source_path:
@@ -365,14 +375,24 @@ class Pipeline:
             path=str(source_path),
             modality=self._spec.source.modality,
         )
-        original_source = self._source_adapter
+
+        # Stash existing state so we can restore it after replay.
+        saved_source_adapter = self._source_adapter
+        saved_source_profile = self._source_profile
+        saved_compat = self._compat_report
+        saved_plan = self._preprocess_plan
+        saved_checked = self._checked
+        original_outputs = self._spec.outputs
+
+        # Build new source adapter and re-run check against replay source.
         self._source_adapter = make_source_adapter(
             replay_spec,
             window_spec=self._spec.window,
         )
+        # Force re-check so compat report and preprocess plan are fresh for the
+        # replay source — the original source may have different channels or rate.
+        self._checked = False
 
-        # Override outputs to replay dir if given
-        original_outputs = self._spec.outputs
         if output_dir:
             from qortex.neuroai.spec import OutputSpec
             self._spec.outputs = [
@@ -387,7 +407,11 @@ class Pipeline:
         try:
             report = self.run()
         finally:
-            self._source_adapter = original_source
+            self._source_adapter = saved_source_adapter
+            self._source_profile = saved_source_profile
+            self._compat_report = saved_compat
+            self._preprocess_plan = saved_plan
+            self._checked = saved_checked
             self._spec.outputs = original_outputs
 
         return report
@@ -418,11 +442,7 @@ class Pipeline:
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _make_runtime_error(msg: str) -> Exception:
-    try:
-        from qortex.core.exceptions import QortexError
-        return type("RuntimeExecutionError", (QortexError,), {})(msg)
-    except ImportError:
-        return RuntimeError(msg)
+    return RuntimeExecutionError(msg)
 
 
 def _write_artifact_sidecar(spec: PipelineSpec, report: PipelineRunReport) -> None:

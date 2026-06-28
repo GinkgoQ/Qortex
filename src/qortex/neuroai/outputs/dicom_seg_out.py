@@ -46,6 +46,10 @@ class DICOMSEGOutputAdapter(OutputAdapter):
         self._n_written = 0
         self._source_datasets: list | None = None
 
+    @property
+    def n_written(self) -> int:
+        return self._n_written
+
     def open(self) -> None:
         if self._path.suffix:
             self._path.parent.mkdir(parents=True, exist_ok=True)

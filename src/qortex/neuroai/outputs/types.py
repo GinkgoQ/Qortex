@@ -91,13 +91,38 @@ class DetectionOutput:
 @dataclass
 class SegmentationOutput:
     """Structured output for segmentation tasks."""
-    mask: Any                          # numpy [H, W] or [Z, Y, X] or [N, H, W]
+    mask: Any                               # numpy [H, W] or [Z, Y, X] or [N, H, W]
     n_classes: int
-    class_labels: dict[int, str]       # {index: name}
-    affine: list | None = None         # 4×4 matrix (nested list) for 3D
-    voxel_sizes: tuple | None = None   # (dz, dy, dx) in mm
+    class_labels: dict[int, str]            # {class_index: class_name}
+    affine: list | None = None              # 4×4 matrix (nested list) for 3D
+    voxel_sizes: tuple | None = None        # (dz, dy, dx) in mm
     geometry_validated: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_label_list(
+        cls,
+        mask: Any,
+        class_labels: list[str],
+        **kwargs: Any,
+    ) -> "SegmentationOutput":
+        """Convenience constructor accepting a flat list of class names.
+
+        Parameters
+        ----------
+        mask:
+            Integer-valued segmentation array (values are class indices).
+        class_labels:
+            Ordered list of class names — index 0 is class 0, etc.
+        **kwargs:
+            Forwarded to :class:`SegmentationOutput`.
+        """
+        return cls(
+            mask=mask,
+            n_classes=len(class_labels),
+            class_labels={i: name for i, name in enumerate(class_labels)},
+            **kwargs,
+        )
 
 
 @dataclass
@@ -158,15 +183,28 @@ class VolumePredictionOutput:
 
 @dataclass
 class ReportOutput:
-    """Structured output for clinical-style text reports."""
+    """Structured output for clinical-style text reports.
+
+    ``confidence`` is a numeric score in [0, 1].  Use the ``confidence_level``
+    property to get a human-readable tier (``"high"`` / ``"medium"`` / ``"low"``).
+    """
     title: str
     findings: list[str]
     measurements: dict[str, float]
-    confidence: str              # "high" | "medium" | "low"
+    confidence: float            # numeric score 0.0–1.0
     warnings: list[str]
     source_id: str
     model_id: str
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def confidence_level(self) -> str:
+        """Return ``"high"`` / ``"medium"`` / ``"low"`` tier from the numeric score."""
+        if self.confidence >= 0.75:
+            return "high"
+        if self.confidence >= 0.5:
+            return "medium"
+        return "low"
 
 
 __all__ = [

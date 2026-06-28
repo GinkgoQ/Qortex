@@ -320,9 +320,18 @@ class CompatibilityEngine:
                     severity="error",
                 ))
                 return EvidenceStatus.missing
-            else:
-                evidence.append({"check": "channels", "status": "ok",
-                                 "source_n": src_n, "required_n": req_n})
+            elif src_n > req_n and not preprocess.allows("channel_select"):
+                blockers.append(WarningItem(
+                    code="CHANNEL_COUNT_MISMATCH",
+                    message=f"Source has {src_n} channels but model requires {req_n} and "
+                            "channel_select is not allowed.",
+                    severity="error",
+                ))
+                return EvidenceStatus.missing
+        else:
+            # src_n == req_n: exact match — record as confirmed
+            evidence.append({"check": "channels", "status": "ok",
+                             "source_n": src_n, "required_n": req_n})
 
         return EvidenceStatus.confirmed
 
@@ -375,11 +384,13 @@ class CompatibilityEngine:
                 ))
                 return EvidenceStatus.confirmed
             else:
-                warnings.append(WarningItem(
+                blockers.append(WarningItem(
                     code="SAMPLING_RATE_MISMATCH",
                     message=f"Source at {src_sr:.1f} Hz; model expects {req_sr:.1f} Hz. "
-                            "Resampling is not allowed.",
+                            "Resampling is not allowed by preprocessing spec.",
                     severity="error",
+                    suggestion="Add 'resample' to preprocessing.allow in the pipeline YAML, "
+                               "or choose a model trained at the source sampling rate.",
                 ))
                 return EvidenceStatus.missing
 
@@ -499,16 +510,24 @@ class CompatibilityEngine:
                     params={"from": src_str, "to": req_str},
                     reversible=True,
                 ))
+                evidence.append({"check": "axis_convention", "status": "transform_required",
+                                 "source": src_str, "required": req_str,
+                                 "transform": "add_batch_dim"})
             else:
                 warnings.append(WarningItem(
                     code="AXIS_CONVENTION_MISMATCH",
                     message=f"Source axis convention {src_str!r} ≠ model requirement {req_str!r}. "
                             "Automatic transposition may be applied.",
                     severity="warning",
+                    suggestion="Verify that the source and model share the same axis layout, "
+                               "or add an explicit transpose transform.",
                 ))
+                evidence.append({"check": "axis_convention", "status": "mismatch",
+                                 "source": src_str, "required": req_str})
+        else:
+            evidence.append({"check": "axis_convention", "status": "ok",
+                             "source": src_str, "required": req_str})
 
-        evidence.append({"check": "axis_convention", "status": "ok",
-                         "source": src_str, "required": req_str})
         return EvidenceStatus.confirmed
 
     def _check_voxel_spacing(

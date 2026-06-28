@@ -98,8 +98,8 @@ report = pipe.check()
 
 `check()` probes the source (header only, no data loaded) and inspects the model (config.json only, no weights). It returns a `CompatibilityReport` with:
 
-- `status`: `runnable` | `runnable_with_transforms` | `uncertain` | `not_runnable`
-- `is_runnable`: bool — True when status is `runnable` or `runnable_with_transforms`
+- `status`: `compatible` | `compatible_with_transforms` | `uncertain` | `incompatible`
+- `is_runnable`: bool — True when status is `compatible` or `compatible_with_transforms`
 - `required_transforms`: list of transforms the runtime will apply automatically
 - `blockers`: list of hard incompatibilities (wrong modality, incompatible shape, missing dependency)
 - `warnings`: non-fatal issues (unknown channel labels, inferred sampling rate)
@@ -107,8 +107,8 @@ report = pipe.check()
 
 ```python
 print(report.summary())
-# status: runnable_with_transforms
-# transforms: [resample_250→128Hz, z_score_per_channel]
+# CompatibilityReport: COMPATIBLE_WITH_TRANSFORMS
+# transforms: [resample(250→128Hz), normalize(zscore)]
 # blockers: []
 # warnings: [channel labels inferred from index, not names]
 # unknowns: []
@@ -117,11 +117,11 @@ for b in report.blockers:
     print(b.code, b.message)
 
 if not report.is_runnable:
-    # Do not call run() — it will raise.
+    # Do not call run() — it will raise RuntimeExecutionError.
     pass
 ```
 
-The distinction between `uncertain` and `not_runnable` matters: `uncertain` means a required property (e.g., model input shape) could not be read from the config. The pipeline might work, but check cannot guarantee it. `not_runnable` means a hard blocker was found.
+The distinction between `uncertain` and `incompatible` matters: `uncertain` means a required property (e.g., model input shape) could not be read from the config — the pipeline might work, but `check()` cannot guarantee it. `incompatible` means a hard blocker was found (modality mismatch, insufficient channels, etc.).
 
 ### `plan_preprocessing()` — inspect the transform chain
 

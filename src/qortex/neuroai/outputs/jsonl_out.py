@@ -19,6 +19,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from typing import Any
+
 from qortex.neuroai.models._base import ModelOutput
 from qortex.neuroai.outputs._base import OutputAdapter
 
@@ -86,6 +88,32 @@ class JSONLOutputAdapter(OutputAdapter):
 
         self._file.write(json.dumps(record, ensure_ascii=False) + "\n")
         self._n_written += 1
+
+    def write_marker(self, marker: "Any") -> None:
+        """Write a structured EventMarkerOutput as a dedicated JSONL marker record.
+
+        Called by the runtime when a trigger fires.  The record has
+        ``"record_type": "event_marker"`` so it can be filtered separately
+        from normal prediction records.
+        """
+        if self._file is None:
+            return
+        from datetime import datetime, timezone
+        record: dict = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "record_type": "event_marker",
+            "event_type": getattr(marker, "event_type", "trigger"),
+            "label": getattr(marker, "label", None),
+            "confidence": getattr(marker, "confidence", None),
+            "window_index": getattr(marker, "window_index", None),
+            "source_id": getattr(marker, "source_id", None),
+            "timestamp_utc": getattr(marker, "timestamp_utc", None),
+            "emit_payload": getattr(marker, "emit_payload", {}),
+        }
+        if self._pipeline_ref:
+            record["pipeline"] = self._pipeline_ref
+        self._file.write(json.dumps(record, ensure_ascii=False) + "\n")
+        self._file.flush()
 
     def close(self) -> None:
         if self._file is not None:

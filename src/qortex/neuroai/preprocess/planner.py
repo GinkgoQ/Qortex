@@ -70,6 +70,7 @@ class PreprocessPlanner:
         window_duration_s: float | None = None,
         extra_normalisation: bool = True,
         source_profile: "SourceProfile | None" = None,
+        model_provider: str = "",
     ) -> PreprocessPlan:
         """Convert a CompatibilityReport into an executable PreprocessPlan.
 
@@ -121,12 +122,17 @@ class PreprocessPlanner:
                 irreversible_reason="Mean/std normalisation is data-dependent",
             ))
 
-        # Append to_tensor (always last before window)
+        # Append to_tensor (always last before window).
+        # ``as_numpy=True`` when the model provider handles numpy natively (e.g.
+        # ONNX Runtime, HuggingFace pipeline) and a torch import is not needed.
         if not any(_kind_str(t) == "to_tensor" for t in transforms):
+            as_numpy = model_provider in (
+                "huggingface", "hf", "transformers", "onnx", "onnxruntime"
+            )
             transforms.append(TransformDescriptor(
                 kind=TransformKind.to_tensor,
                 required_by="runtime",
-                params={},
+                params={"as_numpy": as_numpy},
                 reversible=True,
             ))
 
@@ -298,19 +304,24 @@ class TransformExecutor:
             return _pad_or_crop(arr, to_shape)
 
         elif kind == "reorient":
-            try:
-                import nibabel as nib
-                # Only meaningful for NIfTI volumes; pass-through for signals
-            except ImportError:
-                pass
-            return arr
+            from_frame = params.get("from", "LPS")
+            to_frame = params.get("to", "RAS")
+            return _reorient_volume(arr, from_frame=from_frame, to_frame=to_frame)
 
         elif kind == "to_tensor":
+            # If data is already a torch tensor, leave it as-is.
+            if hasattr(arr, "dtype") and type(arr).__module__.startswith("torch"):
+                return arr
+            as_numpy = params.get("as_numpy", False)
+            if as_numpy:
+                # Caller (e.g. HuggingFace pipeline) wants plain numpy, not a tensor.
+                return np.ascontiguousarray(arr).astype(np.float32)
             try:
                 import torch
                 return torch.from_numpy(np.ascontiguousarray(arr)).float()
             except ImportError:
-                return arr.astype(np.float32)
+                # torch not installed — return float32 numpy; most adapters accept it.
+                return np.ascontiguousarray(arr).astype(np.float32)
 
         elif kind == "window":
             dur_s = float(params.get("duration_s", 1.0))
@@ -358,3 +369,39 @@ def _pad_or_crop(arr: np.ndarray, target_shape: tuple) -> np.ndarray:
     slices_dst = tuple(slice(0, min(s, t)) for s, t in zip(arr.shape, target_shape))
     result[slices_dst] = arr[slices_src]
     return result
+
+
+def _reorient_volume(arr: np.ndarray, from_frame: str, to_frame: str) -> np.ndarray:
+    """Reorient a 3-D volume between LPS and RAS coordinate frames.
+
+    LPS→RAS: flip the X axis (left/right) and Y axis (anterior/posterior).
+    For a [Z, Y, X] volume this means reversing axes 2 and 1.
+    RAS→LPS is the same operation (it is its own inverse).
+
+    For non-volumetric data (ndim < 3) the array is returned unchanged with
+    a warning, since axis conventions don't apply to 1-D/2-D signals.
+    """
+    if arr.ndim < 3:
+        log.warning(
+            "reorient: expected a 3-D volume (Z,Y,X) but got shape %s — "
+            "returning unchanged. Reorientation only applies to volumetric data.",
+            arr.shape,
+        )
+        return arr
+
+    from_up = from_frame.upper()
+    to_up = to_frame.upper()
+
+    if from_up == to_up:
+        return arr  # nothing to do
+
+    # LPS ↔ RAS: flip X (axis=-1) and Y (axis=-2) for [*, Z, Y, X] layout
+    if {from_up, to_up} == {"LPS", "RAS"}:
+        return arr[..., ::-1, ::-1, :].copy()
+
+    log.warning(
+        "reorient: unsupported frame pair %r→%r — returning array unchanged. "
+        "Only LPS↔RAS is currently implemented.",
+        from_frame, to_frame,
+    )
+    return arr

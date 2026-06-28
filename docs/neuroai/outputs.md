@@ -205,8 +205,16 @@ DetectionOutput(
 SegmentationOutput(
     mask=np.array(..., dtype=np.int16),   # [z, y, x] or [h, w]
     n_classes=5,
+    class_labels={0: "background", 1: "WM", 2: "GM", 3: "CSF", 4: "tumor"},
+    affine=np.eye(4).tolist(),
+    voxel_sizes=(1.0, 1.0, 1.0),
+)
+
+# Convenience: build from a list of class names
+SegmentationOutput.from_label_list(
+    mask=np.array(..., dtype=np.int16),
     class_labels=["background", "WM", "GM", "CSF", "tumor"],
-    affine=np.eye(4),
+    affine=np.eye(4).tolist(),
     voxel_sizes=(1.0, 1.0, 1.0),
 )
 
@@ -243,9 +251,12 @@ ReportOutput(
     title="Brain Lesion Analysis",
     findings=["Single lesion detected in right hemisphere"],
     measurements={"volume_ml": 4.2},
-    confidence=0.87,
+    confidence=0.87,            # numeric score in [0, 1]
     warnings=[],
+    source_id="dicom:study_001",
+    model_id="org/lesion-detector",
 )
+# report.confidence_level → "high" | "medium" | "low"
 ```
 
 `BoundingBox` has helpers for format conversion:

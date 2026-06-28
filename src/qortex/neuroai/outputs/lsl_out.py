@@ -5,6 +5,7 @@ Pushes model prediction results as string markers onto an LSL outlet.
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -72,6 +73,26 @@ class LSLMarkerOutputAdapter(OutputAdapter):
         self._outlet.push_sample([marker])
         self._n_written += 1
         log.debug("LSL marker pushed: %r", marker)
+
+    def write_marker(self, marker: Any) -> None:
+        """Push a structured EventMarkerOutput to the LSL outlet.
+
+        The marker is serialised as a compact JSON string so BCI receivers
+        that understand JSON can decode the full payload; simple BCI2000-style
+        receivers get a human-readable string.
+        """
+        if self._outlet is None:
+            return
+        label = getattr(marker, "label", "")
+        confidence = getattr(marker, "confidence", None)
+        emit = getattr(marker, "emit_payload", {})
+        if emit:
+            payload = json.dumps({"label": label, "confidence": confidence, **emit},
+                                 ensure_ascii=False)
+        else:
+            payload = f"{label}:{confidence:.3f}" if confidence is not None else label
+        self._outlet.push_sample([payload])
+        log.debug("LSL trigger marker pushed: %r", payload)
 
     def close(self) -> None:
         if self._outlet is not None:
