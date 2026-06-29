@@ -9,13 +9,24 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import warnings
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from project_support import banner, print_kv, require, require_equal, passed  # noqa: E402
 
 import qortex
-from qortex.core.config import QortexConfig
+from qortex.core import (
+    ConfigurationError,
+    FileRecord,
+    Manifest,
+    ModelAdapterError,
+    QortexConfig,
+    QortexError,
+    QortexWarning,
+    SplitPlan,
+    emit_warning,
+)
 
 
 def main() -> None:
@@ -68,6 +79,60 @@ def main() -> None:
     require(callable(qortex.configure), "qortex.configure missing")
     require(qortex.FileRecord is not None, "qortex.FileRecord missing")
     require(qortex.Manifest is not None, "qortex.Manifest missing")
+
+    # ── 6. Core config safety ────────────────────────────────────────────────
+    try:
+        qortex.configure(max_concurrent_downloads=0)
+    except ConfigurationError as exc:
+        print_kv("invalid config error", exc.to_dict())
+        require_equal(exc.code, "config.error", "ConfigurationError.code")
+    else:
+        raise RuntimeError("invalid config override did not raise ConfigurationError")
+
+    # ── 7. Structured exceptions and warnings ────────────────────────────────
+    err = QortexError(
+        "example failure",
+        code="example.failure",
+        context={"stage": "project_01"},
+        suggestion="Inspect the structured context.",
+    )
+    print_kv("structured error", err.to_dict())
+    require_equal(err.to_dict()["code"], "example.failure", "QortexError.to_dict code")
+    require(ModelAdapterError("blocked", model_id="m", provider="plugin").context["model_id"] == "m",
+            "ModelAdapterError context missing")
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        record = emit_warning(
+            "core.test_warning",
+            "structured warning example",
+            context={"stage": "project_01"},
+        )
+    require_equal(record.code, "core.test_warning", "WarningRecord.code")
+    require(caught and issubclass(caught[0].category, QortexWarning), "QortexWarning was not emitted")
+
+    # ── 8. Core entity invariants ────────────────────────────────────────────
+    try:
+        FileRecord(id="bad", path="bad.txt", filename="bad.txt", extension=".txt", size=-1)
+    except ValueError:
+        pass
+    else:
+        raise RuntimeError("FileRecord accepted negative size")
+
+    good_file = FileRecord(id="ok", path="sub-01/file.txt", filename="file.txt", extension=".txt", size=1)
+    try:
+        Manifest(dataset_id="ds", snapshot="1", files=[good_file, good_file])
+    except ValueError:
+        pass
+    else:
+        raise RuntimeError("Manifest accepted duplicate file paths")
+
+    try:
+        SplitPlan(train=0.8, val=0.2, test=0.2)
+    except ValueError:
+        pass
+    else:
+        raise RuntimeError("SplitPlan accepted fractions that do not sum to 1.0")
 
     passed("project_01_import_and_config")
 

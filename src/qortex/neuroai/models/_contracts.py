@@ -21,8 +21,7 @@ Current coverage (13 models):
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
 from qortex.neuroai.contracts import (
     AxisConvention,
@@ -288,7 +287,7 @@ _REGISTRY: list[ModelContractEntry] = [
         model_id="ultralytics/yolov8n",
         provider="ultralytics",
         aliases=("yolov8n", "yolo_v8n"),
-        **(lambda ic, oc: {"input_contract": ic, "output_contract": oc})(
+        input_contract=(lambda ic, oc: ic)(
             *_image_contract(spatial_shape=(640, 640), n_channels=3, intensity_range=(0.0, 1.0))
         ),
         output_contract=OutputContract(

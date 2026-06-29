@@ -17,12 +17,17 @@ Environment variables:
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import platformdirs
-from pydantic import Field, field_validator
+from pydantic import Field, ValidationError as PydanticValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from qortex.core.exceptions import ConfigurationError
+
+log = logging.getLogger(__name__)
 
 
 def _default_cache_dir() -> Path:
@@ -38,6 +43,7 @@ class QortexConfig(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         populate_by_name=True,
+        extra="ignore",
     )
 
     # ── Cache ────────────────────────────────────────────────────────────
@@ -77,9 +83,31 @@ class QortexConfig(BaseSettings):
     def _expand_cache_dir(cls, v: str | Path) -> Path:
         return Path(v).expanduser().resolve()
 
+    def redacted(self) -> dict[str, Any]:
+        """Return config values safe for logs, reports, and CLI diagnostics."""
+        data = self.model_dump(mode="python")
+        if data.get("api_token"):
+            data["api_token"] = "***"
+        return data
+
     def with_overrides(self, **kwargs) -> "QortexConfig":
-        """Return a new config with specific fields replaced."""
-        return self.model_copy(update=kwargs)
+        """Return a new config with specific fields replaced and validated."""
+        unknown = sorted(set(kwargs) - set(self.model_fields))
+        if unknown:
+            raise ConfigurationError(
+                f"Unknown Qortex configuration field(s): {', '.join(unknown)}",
+                context={"unknown_fields": unknown},
+                suggestion=f"Known fields: {', '.join(sorted(self.model_fields))}",
+            )
+        data = self.model_dump(mode="python")
+        data.update(kwargs)
+        try:
+            return type(self).model_validate(data)
+        except PydanticValidationError as exc:
+            raise ConfigurationError(
+                "Invalid Qortex configuration override",
+                context={"errors": exc.errors(include_url=False), "overrides": _redact_mapping(kwargs)},
+            ) from exc
 
 
 # ── Module-level singleton ────────────────────────────────────────────────────
@@ -91,7 +119,13 @@ def get_config() -> QortexConfig:
     """Return the current global config, initialising from env/defaults if needed."""
     global _config
     if _config is None:
-        _config = QortexConfig()
+        try:
+            _config = QortexConfig()
+        except PydanticValidationError as exc:
+            raise ConfigurationError(
+                "Invalid Qortex configuration from environment or .env",
+                context={"errors": exc.errors(include_url=False)},
+            ) from exc
     return _config
 
 
@@ -105,9 +139,18 @@ def configure(**kwargs) -> None:
     """
     global _config
     _config = get_config().with_overrides(**kwargs)
+    log.debug("Qortex configuration updated: %s", _config.redacted())
 
 
 def reset_config() -> None:
     """Reset to defaults (mainly useful in tests)."""
     global _config
     _config = None
+
+
+def _redact_mapping(values: dict[str, Any]) -> dict[str, Any]:
+    redacted = dict(values)
+    for key in list(redacted):
+        if "token" in key.lower() or "password" in key.lower() or "secret" in key.lower():
+            redacted[key] = "***"
+    return redacted

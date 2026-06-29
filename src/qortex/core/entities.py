@@ -12,7 +12,7 @@ from html import escape
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
 
 def _utcnow() -> datetime:
@@ -136,6 +136,20 @@ class FileRecord(_Frozen):
     # Sidecar / inheritance grouping
     sidecar_group: str | None = None  # stable hash of the inheritance chain key
 
+    @field_validator("path", "filename")
+    @classmethod
+    def _non_empty_file_identity(cls, value: str) -> str:
+        if not value:
+            raise ValueError("file path and filename must not be empty")
+        return value
+
+    @field_validator("size")
+    @classmethod
+    def _non_negative_optional_size(cls, value: int | None) -> int | None:
+        if value is not None and value < 0:
+            raise ValueError("file size must be >= 0 when provided")
+        return value
+
     @property
     def subject(self) -> str | None:
         return self.entities.subject
@@ -252,6 +266,13 @@ class ManifestSummary(_Frozen):
     has_events: bool = False
     has_participants_tsv: bool = False
 
+    @field_validator("file_count", "dir_count", "total_size")
+    @classmethod
+    def _non_negative_counts(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("manifest summary counts and sizes must be >= 0")
+        return value
+
     @property
     def total_size_gb(self) -> float:
         return self.total_size / 1e9
@@ -273,6 +294,20 @@ class Manifest(_Mutable):
 
     # ── Internal index (populated lazily on first get_file call) ─────────
     _path_index: dict[str, FileRecord] | None = PrivateAttr(default=None)
+
+    @model_validator(mode="after")
+    def _validate_unique_paths(self) -> "Manifest":
+        seen: set[str] = set()
+        duplicates: list[str] = []
+        for file in self.files:
+            if file.path in seen:
+                duplicates.append(file.path)
+            seen.add(file.path)
+        if duplicates:
+            sample = ", ".join(duplicates[:5])
+            suffix = f" and {len(duplicates) - 5} more" if len(duplicates) > 5 else ""
+            raise ValueError(f"manifest contains duplicate file paths: {sample}{suffix}")
+        return self
 
     def _ensure_index(self) -> None:
         if self._path_index is None:
@@ -440,6 +475,13 @@ class DownloadPlan(_Mutable):
     recordings: list[LogicalRecording] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=_utcnow)
 
+    @field_validator("estimated_bytes")
+    @classmethod
+    def _non_negative_estimated_bytes(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("estimated_bytes must be >= 0")
+        return value
+
     @property
     def estimated_gb(self) -> float:
         return self.estimated_bytes / 1e9
@@ -490,6 +532,20 @@ class DownloadRecord(_Frozen):
     retries: int = 0
     from_cache: bool = False
 
+    @field_validator("bytes_written", "retries")
+    @classmethod
+    def _non_negative_download_counts(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("download counts must be >= 0")
+        return value
+
+    @field_validator("elapsed")
+    @classmethod
+    def _non_negative_elapsed(cls, value: float) -> float:
+        if value < 0:
+            raise ValueError("elapsed must be >= 0")
+        return value
+
 
 class FailedRecord(_Frozen):
     """Outcome for a file that could not be downloaded."""
@@ -497,6 +553,13 @@ class FailedRecord(_Frozen):
     file: FileRecord
     error: str
     attempts: int
+
+    @field_validator("attempts")
+    @classmethod
+    def _positive_attempts(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("attempts must be > 0")
+        return value
 
 
 class DownloadResult(_Mutable):
@@ -508,6 +571,20 @@ class DownloadResult(_Mutable):
     failed: list[FailedRecord] = Field(default_factory=list)
     bytes_downloaded: int = 0
     elapsed: float = 0.0
+
+    @field_validator("bytes_downloaded")
+    @classmethod
+    def _non_negative_bytes_downloaded(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("bytes_downloaded must be >= 0")
+        return value
+
+    @field_validator("elapsed")
+    @classmethod
+    def _non_negative_result_elapsed(cls, value: float) -> float:
+        if value < 0:
+            raise ValueError("elapsed must be >= 0")
+        return value
 
     @property
     def success(self) -> bool:
@@ -556,6 +633,20 @@ class SignalRecord(_Mutable):
     events_file: FileRecord | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
+    @field_validator("sfreq", "duration")
+    @classmethod
+    def _positive_signal_float(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError("signal sampling frequency and duration must be > 0")
+        return value
+
+    @field_validator("n_channels")
+    @classmethod
+    def _positive_n_channels(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("n_channels must be > 0")
+        return value
+
     @property
     def shape(self) -> tuple[int, int]:
         return (self.n_channels, int(self.duration * self.sfreq))
@@ -587,6 +678,13 @@ class EventsRecord(_Mutable):
     n_events: int
     label_column: str | None = None
     label_values: list[Any] = Field(default_factory=list)
+
+    @field_validator("n_events")
+    @classmethod
+    def _non_negative_n_events(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("n_events must be >= 0")
+        return value
 
 
 class SampleRecord(_Mutable):
@@ -632,6 +730,16 @@ class SplitPlan(_Frozen):
     class_counts: dict[str, dict[str, int]] = Field(default_factory=dict)
     leakage_risks: list[str] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def _validate_fractions(self) -> "SplitPlan":
+        for name, value in {"train": self.train, "val": self.val, "test": self.test}.items():
+            if value < 0:
+                raise ValueError(f"{name} split fraction must be >= 0")
+        total = self.train + self.val + self.test
+        if abs(total - 1.0) > 1e-6:
+            raise ValueError(f"split fractions must sum to 1.0, got {total:.6f}")
+        return self
+
 
 class ReadinessFinding(_Frozen):
     """One actionable dataset-readiness finding."""
@@ -656,6 +764,13 @@ class ReadinessReport(_Mutable):
     estimated_bytes: int = 0
     findings: list[ReadinessFinding] = Field(default_factory=list)
     generated_at: datetime = Field(default_factory=_utcnow)
+
+    @field_validator("n_recordings", "n_loadable", "n_event_complete", "n_label_ready", "estimated_bytes")
+    @classmethod
+    def _non_negative_readiness_counts(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("readiness counts and estimated_bytes must be >= 0")
+        return value
 
     @property
     def can_download(self) -> bool:
@@ -722,6 +837,20 @@ class ConversionResult(_Frozen):
     warnings: list[str] = Field(default_factory=list)
     artifact_manifest: "ArtifactManifest | None" = None
 
+    @field_validator("n_samples", "n_subjects")
+    @classmethod
+    def _non_negative_conversion_counts(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("conversion counts must be >= 0")
+        return value
+
+    @field_validator("elapsed")
+    @classmethod
+    def _non_negative_conversion_elapsed(cls, value: float) -> float:
+        if value < 0:
+            raise ValueError("elapsed must be >= 0")
+        return value
+
 
 class ArtifactManifest(_Frozen):
     """Machine-readable contract for a converted Qortex artifact."""
@@ -768,6 +897,13 @@ class DatasetSummary(_Frozen):
     has_derivatives: bool = False
     has_events: bool = False
 
+    @field_validator("n_files", "n_subjects", "n_sessions", "n_tasks", "total_size")
+    @classmethod
+    def _non_negative_dataset_summary_counts(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("dataset summary counts and total_size must be >= 0")
+        return value
+
 
 class QualityMetrics(_Frozen):
     bids_score: float = 0.0          # 0–100
@@ -787,6 +923,13 @@ class EventLabelSummary(_Frozen):
     label_column: str | None = None
     label_counts: dict[str, int] = Field(default_factory=dict)
     n_missing_labels: int = 0
+
+    @field_validator("n_events", "n_missing_labels")
+    @classmethod
+    def _non_negative_event_counts(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("event counts must be >= 0")
+        return value
 
     @property
     def n_classes(self) -> int:
@@ -1018,6 +1161,13 @@ class LocalFileRecord(_Frozen):
     is_dir: bool = False
     extension: str | None = None
     entities: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("size")
+    @classmethod
+    def _non_negative_local_size(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("local file size must be >= 0")
+        return value
 
 
 class LocalIndexReport(_Mutable):

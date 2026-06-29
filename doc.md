@@ -139,16 +139,29 @@ QortexError
 ├── ValidationError
 ├── ConversionError
 ├── ReadinessError
-├── DownloadError       url, dest: Path
+├── DownloadError       path, url, reason
 ├── CacheError
-├── ChecksumError       expected, actual: str
-├── SourceAdapterError  source_id: str
+├── ConfigurationError
+├── IntegrityError      path, expected, got, check
+├── SourceAdapterError  source_type, path
 ├── ModelAdapterError   model_id, provider: str
 ├── OutputAdapterError
-└── RuntimeExecutionError  stage: str
+├── RuntimeExecutionError  stage: str
+└── ContractValidationError contract_type, violations
 ```
 
-Catch all with `except QortexError`. All carry structured context attributes beyond the message string.
+Catch all with `except QortexError`. All carry structured context attributes beyond the message string:
+
+```python
+try:
+    ...
+except QortexError as exc:
+    print(exc.code)
+    print(exc.context)
+    print(exc.to_dict())
+```
+
+Warnings use `QortexWarning`, `WarningRecord`, and `emit_warning(...)` when a condition is non-fatal but should still be visible in logs/notebooks. Use this for recoverable degradations, optional dependency fallbacks, skipped files, and uncertainty that does not block execution.
 
 ### `entities.py` — Shared domain objects
 
@@ -158,7 +171,18 @@ These are pure data; no logic beyond `__init__` and basic computed properties.
 
 ### `config.py` — Single config object
 
-`QortexConfig`: `api_token`, `cache_dir`, `download_dir`, `max_connections`, `timeout_s`, `verify_ssl`, `log_level`. Set via `qortex.configure(token=...)` or env var `QORTEX_TOKEN`. `get_config()` returns the singleton. All client/fetch code reads from it; nothing hardcodes credentials.
+`QortexConfig`: `api_token`, `cache_dir`, `openneuro_endpoint`, `gql_endpoint`, `max_concurrent_downloads`, `max_concurrent_heads`, `max_retries`, retry backoff, timeout fields, integrity flags, and `exclude_derivatives_default`.
+
+Set runtime overrides via:
+
+```python
+import qortex
+
+qortex.configure(api_token="...", max_concurrent_downloads=16, cache_dir="~/qortex-cache")
+cfg = qortex.get_config()
+```
+
+Use `get_config()` for the active singleton. `QortexConfig()` creates a fresh config from defaults/environment and does not inherit runtime overrides. Overrides are validated; invalid fields or invalid values raise `ConfigurationError`. Use `cfg.redacted()` for logs or reports so tokens are never printed.
 
 ---
 

@@ -384,6 +384,7 @@ cd src/qortex_rs && maturin develop --release
 
 | Subsystem | Status |
 |---|---|
+| Core contracts/config/exceptions | Production-oriented; validated config overrides, structured exceptions, Qortex warnings, and entity invariants |
 | Manifest access + semantic graph | Production; scenario-tested on `ds000001` |
 | Remote preview + metadata-first workflows | Production |
 | Decision reports (doctor, minimum, can-train, etc.) | Production; scenario-tested |

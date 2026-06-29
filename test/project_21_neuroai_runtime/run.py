@@ -50,8 +50,8 @@ def main() -> None:
             {"type": "csv", "path": str(csv_path)},
         ],
         "trigger": {
-            "when": {"class": "restable", "probability_gte": 0.60, "stable_for": 1},
-            "emit": {"label": "tabular_restability_marker"},
+            "when": {"class": "alert", "probability_gte": 0.70, "stable_for": 1},
+            "emit": {"label": "tabular_alert_marker"},
         },
     }
 
@@ -87,11 +87,16 @@ def main() -> None:
         if line.strip()
     ]
     print("JSONL_RECORDS", json.dumps(jsonl_records, indent=2, sort_keys=True))
-    assert len(jsonl_records) == 1
-    assert jsonl_records[0]["output_type"] == "classification"
-    assert "probabilities" in jsonl_records[0]
-    assert jsonl_records[0]["class"] == "restable"
-    assert jsonl_records[0]["trigger_fired"] is True
+    prediction_records = [r for r in jsonl_records if r.get("output_type") == "classification"]
+    marker_records = [r for r in jsonl_records if r.get("record_type") == "event_marker"]
+    assert len(prediction_records) == 1
+    assert len(marker_records) == 1
+    prediction = prediction_records[0]
+    marker = marker_records[0]
+    assert "probabilities" in prediction
+    assert prediction["class"] == "alert"
+    assert prediction["trigger_fired"] is True
+    assert marker["label"] == "alert"
 
     with csv_path.open(newline="", encoding="utf-8") as f:
         csv_records = list(csv.DictReader(f))
