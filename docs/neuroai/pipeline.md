@@ -203,9 +203,12 @@ print(bench.summary())
 
 ```python
 bench.p50_ms, bench.p95_ms, bench.p99_ms
-bench.per_stage          # dict: stage_name → {p50, p95, p99}
+bench.mean_ms
+bench.breakdown          # LatencyBreakdown with source/preprocess/inference/postprocess/output timings
 bench.budget_ms          # from spec.runtime.latency_budget_ms
-bench.budget_met         # bool
+bench.status             # PASS | FAIL | UNKNOWN
+bench.n_windows
+bench.n_dropped
 bench.summary()          # human-readable string
 ```
 

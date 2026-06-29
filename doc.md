@@ -334,9 +334,14 @@ Status logic: any blocker → `incompatible`; any transform → `compatible_with
 
 `build_plan(compat_report, *, window_duration_s, source_profile, model_provider) → PreprocessPlan`
 
-Takes `compat_report.required_transforms`, sorts by `_TRANSFORM_ORDER`, auto-inserts:
-- `rescale_intensity` for DICOM sources (HU → [0,1]) unless in `preprocess.deny`
-- `to_tensor` at end (conditionally: skipped for HF/ONNX providers that accept numpy)
+Takes `compat_report.required_transforms`, sorts by `_TRANSFORM_ORDER`, then adds
+runtime structural transforms:
+- `to_tensor` at the end when absent. It emits numpy for HF/ONNX-style providers and Torch tensors otherwise.
+- `window` when `window_duration_s` is present and no window transform is already required.
+
+It does not insert modality heuristics such as DICOM HU normalization or EEG
+bandpass by itself. Those transforms must come from the model contract and
+`CompatibilityReport`.
 
 `TransformExecutor.apply(data, plan) → data` — applies transforms in order. Each transform is implemented as a pure function operating on numpy arrays or QortexAbstraction objects.
 
