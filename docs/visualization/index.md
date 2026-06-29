@@ -53,3 +53,7 @@ For EEG viewers only:
 ```bash
 pip install "qortex[eeg]"
 ```
+
+---
+
+**Next →** [Convert](../conversion/index.md) — transform validated local data into training-ready ML formats.

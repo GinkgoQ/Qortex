@@ -31,3 +31,7 @@ ds.download(subjects=["01", "02"], tasks=["rest"], data_dir="data/ds004130/")
 [**Local index**](local-index.md) — Scan a pre-existing BIDS directory and build a local manifest.
 
 [**Resume**](resume.md) — How interrupted downloads recover.
+
+---
+
+**Next →** [Visualize](../visualization/index.md) — QC your local files before conversion to catch bad data early.

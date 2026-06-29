@@ -36,3 +36,7 @@ This loads the manifest but not the data. Data is only read when you call a load
 [**Compare splits**](compare-splits.md) — Check that train/val/test splits have similar distributions.
 
 [**ML bridge**](ml-bridge.md) — Load artifacts for PyTorch, scikit-learn, HuggingFace, and Lightning.
+
+---
+
+**Next →** [NeuroAI runtime](../neuroai/index.md) — run inference with a pre-trained model directly on your data source, or return to [Guides overview](../guides/index.md) to review the full pipeline.

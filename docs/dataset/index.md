@@ -44,3 +44,7 @@ with OpenNeuroClient() as client:
 [**Snapshots**](snapshots.md) — List available snapshot versions, compare manifests between snapshots.
 
 [**BIDS entities**](bids-entities.md) — The entity labels parsed from file paths: subject, session, task, run, datatype, suffix.
+
+---
+
+**Next →** [Assess readiness](../readiness/index.md) — once you know what the dataset contains, check whether it's actually usable for training.

@@ -1,37 +1,18 @@
 # Modalities
 
-Qortex works with OpenNeuro and BIDS datasets across neuroimaging, electrophysiology, and behavioral data. This section explains what each modality usually contains, how Qortex detects it, which files matter, what can be inspected before download, and what is currently supported for visualization, readiness checks, and conversion.
+Go directly to your modality:
 
----
+| Modality | BIDS datatype | What Qortex can do |
+|---|---|---|
+| [EEG](eeg/index.md) | `eeg` | inspect · signal preview · events · convert |
+| [MEG](meg/index.md) | `meg` | inspect · signal preview · events · convert |
+| [iEEG](ieeg/index.md) | `ieeg` | inspect · contacts · events · signal preview |
+| [fNIRS](fnirs/index.md) | `nirs` | inspect · metadata |
+| [MRI](mri/index.md) | `anat` `func` `dwi` `fmap` | inspect · visualize · QC · convert |
+| [PET](pet/index.md) | `pet` | inspect · visualize · overlay · convert |
+| [Behavioral](behavioral/index.md) | `beh` events | labels · readiness · conversion |
 
-## What this section covers
-
-Each modality page should answer the same practical questions:
-
-1. What files usually appear in BIDS/OpenNeuro datasets?
-2. How does Qortex detect this modality?
-3. Which companion files matter?
-4. What can be inspected before download?
-5. What requires local files?
-6. What can be visualized?
-7. What can be converted into ML artifacts?
-8. What are the current limitations?
-
-The goal is not to duplicate the BIDS specification. The goal is to explain what Qortex can do with each modality in a real OpenNeuro workflow.
-
----
-
-## Modality map
-
-| Modality   | Common BIDS datatype          | Typical files                                            | Qortex role                               |
-| ---------- | ----------------------------- | -------------------------------------------------------- | ----------------------------------------- |
-| MRI        | `anat`, `func`, `dwi`, `fmap` | `.nii`, `.nii.gz`, `.json`, `.bval`, `.bvec`             | inspect, download, visualize, QC, convert |
-| PET        | `pet`                         | `.nii`, `.nii.gz`, `.json`, tracer metadata              | inspect, visualize, overlay, convert      |
-| MEG        | `meg`                         | `.fif`, `.ds`, `.tsv`, `.json`, events                   | inspect, signal preview, events, convert  |
-| EEG        | `eeg`                         | `.edf`, `.bdf`, `.vhdr`, `.vmrk`, `.eeg`, `.set`, `.fdt` | inspect, signal preview, events, convert  |
-| iEEG       | `ieeg`                        | `.edf`, `.vhdr`, `.set`, electrodes, coordsystem         | inspect, contacts, events, signal preview |
-| fNIRS      | `nirs`                        | `.snirf`, `.tsv`, `.json`                                | inspect, metadata, future visualization   |
-| Behavioral | `beh`, events files           | `.tsv`, `.csv`, `.json`                                  | labels, readiness, conversion             |
+Each modality page lists the files Qortex reads, which companion files matter, what can be inspected before download, and what can be converted into ML artifacts.
 
 ---
 

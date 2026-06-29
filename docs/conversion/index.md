@@ -38,3 +38,7 @@ art = ds.convert(
 )
 print(art.manifest.n_samples)  # total samples across all splits
 ```
+
+---
+
+**Next →** [Artifacts](../artifacts/index.md) — open, inspect, and connect your artifact to a training framework.

@@ -27,8 +27,10 @@ theme:
     - announce.dismiss
     - content.code.annotate
     - navigation.tabs
+    - navigation.tabs.sticky
     - navigation.sections
     - navigation.indexes
+    - navigation.prune
     - navigation.footer
     - navigation.instant
     - navigation.instant.progress
@@ -37,6 +39,7 @@ theme:
     - search.highlight
     - search.share
     - search.suggest
+    - toc.follow
     - content.code.copy
     - content.tabs.link
     - content.tooltips
@@ -90,115 +93,137 @@ markdown_extensions:
 
 nav:
   - Home: index.md
-  - Concepts:
-      - concepts/index.md
-      - What is Qortex: concepts/what-is-qortex.md
-      - Readiness First: concepts/readiness-first.md
-      - OpenNeuro and BIDS: concepts/openneuro-and-bids.md
-      - Data Model: concepts/data-model.md
-      - Workflow: concepts/workflow.md
-  - Getting Started:
+
+  - Get Started:
       - getting-started/index.md
       - Install: getting-started/install.md
       - Quickstart: getting-started/quickstart.md
-      - First Visual Audit: getting-started/first-visual-audit.md
+      - First visual audit: getting-started/first-visual-audit.md
+      - Concepts:
+          - concepts/index.md
+          - What is Qortex: concepts/what-is-qortex.md
+          - Readiness first: concepts/readiness-first.md
+          - OpenNeuro & BIDS: concepts/openneuro-and-bids.md
+          - Data model: concepts/data-model.md
+          - Workflow: concepts/workflow.md
+
+  - Tutorials:
+      - tutorials/index.md
+      - "T01 · EEG Motor Imagery": tutorials/t01-eeg-motor-imagery.md
+      - "T02 · EEG Connectivity": tutorials/t02-eeg-connectivity.md
+      - "T03 · Sleep Staging": tutorials/t03-eeg-sleep-staging.md
+      - "T04 · Seizure Detection": tutorials/t04-eeg-seizure-detection.md
+      - "T05 · Dementia Baseline": tutorials/t05-mri-dementia-baseline.md
+      - "T06 · Age & Sex QC": tutorials/t06-mri-age-sex-qc.md
+      - "T07 · fMRI Readiness": tutorials/t07-fmri-design-readiness.md
+      - "T08 · Tumor Segmentation": tutorials/t08-brain-tumour-segmentation.md
+
+  - Guides:
+      - guides/index.md
+      - 1 · Inspect:
+          - dataset/index.md
+          - Search catalog: dataset/search-catalog.md
+          - Inspect files: dataset/inspect.md
+          - Metadata: dataset/metadata.md
+          - BIDS entities: dataset/bids-entities.md
+          - Snapshots: dataset/snapshots.md
+      - 2 · Assess readiness:
+          - readiness/index.md
+          - Doctor: readiness/doctor.md
+          - Can train: readiness/can-train.md
+          - Label readiness: readiness/label-readiness.md
+          - Leakage check: readiness/leakage-check.md
+          - Minimum subset: readiness/minimum.md
+          - First batch: readiness/first-batch.md
+          - Content status: readiness/content-status.md
+          - Recipes: readiness/recipes.md
+      - 3 · Download:
+          - download/index.md
+          - Plan: download/plan.md
+          - Selective download: download/selective-download.md
+          - Metadata only: download/metadata-only.md
+          - Cache: download/cache.md
+          - Local index: download/local-index.md
+          - Resume: download/resume.md
+      - 4 · Visualize:
+          - visualization/index.md
+          - Visual audit: visualization/visual-audit.md
+          - EEG viewer: visualization/eeg-viewer.md
+          - fMRI QC: visualization/fmri-qc.md
+          - DWI QC: visualization/dwi-qc.md
+          - Overlays: visualization/overlays.md
+          - Segmentation: visualization/segmentation-comparison.md
+          - DICOM browser: visualization/dicom-browser.md
+          - Artifact viewer: visualization/artifact-visualization.md
+          - OpenNeuro viewer: visualization/visualize-openneuro.md
+          - Local viewer: visualization/local-viewer.md
+          - Visual pipeline: visualization/visual-pipeline.md
+          - Colormaps: visualization/colormaps-and-windows.md
+      - 5 · Convert:
+          - conversion/index.md
+          - Pipeline: conversion/pipeline.md
+          - Formats: conversion/formats.md
+          - Windows: conversion/windows.md
+          - Splits: conversion/splits.md
+          - Provenance: conversion/provenance.md
+          - EDA: conversion/eda.md
+      - 6 · Artifacts:
+          - artifacts/index.md
+          - Manifest: artifacts/manifest.md
+          - Inspect: artifacts/inspect.md
+          - Visualize samples: artifacts/visualize-samples.md
+          - Compare splits: artifacts/compare-splits.md
+          - ML bridge: artifacts/ml-bridge.md
+      - NeuroAI runtime:
+          - neuroai/index.md
+          - Pipeline: neuroai/pipeline.md
+          - Models: neuroai/models.md
+          - Sources: neuroai/sources.md
+          - Outputs: neuroai/outputs.md
+
   - Modalities:
       - modalities/index.md
+      - EEG:
+          - modalities/eeg/index.md
+          - Files: modalities/eeg/files.md
+          - Events: modalities/eeg/events.md
+          - Visualization: modalities/eeg/visualization.md
+      - MEG:
+          - modalities/meg/index.md
+          - Files: modalities/meg/files.md
+          - Events: modalities/meg/events.md
+      - iEEG:
+          - modalities/ieeg/index.md
+          - Files: modalities/ieeg/files.md
+          - Electrodes: modalities/ieeg/electrodes-and-coordinates.md
+      - fNIRS:
+          - modalities/fnirs/index.md
+          - Files: modalities/fnirs/files.md
       - MRI:
           - modalities/mri/index.md
-          - Structural MRI: modalities/mri/structural-mri.md
+          - Structural: modalities/mri/structural-mri.md
           - fMRI / BOLD: modalities/mri/fmri-bold.md
-          - DWI / Diffusion: modalities/mri/dwi-diffusion.md
+          - DWI: modalities/mri/dwi-diffusion.md
           - Fieldmaps: modalities/mri/fieldmaps.md
       - PET:
           - modalities/pet/index.md
-          - PET Metadata: modalities/pet/metadata.md
-          - PET Visualization: modalities/pet/visualization.md
-      - MEG:
-          - modalities/meg/index.md
-          - MEG Files: modalities/meg/files.md
-          - MEG Events: modalities/meg/events.md
-      - EEG:
-          - modalities/eeg/index.md
-          - EEG Files: modalities/eeg/files.md
-          - EEG Events: modalities/eeg/events.md
-          - EEG Visualization: modalities/eeg/visualization.md
-      - iEEG:
-          - modalities/ieeg/index.md
-          - iEEG Files: modalities/ieeg/files.md
-          - Electrodes and Coordinates: modalities/ieeg/electrodes-and-coordinates.md
-      - fNIRS:
-          - modalities/fnirs/index.md
-          - fNIRS Files: modalities/fnirs/files.md
-      - Behavioral and Events:
+          - Metadata: modalities/pet/metadata.md
+          - Visualization: modalities/pet/visualization.md
+      - Behavioral:
           - modalities/behavioral/index.md
           - Events TSV: modalities/behavioral/events-tsv.md
-          - Labels and Trial Types: modalities/behavioral/labels-and-trial-types.md
-      - Modality Selection:
-          - modalities/selection.md
-          - modality Readiness: modalities/readiness.md
-          - Modality Conversion: modalities/conversion.md
-  - Dataset:
-      - dataset/index.md
-      - Inspect: dataset/inspect.md
-      - Metadata: dataset/metadata.md
-      - Search Catalog: dataset/search-catalog.md
-      - Snapshots: dataset/snapshots.md
-      - BIDS Entities: dataset/bids-entities.md
-  - Download:
-      - download/index.md
-      - Plan: download/plan.md
-      - Selective Download: download/selective-download.md
-      - Metadata Only: download/metadata-only.md
-      - Cache: download/cache.md
-      - Local Index: download/local-index.md
-      - Resume: download/resume.md
-  - Readiness:
-      - readiness/index.md
-      - Doctor: readiness/doctor.md
-      - Minimum: readiness/minimum.md
-      - Can Train: readiness/can-train.md
-      - First Batch: readiness/first-batch.md
-      - Label Readiness: readiness/label-readiness.md
-      - Content Status: readiness/content-status.md
-      - Recipes: readiness/recipes.md
-      - Leakage Check: readiness/leakage-check.md
-  - Visualization:
-      - visualization/index.md
-      - Visual Pipeline: visualization/visual-pipeline.md
-      - Local Viewer: visualization/local-viewer.md
-      - Visualize OpenNeuro: visualization/visualize-openneuro.md
-      - Visual Audit: visualization/visual-audit.md
-      - fMRI QC: visualization/fmri-qc.md
-      - DWI QC: visualization/dwi-qc.md
-      - Overlays: visualization/overlays.md
-      - Segmentation Comparison: visualization/segmentation-comparison.md
-      - DICOM Browser: visualization/dicom-browser.md
-      - EEG Viewer: visualization/eeg-viewer.md
-      - Artifact Visualization: visualization/artifact-visualization.md
-      - Colormaps and Windows: visualization/colormaps-and-windows.md
-  - Conversion:
-      - conversion/index.md
-      - Pipeline: conversion/pipeline.md
-      - Formats: conversion/formats.md
-      - Windows: conversion/windows.md
-      - Splits: conversion/splits.md
-      - Provenance: conversion/provenance.md
-      - EDA: conversion/eda.md
-  - Artifacts:
-      - artifacts/index.md
-      - Manifest: artifacts/manifest.md
-      - Inspect: artifacts/inspect.md
-      - Visualize Samples: artifacts/visualize-samples.md
-      - Compare Splits: artifacts/compare-splits.md
-      - ML Bridge: artifacts/ml-bridge.md
+          - Labels: modalities/behavioral/labels-and-trial-types.md
+
   - API:
       - api/index.md
       - Dataset: api/dataset.md
       - Visualization: api/visualization.md
       - Artifact: api/artifact.md
       - Conversion: api/conversion.md
+      - Datasets: api/datasets.md
+      - Neuroclassic: api/neuroclassic.md
       - CLI: api/cli.md
+
   - Troubleshooting:
       - troubleshooting/index.md
       - Install: troubleshooting/install.md

@@ -38,3 +38,7 @@ if report.state == "not_usable":
         if f.severity == "error":
             print(f"  ERROR: {f.message}")
 ```
+
+---
+
+**Next →** [Download](../download/index.md) — once readiness is confirmed, fetch exactly the files you need.

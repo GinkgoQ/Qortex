@@ -334,8 +334,209 @@ qortex artifact-visualize ARTIFACT_DIR [--split {train,val,test}]
 
 ### dashboard
 
-Launch a local visualization dashboard.
+Launch the Qortex Streamlit dashboard.
 
 ```bash
-qortex dashboard DATASET_ID --data-dir DIR [--port N]
+qortex dashboard [--host HOST] [--port PORT]
+```
+
+---
+
+## Preflight command
+
+### preflight
+
+Run a goal-aware preflight check before data processing.
+
+```bash
+qortex preflight DATASET_DIR --goal {visualize,convert,train,neuroai-run}
+                 [--modality MOD] [--target COL] [--split-unit {subject,session,run}]
+                 [--pipeline YAML] [--output FILE] [--strict]
+```
+
+---
+
+## Check commands
+
+Goal-specific data integrity checks. Each outputs a structured report and exits 1 on BLOCK.
+
+### check events
+
+Validate event timing, onset ranges, and BIDS entity matching.
+
+```bash
+qortex check events DATASET_DIR [--modality MOD] [--require-trial-type]
+                    [--output FILE]
+```
+
+### check units
+
+Validate declared units against observed signal scale.
+
+```bash
+qortex check units DATASET_DIR [--modality MOD] [--output FILE]
+```
+
+### check geometry
+
+Validate NIfTI affine, qform/sform, and DWI gradient tables.
+
+```bash
+qortex check geometry DATASET_DIR [--output FILE]
+```
+
+### check leakage
+
+Validate ML label availability and train/test leakage risk.
+
+```bash
+qortex check leakage DATASET_DIR [--target COL]
+                     [--split-unit {subject,session,run}] [--output FILE]
+```
+
+### check structure
+
+Validate BIDS layout, companion-file closure, and entity consistency.
+
+```bash
+qortex check structure DATASET_DIR [--modality MOD] [--output FILE]
+```
+
+### check metadata
+
+Cross-check BIDS JSON sidecars against raw file headers.
+
+```bash
+qortex check metadata DATASET_DIR [--modality MOD] [--output FILE]
+```
+
+### check dwi-gradients
+
+Validate DWI bval/bvec integrity and volume count consistency.
+
+```bash
+qortex check dwi-gradients DATASET_DIR [--output FILE]
+```
+
+### check eeg-channels
+
+Validate EEG channel metadata and unit consistency.
+
+```bash
+qortex check eeg-channels DATASET_DIR [--output FILE]
+```
+
+---
+
+## NeuroAI commands
+
+### neuroai check
+
+Run compatibility check between a source and a model.
+
+```bash
+qortex neuroai check SOURCE_PATH --model MODEL_ID [--provider {huggingface,braindecode,ultralytics,onnx}]
+                  [--task TASK]
+```
+
+### neuroai run
+
+Run a NeuroAI inference pipeline from a YAML spec.
+
+```bash
+qortex neuroai run PIPELINE_YAML [--data-dir DIR] [--output DIR]
+                   [--dry-run] [--verbose]
+```
+
+### neuroai benchmark
+
+Benchmark a model against a source or BIDS dataset.
+
+```bash
+qortex neuroai benchmark SOURCE_PATH --model MODEL_ID [--n-runs N]
+                          [--provider PROV] [--output FILE]
+```
+
+### neuroai replay
+
+Replay a previously saved inference result.
+
+```bash
+qortex neuroai replay RESULT_PATH [--output DIR]
+```
+
+### neuroai inspect-source
+
+Probe a source file and print its SourceProfile.
+
+```bash
+qortex neuroai inspect-source SOURCE_PATH [--type {auto,edf,nifti,bids,dicom,lsl,brainflow,nwb,xdf}]
+```
+
+### neuroai inspect-model
+
+Inspect a model and print its ModelProfile and InputContract.
+
+```bash
+qortex neuroai inspect-model MODEL_ID [--provider {huggingface,braindecode,ultralytics,onnx}]
+                              [--task TASK]
+```
+
+### neuroai suggest-models
+
+Suggest compatible models for a given source file and task.
+
+```bash
+qortex neuroai suggest-models SOURCE_PATH --task {classification,segmentation,detection,regression,embedding}
+                               [--modality {eeg,mri,ct,image,video}]
+                               [--top-k N] [--provider PROV]
+```
+
+---
+
+## Neuro-classic commands
+
+Classical computational neuroscience methods. Requires `pip install 'qortex[neuroclassic]'`.
+
+### neuro-classic signal-qc
+
+Run signal QC on all EEG/MEG files (flatline, NaN, saturation, amplitude).
+
+```bash
+qortex neuro-classic signal-qc DATASET_DIR [--modality {eeg,meg}]
+                                [--max-files N] [--output FILE]
+```
+
+### neuro-classic image-qc
+
+Run image QC on all NIfTI files (NaN, constant, tSNR, volume outliers).
+
+```bash
+qortex neuro-classic image-qc DATASET_DIR [--modality {mri,fmri,ct,dwi,pet}]
+                               [--max-files N] [--output FILE]
+```
+
+### neuro-classic eeg-psd
+
+Run EEG power spectral density and spectral slope summary.
+
+```bash
+qortex neuro-classic eeg-psd DATASET_DIR [--max-files N] [--output FILE]
+```
+
+### neuro-classic connectivity
+
+Compute connectivity matrix and graph metrics on EEG files.
+
+```bash
+qortex neuro-classic connectivity DATASET_DIR [--method correlation]
+                                  [--threshold F] [--output FILE]
+```
+
+### neuro-classic cohort-anomalies
+
+Detect cohort-level amplitude outliers across subjects.
+
+```bash
+qortex neuro-classic cohort-anomalies DATASET_DIR [--output FILE]
 ```
