@@ -1,6 +1,13 @@
 # NeuroAI Runtime
 
-The NeuroAI runtime connects neuroimaging data sources to AI models and structured output sinks through a single declarative pipeline. It separates compatibility checking from execution: the model is never loaded until the runtime has confirmed the source and model can actually work together.
+!!! warning "Experimental"
+    The NeuroAI runtime is **experimental and not production-ready**.
+    APIs, contracts, and behaviour may change without notice between minor versions.
+    See [Known limitations](#known-limitations) before using in a project.
+
+The NeuroAI runtime connects neuroimaging data sources to AI models through a single
+declarative pipeline. It separates compatibility checking from execution: the model is
+never loaded until the runtime has confirmed the source and model can work together.
 
 ## The core loop
 
@@ -11,30 +18,34 @@ CompatibilityEngine     ← reports required transforms, blockers, unknowns
 PreprocessPlanner       ← builds the documented transform chain
 model.load()            ← weights loaded only when check passes
 source.stream()         ← windowed data
-TransformExecutor       ← applies the plan
+TransformExecutor       ← applies the plan; raises TransformError on failure
 model.predict()         ← inference
 output.write()          ← one or many sinks
 ArtifactWriter          ← 9-file provenance directory
 ```
 
-Nothing in this chain is implicit. Each step produces a typed contract: `SourceProfile`, `ModelProfile`, `CompatibilityReport`, `PreprocessPlan`, `PipelineRunReport`, `ArtifactContract`. These contracts flow into the artifact directory written after each run.
+Nothing in this chain is implicit. Each step produces a typed contract:
+`SourceProfile`, `ModelProfile`, `CompatibilityReport`, `PreprocessPlan`,
+`PipelineRunReport`, `ArtifactContract`. These contracts flow into the artifact
+directory written after each run.
 
 ## When to use it
 
-Use the Dataset workflow (`qortex.Dataset`) when your goal is to work with OpenNeuro BIDS datasets — catalog search, download, conversion, readiness checks.
+Use `qortex.Dataset` when your goal is OpenNeuro BIDS datasets — catalog search,
+download, conversion, readiness checks.
 
 Use the NeuroAI runtime when:
-- You have local data (EDF, NWB, XDF, DICOM, video) and want to run a model on it
-- You have a live data stream (LSL, BrainFlow) and need real-time inference
-- You want to evaluate model compatibility before committing to a full run
+
+- You have local data (EDF, NWB, XDF, DICOM) and want to run a model on it
+- You want to evaluate source-model compatibility **before** committing to a run
 - You need a traceable artifact with provenance for every inference run
 
 ## Contents
 
 - [Pipeline](pipeline.md) — YAML format, Python API, `check()`, `run()`, `benchmark()`, `replay()`
 - [Sources](sources.md) — BIDS, DICOM, NWB, XDF, LSL, BrainFlow, image, video
-- [Models](models.md) — HuggingFace, ONNX, Torch, MONAI, Ultralytics, custom plugins
-- [Outputs](outputs.md) — JSONL, Parquet, CSV, LSL markers, NIfTI, DICOM-SEG, BIDS, COCO, YOLO, overlay, HTTP
+- [Models](models.md) — HuggingFace (native tasks), ONNX, Torch, MONAI, Braindecode, Ultralytics, plugins
+- [Outputs](outputs.md) — JSONL, Parquet, CSV, NIfTI, DICOM-SEG, BIDS, COCO, YOLO, overlay, HTTP
 - Contracts — SourceProfile, ModelProfile, CompatibilityReport, PreprocessPlan, ArtifactContract
 - Ring buffer — lock-free windowing for real-time sources; Python fallback + Rust extension
 
@@ -49,12 +60,10 @@ report = pipe.check()
 print(report.summary())
 # CompatibilityReport: COMPATIBLE_WITH_TRANSFORMS
 #   source=local_file:sub-01.edf  model=braindecode/EEGNet
-#   Required transforms (2):
-#     • resample(from_hz=250.0, to_hz=128.0)  [irreversible]  ...
-#     • normalize(method=zscore)  [irreversible]  ...
+#   Required transforms (1):
+#     • resample(from_hz=250.0, to_hz=128.0)  [irreversible]
 #   Warnings (1):
 #     ⚠ channel labels inferred from index, not names
-#   Unknowns: model.sampling_rate_hz is not specified
 
 if report.is_runnable:
     run = pipe.run(artifact_dir="artifacts/run_001")
@@ -66,3 +75,72 @@ qortex neuroai check pipeline.yaml
 qortex neuroai run pipeline.yaml --artifact-dir artifacts/run_001
 qortex neuroai suggest-models data.edf
 ```
+
+## Known limitations
+
+### HuggingFace adapter
+
+`transformers.pipeline()` accepts a fixed set of native task strings
+(`image-classification`, `audio-classification`, etc.).
+Domain-specific tasks such as `eeg_classification` are **not** native pipeline tasks —
+the adapter falls back to `AutoModelForSequenceClassification` and logs a warning.
+
+For EEG or medical-imaging models, prefer the **Braindecode**, **ONNX**, or **Torch**
+adapter.  The HuggingFace adapter's input contract inference reads `num_channels` /
+`in_channels` from the model config when available; when those fields are absent the
+channel count is `unknown` (not guessed).  Window duration is **never** estimated from
+config fields — doing so has no scientific basis.
+
+### Compatibility engine
+
+When a model does not declare `n_channels` or `sampling_rate_hz` in its config,
+the engine marks those dimensions as `uncertain`.  This is intentional: a false
+`compatible` verdict is more dangerous than an honest `uncertain`.  Build a curated
+`InputContract` for models that lack machine-readable specs.
+
+### Preprocessing — contract-driven only
+
+The `PreprocessPlanner` inserts only transforms that the `CompatibilityEngine`
+determined are required by the model's `InputContract`.  No normalization or
+per-modality intensity rescaling is added automatically.  Wrong normalization
+destroys the distribution a model expects; only the model contract knows what's right.
+
+### TransformExecutor — critical transforms raise, not skip
+
+Critical transforms — `resample`, `reorient`, `normalize`, `rescale_intensity`,
+`cast_dtype`, `bandpass`, `channel_select`, `pad_or_crop` — raise `TransformError`
+on failure.  The engine catches these at the window level, records the window as
+dropped, and continues.  Non-critical structural transforms (`add_batch_dim`,
+`to_tensor`) log a warning and pass data through.
+
+### Reorientation
+
+Volumetric reorientation uses `nibabel.orientations` when nibabel is installed
+(any 3-character orientation code pair).  Without nibabel, only LPS↔RAS is
+supported via a direct axis flip, and only when the array axes map directly to the
+orientation codes.  Install `qortex[mri]` for correct reorientation.
+
+### Latency profiler
+
+Source-read time is measured around the actual blocking `next()` call on the
+source iterator.  Benchmark numbers are a lower bound — they do not include Python
+GIL contention, data-loader initialisation, or GPU↔CPU transfer outside the timed
+region.
+
+### Source and output adapter coverage
+
+| Adapter | Status |
+|---|---|
+| Local EDF/BDF/FIF, NIfTI, DICOM | Tested |
+| BIDS directory | Tested |
+| LSL, BrainFlow, XDF | Prototype |
+| DICOMweb | Prototype |
+| JSONL, Parquet, CSV output | Tested |
+| DICOM-SEG, DICOM-SR | Partial |
+| COCO JSON, YOLO txt, WebSocket | Partial |
+
+### Scope
+
+The runtime covers a large surface area (many source types, many models, many
+outputs).  If you need a robust production pipeline, the OpenNeuro/BIDS metadata
+and conversion path (`qortex.Dataset`) is significantly more mature and better tested.

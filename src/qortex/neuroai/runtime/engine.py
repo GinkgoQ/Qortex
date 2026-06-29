@@ -91,11 +91,16 @@ class RuntimeEngine:
         _trigger_required: int = int(trigger.when.get("stable_for", 1)) if trigger else 1
 
         try:
-            for idx, data_item in enumerate(self._source.stream()):
-                # ── Source read done ────────────────────────────────────────
-                # (timing was started by the source iter itself here we measure post-hoc)
+            stream = iter(self._source.stream())
+            idx = 0
+            while True:
+                # ── Source read — timed around the actual blocking call ──────
                 self._profiler.start_source_read()
-                self._profiler.end_source_read()  # zero-cost marker; real source was timed externally
+                try:
+                    data_item = next(stream)
+                except StopIteration:
+                    break
+                self._profiler.end_source_read()
 
                 # ── Preprocessing ───────────────────────────────────────────
                 self._profiler.start_preprocess()
@@ -163,6 +168,7 @@ class RuntimeEngine:
 
                 self._profiler.commit_window()
                 n_ok += 1
+                idx += 1
 
         except KeyboardInterrupt:
             log.info("Pipeline interrupted by user after %d windows.", n_ok)

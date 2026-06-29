@@ -33,6 +33,20 @@ from qortex.neuroai.spec import PreprocessSpec
 
 log = logging.getLogger(__name__)
 
+
+class TransformError(RuntimeError):
+    """Raised when a critical preprocessing transform fails.
+
+    Unlike non-critical structural transforms (add_batch_dim, to_tensor),
+    critical transforms — resample, reorient, normalize, rescale_intensity,
+    cast_dtype, bandpass, channel_select, pad_or_crop — directly affect the
+    numerical distribution of the data.  Silently passing data through when
+    these fail would produce wrong inference results without any indication.
+
+    Catch this at the pipeline level and record the window as dropped.
+    """
+
+
 # Canonical execution order for transforms
 _TRANSFORM_ORDER: dict[str, int] = {
     TransformKind.channel_select.value:    1,
@@ -68,11 +82,15 @@ class PreprocessPlanner:
         compat_report: CompatibilityReport,
         *,
         window_duration_s: float | None = None,
-        extra_normalisation: bool = True,
         source_profile: "SourceProfile | None" = None,
         model_provider: str = "",
     ) -> PreprocessPlan:
         """Convert a CompatibilityReport into an executable PreprocessPlan.
+
+        Only transforms that the ``CompatibilityEngine`` determined are required
+        by the model's ``InputContract`` are included.  No "best practice"
+        normalization or per-modality rescaling is inserted automatically —
+        adding the wrong normalization destroys the distribution a model expects.
 
         Parameters
         ----------
@@ -80,47 +98,17 @@ class PreprocessPlanner:
             Computed by ``CompatibilityEngine.check()``.
         window_duration_s:
             If set, a windowing transform is appended as the final step.
-        extra_normalisation:
-            Whether to append a z-score normalisation step even if not required
-            by the contract (safe default for most deep learning models).
+        source_profile:
+            Used for informational logging only; no longer auto-inserts rescaling.
+        model_provider:
+            Controls whether ``to_tensor`` is emitted as numpy or torch.
 
         Returns
         -------
         PreprocessPlan
-            Ordered, documented transform chain.
+            Ordered, documented transform chain — contract-driven, not heuristic.
         """
         transforms = list(compat_report.required_transforms)
-
-        # Auto-insert rescale_intensity for DICOM/MRI sources when not already present.
-        # DICOM pixel values after Rescale Slope/Intercept are in Hounsfield Units
-        # (-1024..+3071 for CT) or in raw ADC units for MRI; most models expect [0,1] or [-1,1].
-        if source_profile is not None:
-            src_mod = str(getattr(source_profile, "modality", "") or "").lower()
-            needs_rescale = src_mod in ("dicom", "ct", "mri", "fmri", "dwi", "pet")
-            already_rescaled = any(
-                _kind_str(t) in ("rescale_intensity", "normalize") for t in transforms
-            )
-            if needs_rescale and not already_rescaled:
-                transforms.append(TransformDescriptor(
-                    kind=TransformKind.rescale_intensity,
-                    required_by="source_modality",
-                    params={"out_min": 0.0, "out_max": 1.0},
-                    reversible=False,
-                    irreversible_reason="Linear rescaling to [0,1] uses per-volume min/max",
-                    evidence_status=EvidenceStatus.inferred,
-                ))
-
-        # Append normalization if not already present
-        if extra_normalisation and not any(
-            _kind_str(t) in ("normalize", "rescale_intensity") for t in transforms
-        ):
-            transforms.append(TransformDescriptor(
-                kind=TransformKind.normalize,
-                required_by="best_practice",
-                params={"method": "zscore"},
-                reversible=False,
-                irreversible_reason="Mean/std normalisation is data-dependent",
-            ))
 
         # Append to_tensor (always last before window).
         # ``as_numpy=True`` when the model provider handles numpy natively (e.g.
@@ -174,6 +162,14 @@ class TransformExecutor:
     def __init__(self, plan: PreprocessPlan) -> None:
         self._plan = plan
 
+    # Transforms that must succeed — silent skip would corrupt inference results.
+    _CRITICAL_KINDS = frozenset({
+        "resample", "resample_spatial", "reorient",
+        "normalize", "rescale_intensity", "cast_dtype", "bandpass",
+        "channel_select", "channel_map", "channel_reorder",
+        "pad_or_crop",
+    })
+
     def apply(self, data: Any) -> Any:
         """Apply all transforms in order.
 
@@ -186,6 +182,15 @@ class TransformExecutor:
         -------
         numpy.ndarray or torch.Tensor
             Preprocessed data ready for model inference.
+
+        Raises
+        ------
+        TransformError
+            When a critical transform (resample, reorient, normalize,
+            rescale_intensity, cast_dtype, bandpass, channel_select,
+            pad_or_crop) fails.  Non-critical structural transforms
+            (add_batch_dim, add_channel_dim, to_tensor, window) log a
+            warning and pass the data through unchanged.
         """
         arr = _coerce_numpy(data)
 
@@ -194,8 +199,15 @@ class TransformExecutor:
             try:
                 arr = self._apply_one(arr, kind, transform.params)
             except Exception as exc:
+                if kind in self._CRITICAL_KINDS:
+                    raise TransformError(
+                        f"Critical transform '{kind}' failed: {exc}. "
+                        "Pipeline aborted to prevent silent data corruption. "
+                        "Check the transform parameters and input data shape."
+                    ) from exc
                 log.warning(
-                    "Transform %s failed: %s — passing data unchanged", kind, exc
+                    "Non-critical transform '%s' failed: %s — passing data unchanged.",
+                    kind, exc,
                 )
 
         return arr
@@ -372,36 +384,60 @@ def _pad_or_crop(arr: np.ndarray, target_shape: tuple) -> np.ndarray:
 
 
 def _reorient_volume(arr: np.ndarray, from_frame: str, to_frame: str) -> np.ndarray:
-    """Reorient a 3-D volume between LPS and RAS coordinate frames.
+    """Reorient a 3-D (or 4-D) volume between named coordinate frames.
 
-    LPS→RAS: flip the X axis (left/right) and Y axis (anterior/posterior).
-    For a [Z, Y, X] volume this means reversing axes 2 and 1.
-    RAS→LPS is the same operation (it is its own inverse).
+    When nibabel is available, uses ``nibabel.orientations`` for any valid
+    3-character orientation code pair (e.g. 'LPS'→'RAS', 'LAS'→'RPS', etc.).
+    The array must be indexed so that axis 0, 1, 2 correspond to the first,
+    second, and third characters of ``from_frame`` respectively.
 
-    For non-volumetric data (ndim < 3) the array is returned unchanged with
-    a warning, since axis conventions don't apply to 1-D/2-D signals.
+    Without nibabel, only the LPS↔RAS pair is handled via a direct axis flip,
+    and a warning is emitted because the flip assumes [i,j,k] axis order.
+
+    Parameters
+    ----------
+    arr:
+        Numpy array with ndim >= 3.  For 4-D arrays the extra axes (e.g. time)
+        are left unchanged; reorientation is applied to the first 3 axes only.
+    from_frame:
+        3-character orientation code of the source (e.g. 'LPS', 'RAS').
+    to_frame:
+        3-character orientation code of the target.
+
+    Raises
+    ------
+    TransformError
+        When nibabel is not available and the frame pair is not LPS↔RAS.
     """
     if arr.ndim < 3:
-        log.warning(
-            "reorient: expected a 3-D volume (Z,Y,X) but got shape %s — "
-            "returning unchanged. Reorientation only applies to volumetric data.",
-            arr.shape,
+        raise TransformError(
+            f"reorient: expected a 3-D or 4-D volume but got shape {arr.shape}. "
+            "Reorientation only applies to volumetric data."
         )
-        return arr
 
-    from_up = from_frame.upper()
-    to_up = to_frame.upper()
+    from_up = from_frame.upper().strip()[:3]
+    to_up = to_frame.upper().strip()[:3]
 
     if from_up == to_up:
-        return arr  # nothing to do
+        return arr
 
-    # LPS ↔ RAS: flip X (axis=-1) and Y (axis=-2) for [*, Z, Y, X] layout
-    if {from_up, to_up} == {"LPS", "RAS"}:
-        return arr[..., ::-1, ::-1, :].copy()
-
-    log.warning(
-        "reorient: unsupported frame pair %r→%r — returning array unchanged. "
-        "Only LPS↔RAS is currently implemented.",
-        from_frame, to_frame,
-    )
-    return arr
+    try:
+        from nibabel.orientations import axcodes2ornt, ornt_transform, apply_orientation
+        from_ornt = axcodes2ornt(from_up)
+        to_ornt = axcodes2ornt(to_up)
+        transform = ornt_transform(from_ornt, to_ornt)
+        return apply_orientation(arr, transform)
+    except ImportError:
+        if {from_up, to_up} == {"LPS", "RAS"}:
+            log.warning(
+                "reorient %r→%r: nibabel not installed. Using axis-flip approximation "
+                "which assumes axis-0=L/R, axis-1=P/A, axis-2=S/I. Install nibabel "
+                "for correct reorientation: pip install 'qortex[mri]'",
+                from_frame, to_frame,
+            )
+            # LPS→RAS and RAS→LPS are both self-inverse: flip axes 0 and 1
+            return arr[::-1, ::-1, ...].copy()
+        raise TransformError(
+            f"Cannot reorient {from_frame!r}→{to_frame!r}: nibabel is required for "
+            "all frame pairs except LPS↔RAS. Install with: pip install 'qortex[mri]'"
+        )

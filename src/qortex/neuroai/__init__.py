@@ -1,17 +1,43 @@
 """Qortex NeuroAI Runtime — contract-driven source → model → output pipelines.
 
+.. warning::
+   **Experimental — not production-ready.**
+
+   The NeuroAI runtime is under active development.  Known limitations:
+
+   * **HuggingFace adapter**: only standard HF pipeline tasks work out of the box.
+     EEG / medical-imaging models require a Braindecode, ONNX, or Torch adapter.
+     Channel-count and window-duration inference from model config is partial.
+
+   * **Compatibility engine**: status is ``uncertain`` when the model does not
+     declare ``n_channels`` or ``sampling_rate_hz`` in its config.  This is
+     intentional honesty — the engine does not guess.
+
+   * **Preprocessing**: no normalization or imaging rescale is inserted
+     automatically.  All transforms are contract-driven.  If your model needs
+     specific scaling, add it to the ``InputContract``.
+
+   * **Source adapters**: BIDS, local EDF/NIfTI, and DICOM sources have
+     the most test coverage.  LSL, BrainFlow, XDF, and DICOMweb adapters are
+     prototype-level.
+
+   * **Output adapters**: JSONL and Parquet writers have full round-trip coverage.
+     DICOM-SEG, DICOM-SR, COCO, YOLO, and WebSocket writers are partial.
+
+   * **Latency profiler**: source-read time is measured accurately.  Benchmark
+     numbers are a lower bound — they do not include Python GIL contention,
+     data-loader overhead, or GPU-CPU transfer.
+
 The NeuroAI runtime provides:
 
   * Declarative YAML pipeline specs
-  * Source adapters: local EDF/BDF/FIF, BIDS, DICOM/DICOMweb, NWB, XDF, LSL,
-    BrainFlow, image/video
-  * Model adapters: HuggingFace, ONNX, PyTorch/TorchScript, MONAI bundles,
-    Braindecode, Ultralytics YOLO, custom plugins
+  * Source adapters: local EDF/BDF/FIF, BIDS, DICOM, NWB, XDF (others: prototype)
+  * Model adapters: HuggingFace (native tasks), ONNX, PyTorch/TorchScript,
+    MONAI bundles, Braindecode, Ultralytics YOLO, custom plugins
   * Compatibility engine: checks source↔model feasibility before weight loading
-  * Preprocessing planner: builds the minimal, documented transform chain
-  * Output adapters: JSONL, Parquet, CSV, LSL markers, WebSocket, HTTP,
-    NIfTI, DICOM-SEG, DICOM-SR, BIDS derivatives, COCO JSON, YOLO txt, overlay
-  * Closed-loop trigger system: class-conditional event markers to all outputs
+  * Preprocessing planner: contract-driven, no heuristic auto-normalization
+  * Output adapters: JSONL, Parquet, CSV (others: partial coverage)
+  * Closed-loop trigger system: class-conditional event markers
   * Latency profiler: per-stage p50/p95/p99 benchmarking
   * Provenance: every artifact carries a full ArtifactContract (9-file directory)
 

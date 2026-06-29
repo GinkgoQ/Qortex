@@ -1,3 +1,3 @@
-from qortex.neuroai.preprocess.planner import PreprocessPlanner, TransformExecutor
+from qortex.neuroai.preprocess.planner import PreprocessPlanner, TransformError, TransformExecutor
 
-__all__ = ["PreprocessPlanner", "TransformExecutor"]
+__all__ = ["PreprocessPlanner", "TransformError", "TransformExecutor"]

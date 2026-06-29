@@ -2931,6 +2931,111 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#known-limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known limitations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Known limitations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#huggingface-adapter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        HuggingFace adapter
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#compatibility-engine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compatibility engine
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#preprocessing-contract-driven-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Preprocessing — contract-driven only
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#transformexecutor-critical-transforms-raise-not-skip" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TransformExecutor — critical transforms raise, not skip
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reorientation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reorientation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#latency-profiler" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Latency profiler
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#source-and-output-adapter-coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Source and output adapter coverage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scope
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3018,7 +3123,15 @@
 
 
 <h1 id="neuroai-runtime">NeuroAI Runtime<a class="headerlink" href="#neuroai-runtime" title="Permanent link">&para;</a></h1>
-<p>The NeuroAI runtime connects neuroimaging data sources to AI models and structured output sinks through a single declarative pipeline. It separates compatibility checking from execution: the model is never loaded until the runtime has confirmed the source and model can actually work together.</p>
+<div class="admonition warning">
+<p class="admonition-title">Experimental</p>
+<p>The NeuroAI runtime is <strong>experimental and not production-ready</strong>.
+APIs, contracts, and behaviour may change without notice between minor versions.
+See <a href="#known-limitations">Known limitations</a> before using in a project.</p>
+</div>
+<p>The NeuroAI runtime connects neuroimaging data sources to AI models through a single
+declarative pipeline. It separates compatibility checking from execution: the model is
+never loaded until the runtime has confirmed the source and model can work together.</p>
 <h2 id="the-core-loop">The core loop<a class="headerlink" href="#the-core-loop" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>source.probe()          ← header-only scan, no data loaded
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>model.inspect()         ← config.json only, no weights
@@ -3026,25 +3139,30 @@
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>PreprocessPlanner       ← builds the documented transform chain
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>model.load()            ← weights loaded only when check passes
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>source.stream()         ← windowed data
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>TransformExecutor       ← applies the plan
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>TransformExecutor       ← applies the plan; raises TransformError on failure
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>model.predict()         ← inference
 <a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>output.write()          ← one or many sinks
 <a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>ArtifactWriter          ← 9-file provenance directory
 </code></pre></div>
-<p>Nothing in this chain is implicit. Each step produces a typed contract: <code>SourceProfile</code>, <code>ModelProfile</code>, <code>CompatibilityReport</code>, <code>PreprocessPlan</code>, <code>PipelineRunReport</code>, <code>ArtifactContract</code>. These contracts flow into the artifact directory written after each run.</p>
+<p>Nothing in this chain is implicit. Each step produces a typed contract:
+<code>SourceProfile</code>, <code>ModelProfile</code>, <code>CompatibilityReport</code>, <code>PreprocessPlan</code>,
+<code>PipelineRunReport</code>, <code>ArtifactContract</code>. These contracts flow into the artifact
+directory written after each run.</p>
 <h2 id="when-to-use-it">When to use it<a class="headerlink" href="#when-to-use-it" title="Permanent link">&para;</a></h2>
-<p>Use the Dataset workflow (<code>qortex.Dataset</code>) when your goal is to work with OpenNeuro BIDS datasets — catalog search, download, conversion, readiness checks.</p>
-<p>Use the NeuroAI runtime when:
-- You have local data (EDF, NWB, XDF, DICOM, video) and want to run a model on it
-- You have a live data stream (LSL, BrainFlow) and need real-time inference
-- You want to evaluate model compatibility before committing to a full run
-- You need a traceable artifact with provenance for every inference run</p>
+<p>Use <code>qortex.Dataset</code> when your goal is OpenNeuro BIDS datasets — catalog search,
+download, conversion, readiness checks.</p>
+<p>Use the NeuroAI runtime when:</p>
+<ul>
+<li>You have local data (EDF, NWB, XDF, DICOM) and want to run a model on it</li>
+<li>You want to evaluate source-model compatibility <strong>before</strong> committing to a run</li>
+<li>You need a traceable artifact with provenance for every inference run</li>
+</ul>
 <h2 id="contents">Contents<a class="headerlink" href="#contents" title="Permanent link">&para;</a></h2>
 <ul>
 <li><a href="pipeline/">Pipeline</a> — YAML format, Python API, <code>check()</code>, <code>run()</code>, <code>benchmark()</code>, <code>replay()</code></li>
 <li><a href="sources/">Sources</a> — BIDS, DICOM, NWB, XDF, LSL, BrainFlow, image, video</li>
-<li><a href="models/">Models</a> — HuggingFace, ONNX, Torch, MONAI, Ultralytics, custom plugins</li>
-<li><a href="outputs/">Outputs</a> — JSONL, Parquet, CSV, LSL markers, NIfTI, DICOM-SEG, BIDS, COCO, YOLO, overlay, HTTP</li>
+<li><a href="models/">Models</a> — HuggingFace (native tasks), ONNX, Torch, MONAI, Braindecode, Ultralytics, plugins</li>
+<li><a href="outputs/">Outputs</a> — JSONL, Parquet, CSV, NIfTI, DICOM-SEG, BIDS, COCO, YOLO, overlay, HTTP</li>
 <li>Contracts — SourceProfile, ModelProfile, CompatibilityReport, PreprocessPlan, ArtifactContract</li>
 <li>Ring buffer — lock-free windowing for real-time sources; Python fallback + Rust extension</li>
 </ul>
@@ -3057,21 +3175,99 @@
 <a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="nb">print</span><span class="p">(</span><span class="n">report</span><span class="o">.</span><span class="n">summary</span><span class="p">())</span>
 <a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="c1"># CompatibilityReport: COMPATIBLE_WITH_TRANSFORMS</span>
 <a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="c1">#   source=local_file:sub-01.edf  model=braindecode/EEGNet</span>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="c1">#   Required transforms (2):</span>
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="c1">#     • resample(from_hz=250.0, to_hz=128.0)  [irreversible]  ...</span>
-<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="c1">#     • normalize(method=zscore)  [irreversible]  ...</span>
-<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="c1">#   Warnings (1):</span>
-<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="c1">#     ⚠ channel labels inferred from index, not names</span>
-<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="c1">#   Unknowns: model.sampling_rate_hz is not specified</span>
-<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>
-<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="k">if</span> <span class="n">report</span><span class="o">.</span><span class="n">is_runnable</span><span class="p">:</span>
-<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>    <span class="n">run</span> <span class="o">=</span> <span class="n">pipe</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">artifact_dir</span><span class="o">=</span><span class="s2">&quot;artifacts/run_001&quot;</span><span class="p">)</span>
-<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">run</span><span class="o">.</span><span class="n">latency_report</span><span class="o">.</span><span class="n">summary</span><span class="p">())</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="c1">#   Required transforms (1):</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="c1">#     • resample(from_hz=250.0, to_hz=128.0)  [irreversible]</span>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="c1">#   Warnings (1):</span>
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="c1">#     ⚠ channel labels inferred from index, not names</span>
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="k">if</span> <span class="n">report</span><span class="o">.</span><span class="n">is_runnable</span><span class="p">:</span>
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>    <span class="n">run</span> <span class="o">=</span> <span class="n">pipe</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">artifact_dir</span><span class="o">=</span><span class="s2">&quot;artifacts/run_001&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">run</span><span class="o">.</span><span class="n">latency_report</span><span class="o">.</span><span class="n">summary</span><span class="p">())</span>
 </code></pre></div>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>qortex<span class="w"> </span>neuroai<span class="w"> </span>check<span class="w"> </span>pipeline.yaml
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>qortex<span class="w"> </span>neuroai<span class="w"> </span>run<span class="w"> </span>pipeline.yaml<span class="w"> </span>--artifact-dir<span class="w"> </span>artifacts/run_001
 <a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>qortex<span class="w"> </span>neuroai<span class="w"> </span>suggest-models<span class="w"> </span>data.edf
 </code></pre></div>
+<h2 id="known-limitations">Known limitations<a class="headerlink" href="#known-limitations" title="Permanent link">&para;</a></h2>
+<h3 id="huggingface-adapter">HuggingFace adapter<a class="headerlink" href="#huggingface-adapter" title="Permanent link">&para;</a></h3>
+<p><code>transformers.pipeline()</code> accepts a fixed set of native task strings
+(<code>image-classification</code>, <code>audio-classification</code>, etc.).
+Domain-specific tasks such as <code>eeg_classification</code> are <strong>not</strong> native pipeline tasks —
+the adapter falls back to <code>AutoModelForSequenceClassification</code> and logs a warning.</p>
+<p>For EEG or medical-imaging models, prefer the <strong>Braindecode</strong>, <strong>ONNX</strong>, or <strong>Torch</strong>
+adapter.  The HuggingFace adapter's input contract inference reads <code>num_channels</code> /
+<code>in_channels</code> from the model config when available; when those fields are absent the
+channel count is <code>unknown</code> (not guessed).  Window duration is <strong>never</strong> estimated from
+config fields — doing so has no scientific basis.</p>
+<h3 id="compatibility-engine">Compatibility engine<a class="headerlink" href="#compatibility-engine" title="Permanent link">&para;</a></h3>
+<p>When a model does not declare <code>n_channels</code> or <code>sampling_rate_hz</code> in its config,
+the engine marks those dimensions as <code>uncertain</code>.  This is intentional: a false
+<code>compatible</code> verdict is more dangerous than an honest <code>uncertain</code>.  Build a curated
+<code>InputContract</code> for models that lack machine-readable specs.</p>
+<h3 id="preprocessing-contract-driven-only">Preprocessing — contract-driven only<a class="headerlink" href="#preprocessing-contract-driven-only" title="Permanent link">&para;</a></h3>
+<p>The <code>PreprocessPlanner</code> inserts only transforms that the <code>CompatibilityEngine</code>
+determined are required by the model's <code>InputContract</code>.  No normalization or
+per-modality intensity rescaling is added automatically.  Wrong normalization
+destroys the distribution a model expects; only the model contract knows what's right.</p>
+<h3 id="transformexecutor-critical-transforms-raise-not-skip">TransformExecutor — critical transforms raise, not skip<a class="headerlink" href="#transformexecutor-critical-transforms-raise-not-skip" title="Permanent link">&para;</a></h3>
+<p>Critical transforms — <code>resample</code>, <code>reorient</code>, <code>normalize</code>, <code>rescale_intensity</code>,
+<code>cast_dtype</code>, <code>bandpass</code>, <code>channel_select</code>, <code>pad_or_crop</code> — raise <code>TransformError</code>
+on failure.  The engine catches these at the window level, records the window as
+dropped, and continues.  Non-critical structural transforms (<code>add_batch_dim</code>,
+<code>to_tensor</code>) log a warning and pass data through.</p>
+<h3 id="reorientation">Reorientation<a class="headerlink" href="#reorientation" title="Permanent link">&para;</a></h3>
+<p>Volumetric reorientation uses <code>nibabel.orientations</code> when nibabel is installed
+(any 3-character orientation code pair).  Without nibabel, only LPS↔RAS is
+supported via a direct axis flip, and only when the array axes map directly to the
+orientation codes.  Install <code>qortex[mri]</code> for correct reorientation.</p>
+<h3 id="latency-profiler">Latency profiler<a class="headerlink" href="#latency-profiler" title="Permanent link">&para;</a></h3>
+<p>Source-read time is measured around the actual blocking <code>next()</code> call on the
+source iterator.  Benchmark numbers are a lower bound — they do not include Python
+GIL contention, data-loader initialisation, or GPU↔CPU transfer outside the timed
+region.</p>
+<h3 id="source-and-output-adapter-coverage">Source and output adapter coverage<a class="headerlink" href="#source-and-output-adapter-coverage" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Adapter</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Local EDF/BDF/FIF, NIfTI, DICOM</td>
+<td>Tested</td>
+</tr>
+<tr>
+<td>BIDS directory</td>
+<td>Tested</td>
+</tr>
+<tr>
+<td>LSL, BrainFlow, XDF</td>
+<td>Prototype</td>
+</tr>
+<tr>
+<td>DICOMweb</td>
+<td>Prototype</td>
+</tr>
+<tr>
+<td>JSONL, Parquet, CSV output</td>
+<td>Tested</td>
+</tr>
+<tr>
+<td>DICOM-SEG, DICOM-SR</td>
+<td>Partial</td>
+</tr>
+<tr>
+<td>COCO JSON, YOLO txt, WebSocket</td>
+<td>Partial</td>
+</tr>
+</tbody>
+</table>
+<h3 id="scope">Scope<a class="headerlink" href="#scope" title="Permanent link">&para;</a></h3>
+<p>The runtime covers a large surface area (many source types, many models, many
+outputs).  If you need a robust production pipeline, the OpenNeuro/BIDS metadata
+and conversion path (<code>qortex.Dataset</code>) is significantly more mature and better tested.</p>
 
 
 

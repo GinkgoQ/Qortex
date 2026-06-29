@@ -159,8 +159,29 @@ class HuggingFaceAdapter(ModelAdapter):
         log.info("Loading HuggingFace model %s on %s", self._spec.id, device)
 
         task = self._spec.task
+
+        # HuggingFace pipeline() only accepts tasks it knows natively.
+        # Domain-specific tasks (eeg_classification, etc.) are not pipeline tasks
+        # and will raise.  Fall through to AutoModel for those.
+        _HF_NATIVE_TASKS = {
+            "text-classification", "image-classification", "image-segmentation",
+            "object-detection", "audio-classification", "feature-extraction",
+            "fill-mask", "question-answering", "summarization", "text-generation",
+            "token-classification", "zero-shot-classification",
+        }
+        _use_pipeline = task in _HF_NATIVE_TASKS
+
+        if task and task not in _HF_NATIVE_TASKS:
+            log.warning(
+                "Task %r is not a native HuggingFace pipeline task. "
+                "Falling back to AutoModelForSequenceClassification. "
+                "For EEG or medical-imaging models, use the braindecode, onnx, "
+                "or torch adapter instead.",
+                task,
+            )
+
         try:
-            if task:
+            if _use_pipeline:
                 self._model = hf_pipeline(
                     task,
                     model=self._spec.id,
@@ -169,7 +190,7 @@ class HuggingFaceAdapter(ModelAdapter):
                     trust_remote_code=self._spec.trust_remote_code,
                 )
             else:
-                from transformers import AutoModelForSequenceClassification, AutoTokenizer
+                from transformers import AutoModelForSequenceClassification
                 self._model = AutoModelForSequenceClassification.from_pretrained(
                     self._spec.id,
                     revision=self._spec.revision,
@@ -238,30 +259,69 @@ class HuggingFaceAdapter(ModelAdapter):
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _infer_input_contract(self, cfg, warnings: list[WarningItem]) -> InputContract:
-        """Infer InputContract from model config with explicit evidence tracking."""
+        """Infer InputContract from model config with explicit evidence tracking.
 
-        modality_str = _TASK_TO_MODALITY.get(self._spec.task or "", "unknown")
-        evidence = EvidenceStatus.confirmed if modality_str != "unknown" else EvidenceStatus.inferred
+        Only fields that can be read directly from the config are populated;
+        everything else is left None (unknown) rather than guessed.  Callers
+        should treat the returned contract as a lower bound — the real
+        requirements may be stricter than what the config exposes.
+        """
+        task = self._spec.task or ""
+        modality_str = _TASK_TO_MODALITY.get(task, "unknown")
 
-        # Look for hidden_size / sequence_length clues
-        n_ch: int | None = getattr(cfg, "num_channels", None) or getattr(cfg, "in_channels", None)
-        max_len: int | None = getattr(cfg, "max_position_embeddings", None)
+        # Channel count: only trust config fields that directly map to input channels.
+        n_ch: int | None = (
+            getattr(cfg, "num_channels", None)
+            or getattr(cfg, "in_channels", None)
+        )
 
-        if n_ch is None:
-            evidence = EvidenceStatus.inferred
+        # EEG / neuro-specific tasks: transformers.pipeline() is not a universal
+        # runner for raw tensor inputs — it expects feature-extracted / tokenised
+        # inputs.  Warn explicitly so the caller understands the limitation.
+        _TENSOR_TASKS = {"eeg_classification", "eeg_regression"}
+        if task in _TENSOR_TASKS:
             warnings.append(WarningItem(
-                code="INPUT_CONTRACT_INFERRED",
-                message="Cannot determine required channel count from model config. "
-                        "Input contract is inferred, not confirmed.",
+                code="HF_PIPELINE_TASK_UNSUPPORTED",
+                message=(
+                    f"Task {task!r} is not a native HuggingFace pipeline task. "
+                    "transformers.pipeline() expects pre-processed / tokenised inputs, "
+                    "not raw EEG tensors.  Use a Braindecode adapter for EEG models, "
+                    "or implement a custom predict() that handles raw arrays."
+                ),
+                severity="warning",
+                suggestion=(
+                    "Switch provider to 'braindecode' for Braindecode models, "
+                    "or 'onnx' / 'torch' for exported models."
+                ),
+            ))
+
+        # Emit an honest warning when no channel count is available.
+        if n_ch is None:
+            warnings.append(WarningItem(
+                code="INPUT_CONTRACT_UNKNOWN_CHANNELS",
+                message=(
+                    "Cannot determine required channel count from model config "
+                    f"({type(cfg).__name__} has no num_channels / in_channels field). "
+                    "The compatibility engine will mark channel count as 'unknown'."
+                ),
                 severity="info",
                 suggestion="Check the model card for the exact expected input shape.",
             ))
+
+        # Evidence level: confirmed only if both modality and channel count are known.
+        if modality_str != "unknown" and n_ch is not None:
+            evidence = EvidenceStatus.confirmed
+        elif modality_str != "unknown" or n_ch is not None:
+            evidence = EvidenceStatus.inferred
+        else:
+            evidence = EvidenceStatus.unknown
 
         return InputContract(
             modality=modality_str,
             axis_convention=AxisConvention.channels_time,
             n_channels=n_ch,
-            window_duration_s=max_len / 256.0 if max_len else None,  # rough estimate
+            # window_duration_s intentionally omitted: max_position_embeddings /
+            # hidden_size have no fixed relationship to signal duration in seconds.
             dtype="float32",
             evidence_status=evidence,
         )
