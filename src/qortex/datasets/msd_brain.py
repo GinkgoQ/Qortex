@@ -107,7 +107,7 @@ def load_data(
     Returns
     -------
     SegmentationBundle with:
-      - image_paths: list of lists [case][modality]
+      - image_paths: list of lists shaped (case, modality)
       - mask_paths: list of mask paths (empty for test split)
       - label_map: {0: background, 1: NCR_NET, 2: edema, 3: enhancing_tumour}
       - modalities: ['FLAIR', 'T1w', 'T1gd', 'T2w']

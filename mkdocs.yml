@@ -53,6 +53,9 @@ extra_css:
 extra_javascript:
   - assets/javascripts/openneuro-stats.js
 
+hooks:
+  - docs/hooks.py
+
 plugins:
   - search
   - mkdocstrings:
@@ -183,6 +186,9 @@ nav:
 
   - Modalities:
       - modalities/index.md
+      - Modality selection: modalities/selection.md
+      - Conversion: modalities/conversion.md
+      - Readiness: modalities/readiness.md
       - EEG:
           - modalities/eeg/index.md
           - Files: modalities/eeg/files.md

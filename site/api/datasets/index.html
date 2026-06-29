@@ -1,0 +1,5304 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="ML-ready neurodata from OpenNeuro and BIDS datasets">
+      
+      
+      
+        <link rel="canonical" href="https://ginkgoq.github.io/Qortex/api/datasets/">
+      
+      
+        <link rel="prev" href="../conversion/">
+      
+      
+        <link rel="next" href="../neuroclassic/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/qortex-mark.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Datasets - Qortex</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CIBM+Plex+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"IBM Plex Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/theme.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#datasets-api" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Qortex" class="md-header__button md-logo" aria-label="Qortex" data-md-component="logo">
+      
+  <img src="../../assets/images/qortex-mark.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Qortex
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Datasets
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/GinkgoQ/Qortex" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GinkgoQ/Qortex
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Get Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../tutorials/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Tutorials
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../guides/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../modalities/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Modalities
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../troubleshooting/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Troubleshooting
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Qortex" class="md-nav__button md-logo" aria-label="Qortex" data-md-component="logo">
+      
+  <img src="../../assets/images/qortex-mark.svg" alt="logo">
+
+    </a>
+    Qortex
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/GinkgoQ/Qortex" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GinkgoQ/Qortex
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+      
+        
+        
+      
+    
+    <li class="md-nav__item md-nav__item--pruned md-nav__item--nested">
+      
+        
+  
+  
+  
+    <a href="../../getting-started/" class="md-nav__link">
+      
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Get Started
+  
+
+    
+  </span>
+  
+  
+
+      
+        <span class="md-nav__icon md-icon"></span>
+      
+    </a>
+  
+
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+      
+        
+        
+      
+    
+    <li class="md-nav__item md-nav__item--pruned md-nav__item--nested">
+      
+        
+  
+  
+  
+    <a href="../../tutorials/" class="md-nav__link">
+      
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tutorials
+  
+
+    
+  </span>
+  
+  
+
+      
+        <span class="md-nav__icon md-icon"></span>
+      
+    </a>
+  
+
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+      
+        
+        
+      
+    
+    <li class="md-nav__item md-nav__item--pruned md-nav__item--nested">
+      
+        
+  
+  
+  
+    <a href="../../guides/" class="md-nav__link">
+      
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+      
+        <span class="md-nav__icon md-icon"></span>
+      
+    </a>
+  
+
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+      
+        
+        
+      
+    
+    <li class="md-nav__item md-nav__item--pruned md-nav__item--nested">
+      
+        
+  
+  
+  
+    <a href="../../modalities/" class="md-nav__link">
+      
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Modalities
+  
+
+    
+  </span>
+  
+  
+
+      
+        <span class="md-nav__icon md-icon"></span>
+      
+    </a>
+  
+
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+      
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dataset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../visualization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visualization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../artifact/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Artifact
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../conversion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conversion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Datasets
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Datasets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#catalogue-functions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Catalogue functions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.list_available" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        list_available
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.describe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        describe
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="describe">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.describe--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.describe--raises" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Raises
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.describe--examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.load_dataset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_dataset
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="load_dataset">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.load_dataset--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.load_dataset--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.load_dataset--examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        summary
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="summary">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.summary--examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#datasetcard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DatasetCard
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.DatasetCard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DatasetCard
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.DatasetCard.__str__" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        __str__
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.DatasetCard.to_dict" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        to_dict
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#eegbundle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        EEGBundle
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.EEGBundle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        EEGBundle
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="EEGBundle">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets._base.EEGBundle--attributes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attributes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.EEGBundle.n_channels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        n_channels
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.EEGBundle.n_files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        n_files
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.EEGBundle.to_windows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        to_windows
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="to_windows">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets._base.EEGBundle.to_windows--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets._base.EEGBundle.to_windows--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.EEGBundle.run_qc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run_qc
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.EEGBundle.info" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        info
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mribundle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MRIBundle
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.MRIBundle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MRIBundle
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="MRIBundle">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets._base.MRIBundle--attributes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attributes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.MRIBundle.n_subjects" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        n_subjects
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.MRIBundle.load_images" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_images
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.MRIBundle.run_qc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run_qc
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.MRIBundle.info" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        info
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fmribundle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FMRIBundle
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.FMRIBundle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FMRIBundle
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="FMRIBundle">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets._base.FMRIBundle--attributes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attributes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.FMRIBundle.load_events" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_events
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.FMRIBundle.run_preflight" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run_preflight
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.FMRIBundle.info" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        info
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#segmentationbundle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SegmentationBundle
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.SegmentationBundle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SegmentationBundle
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="SegmentationBundle">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets._base.SegmentationBundle--attributes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attributes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.SegmentationBundle.n_cases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        n_cases
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.SegmentationBundle.load_pair" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_pair
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.SegmentationBundle.info" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        info
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#datasetregistry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DatasetRegistry
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.DatasetRegistry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DatasetRegistry
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.DatasetRegistry.register" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        register
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.DatasetRegistry.get" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.DatasetRegistry.list_all" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        list_all
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.DatasetRegistry.list_by_modality" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        list_by_modality
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.DatasetRegistry.list_by_tutorial" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        list_by_tutorial
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.DatasetRegistry.summary_table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        summary_table
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#available-datasets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Available datasets
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Available datasets">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortexdatasetseegbci" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        qortex.datasets.eegbci
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.eegbci.describe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        describe
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.eegbci.load_data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_data
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="load_data">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.eegbci.load_data--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.eegbci.load_data--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.eegbci.load_data--examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortexdatasetssleep_edf" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        qortex.datasets.sleep_edf
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.sleep_edf.describe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        describe
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.sleep_edf.load_data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_data
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="load_data">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.sleep_edf.load_data--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.sleep_edf.load_data--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.sleep_edf.load_data--examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortexdatasetschbmit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        qortex.datasets.chbmit
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.chbmit.describe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        describe
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.chbmit.load_data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_data
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="load_data">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.chbmit.load_data--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.chbmit.load_data--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.chbmit.load_data--examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.chbmit.SeizureInterval" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SeizureInterval
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.chbmit.SeizureInterval.overlaps_window" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        overlaps_window
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.chbmit.parse_seizure_summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        parse_seizure_summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.chbmit.label_windows_for_file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        label_windows_for_file
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="label_windows_for_file">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.chbmit.label_windows_for_file--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortexdatasetsoasis1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        qortex.datasets.oasis1
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.oasis1.describe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        describe
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.oasis1.load_data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_data
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="load_data">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.oasis1.load_data--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.oasis1.load_data--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.oasis1.load_clinical_table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_clinical_table
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="load_clinical_table">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortexdatasetsixi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        qortex.datasets.ixi
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.ixi.describe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        describe
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.ixi.load_data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_data
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="load_data">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.ixi.load_data--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.ixi.load_data--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.ixi.load_data--examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.ixi.load_demographics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_demographics
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="load_demographics">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortexdatasetsds000001" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        qortex.datasets.ds000001
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.ds000001.describe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        describe
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.ds000001.load_data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_data
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="load_data">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.ds000001.load_data--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.ds000001.load_data--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.ds000001.load_data--examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortexdatasetsmsd_brain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        qortex.datasets.msd_brain
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.msd_brain.describe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        describe
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.msd_brain.load_data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_data
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="load_data">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.msd_brain.load_data--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.msd_brain.load_data--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.msd_brain.load_data--examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../neuroclassic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Neuroclassic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+      
+        
+        
+      
+    
+    <li class="md-nav__item md-nav__item--pruned md-nav__item--nested">
+      
+        
+  
+  
+  
+    <a href="../../troubleshooting/" class="md-nav__link">
+      
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      
+        <span class="md-nav__icon md-icon"></span>
+      
+    </a>
+  
+
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#catalogue-functions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Catalogue functions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.list_available" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        list_available
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.describe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        describe
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="describe">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.describe--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.describe--raises" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Raises
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.describe--examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.load_dataset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_dataset
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="load_dataset">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.load_dataset--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.load_dataset--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.load_dataset--examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        summary
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="summary">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.summary--examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#datasetcard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DatasetCard
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.DatasetCard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DatasetCard
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.DatasetCard.__str__" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        __str__
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.DatasetCard.to_dict" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        to_dict
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#eegbundle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        EEGBundle
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.EEGBundle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        EEGBundle
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="EEGBundle">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets._base.EEGBundle--attributes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attributes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.EEGBundle.n_channels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        n_channels
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.EEGBundle.n_files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        n_files
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.EEGBundle.to_windows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        to_windows
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="to_windows">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets._base.EEGBundle.to_windows--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets._base.EEGBundle.to_windows--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.EEGBundle.run_qc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run_qc
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.EEGBundle.info" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        info
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mribundle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MRIBundle
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.MRIBundle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MRIBundle
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="MRIBundle">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets._base.MRIBundle--attributes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attributes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.MRIBundle.n_subjects" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        n_subjects
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.MRIBundle.load_images" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_images
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.MRIBundle.run_qc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run_qc
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.MRIBundle.info" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        info
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fmribundle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FMRIBundle
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.FMRIBundle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FMRIBundle
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="FMRIBundle">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets._base.FMRIBundle--attributes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attributes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.FMRIBundle.load_events" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_events
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.FMRIBundle.run_preflight" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run_preflight
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.FMRIBundle.info" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        info
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#segmentationbundle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SegmentationBundle
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.SegmentationBundle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SegmentationBundle
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="SegmentationBundle">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets._base.SegmentationBundle--attributes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attributes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.SegmentationBundle.n_cases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        n_cases
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.SegmentationBundle.load_pair" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_pair
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets._base.SegmentationBundle.info" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        info
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#datasetregistry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DatasetRegistry
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.DatasetRegistry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DatasetRegistry
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.DatasetRegistry.register" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        register
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.DatasetRegistry.get" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.DatasetRegistry.list_all" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        list_all
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.DatasetRegistry.list_by_modality" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        list_by_modality
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.DatasetRegistry.list_by_tutorial" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        list_by_tutorial
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.DatasetRegistry.summary_table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        summary_table
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#available-datasets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Available datasets
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Available datasets">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortexdatasetseegbci" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        qortex.datasets.eegbci
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.eegbci.describe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        describe
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.eegbci.load_data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_data
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="load_data">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.eegbci.load_data--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.eegbci.load_data--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.eegbci.load_data--examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortexdatasetssleep_edf" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        qortex.datasets.sleep_edf
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.sleep_edf.describe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        describe
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.sleep_edf.load_data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_data
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="load_data">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.sleep_edf.load_data--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.sleep_edf.load_data--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.sleep_edf.load_data--examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortexdatasetschbmit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        qortex.datasets.chbmit
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.chbmit.describe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        describe
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.chbmit.load_data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_data
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="load_data">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.chbmit.load_data--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.chbmit.load_data--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.chbmit.load_data--examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.chbmit.SeizureInterval" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SeizureInterval
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.chbmit.SeizureInterval.overlaps_window" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        overlaps_window
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.chbmit.parse_seizure_summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        parse_seizure_summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.chbmit.label_windows_for_file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        label_windows_for_file
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="label_windows_for_file">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.chbmit.label_windows_for_file--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortexdatasetsoasis1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        qortex.datasets.oasis1
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.oasis1.describe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        describe
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.oasis1.load_data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_data
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="load_data">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.oasis1.load_data--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.oasis1.load_data--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.oasis1.load_clinical_table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_clinical_table
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="load_clinical_table">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortexdatasetsixi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        qortex.datasets.ixi
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.ixi.describe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        describe
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.ixi.load_data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_data
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="load_data">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.ixi.load_data--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.ixi.load_data--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.ixi.load_data--examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.ixi.load_demographics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_demographics
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="load_demographics">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortexdatasetsds000001" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        qortex.datasets.ds000001
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.ds000001.describe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        describe
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.ds000001.load_data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_data
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="load_data">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.ds000001.load_data--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.ds000001.load_data--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.ds000001.load_data--examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortexdatasetsmsd_brain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        qortex.datasets.msd_brain
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.msd_brain.describe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        describe
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qortex.datasets.msd_brain.load_data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_data
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="load_data">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.msd_brain.load_data--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.msd_brain.load_data--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qortex.datasets.msd_brain.load_data--examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+  <nav class="md-path" aria-label="Navigation" >
+    <ol class="md-path__list">
+      
+        
+  
+  
+    <li class="md-path__item">
+      <a href="../.." class="md-path__link">
+        
+  <span class="md-ellipsis">
+    Home
+  </span>
+
+      </a>
+    </li>
+  
+
+      
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="../" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    API
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ol>
+  </nav>
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="datasets-api">Datasets API<a class="headerlink" href="#datasets-api" title="Permanent link">&para;</a></h1>
+<p><code>qortex.datasets</code> provides Keras-style loaders for open neuroscience datasets. Every module exposes two functions and no more: <code>describe()</code> (no download) and <code>load_data()</code> (downloads on first call, cached afterwards).</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">qortex.datasets</span><span class="w"> </span><span class="kn">import</span> <span class="n">eegbci</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">card</span> <span class="o">=</span> <span class="n">eegbci</span><span class="o">.</span><span class="n">describe</span><span class="p">()</span>         <span class="c1"># DatasetCard — metadata only, no download</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">bundle</span> <span class="o">=</span> <span class="n">eegbci</span><span class="o">.</span><span class="n">load_data</span><span class="p">(</span>       <span class="c1"># EEGBundle — downloads and caches via MNE</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">subjects</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">],</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">runs</span><span class="o">=</span><span class="p">[</span><span class="mi">4</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">12</span><span class="p">],</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="p">)</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="n">X</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="n">bundle</span><span class="o">.</span><span class="n">to_windows</span><span class="p">(</span><span class="n">window_s</span><span class="o">=</span><span class="mf">4.0</span><span class="p">,</span> <span class="n">bandpass</span><span class="o">=</span><span class="p">(</span><span class="mf">8.0</span><span class="p">,</span> <span class="mf">30.0</span><span class="p">))</span>
+</code></pre></div>
+<hr />
+<h2 id="catalogue-functions">Catalogue functions<a class="headerlink" href="#catalogue-functions" title="Permanent link">&para;</a></h2>
+
+
+<div class="doc doc-object doc-function">
+
+
+
+<a id="qortex.datasets.list_available"></a>
+    <div class="doc doc-contents first">
+
+        <p>Return all registered DatasetCards, sorted by name.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+
+<a id="qortex.datasets.describe"></a>
+    <div class="doc doc-contents first">
+
+        <p>Return the DatasetCard for a dataset by name.</p>
+<h3 id="qortex.datasets.describe--parameters">Parameters<a class="headerlink" href="#qortex.datasets.describe--parameters" title="Permanent link">&para;</a></h3>
+<p>name : Dataset identifier, e.g. "eegbci", "sleep_edf", "oasis1".</p>
+<h3 id="qortex.datasets.describe--raises">Raises<a class="headerlink" href="#qortex.datasets.describe--raises" title="Permanent link">&para;</a></h3>
+<p>KeyError : If the dataset name is not registered.</p>
+<h3 id="qortex.datasets.describe--examples">Examples<a class="headerlink" href="#qortex.datasets.describe--examples" title="Permanent link">&para;</a></h3>
+<blockquote>
+<blockquote>
+<blockquote>
+<p>card = qortex.datasets.describe("eegbci")
+print(card.n_subjects, card.sampling_hz)</p>
+</blockquote>
+</blockquote>
+</blockquote>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+
+<a id="qortex.datasets.load_dataset"></a>
+    <div class="doc doc-contents first">
+
+        <p>Load a dataset by name with keyword arguments forwarded to load_data().</p>
+<h3 id="qortex.datasets.load_dataset--parameters">Parameters<a class="headerlink" href="#qortex.datasets.load_dataset--parameters" title="Permanent link">&para;</a></h3>
+<p>name   : Dataset identifier (same as used in <code>describe()</code>).
+**kwargs : Forwarded verbatim to the dataset module's <code>load_data()</code> function.</p>
+<h3 id="qortex.datasets.load_dataset--returns">Returns<a class="headerlink" href="#qortex.datasets.load_dataset--returns" title="Permanent link">&para;</a></h3>
+<p>A typed Bundle for the requested dataset.</p>
+<h3 id="qortex.datasets.load_dataset--examples">Examples<a class="headerlink" href="#qortex.datasets.load_dataset--examples" title="Permanent link">&para;</a></h3>
+<blockquote>
+<blockquote>
+<blockquote>
+<p>bundle = qortex.datasets.load_dataset("eegbci", subjects=[1, 2], runs=[4, 8, 12])
+bundle = qortex.datasets.load_dataset("sleep_edf", subjects=[0, 1, 2])
+bundle = qortex.datasets.load_dataset("msd_brain", max_cases=10)</p>
+</blockquote>
+</blockquote>
+</blockquote>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+
+<a id="qortex.datasets.summary"></a>
+    <div class="doc doc-contents first">
+
+        <p>Print a compact table of all available datasets.</p>
+<h3 id="qortex.datasets.summary--examples">Examples<a class="headerlink" href="#qortex.datasets.summary--examples" title="Permanent link">&para;</a></h3>
+<blockquote>
+<blockquote>
+<blockquote>
+<p>print(qortex.datasets.summary())</p>
+</blockquote>
+</blockquote>
+</blockquote>
+
+
+    </div>
+
+</div><hr />
+<h2 id="datasetcard">DatasetCard<a class="headerlink" href="#datasetcard" title="Permanent link">&para;</a></h2>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<a id="qortex.datasets.DatasetCard"></a>
+    <div class="doc doc-contents first">
+
+
+
+        <p>Immutable metadata record for a Qortex dataset.</p>
+<p>Describes the dataset without downloading it.  Suitable for offline
+display, catalogue listings, and tutorial documentation.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="qortex.datasets.DatasetCard.__str__" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">__str__</span>
+
+
+<a href="#qortex.datasets.DatasetCard.__str__" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">__str__</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="qortex.datasets.DatasetCard.to_dict" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">to_dict</span>
+
+
+<a href="#qortex.datasets.DatasetCard.to_dict" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">to_dict</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div><hr />
+<h2 id="eegbundle">EEGBundle<a class="headerlink" href="#eegbundle" title="Permanent link">&para;</a></h2>
+<p>Returned by EEG dataset loaders (<code>eegbci</code>, <code>sleep_edf</code>, <code>chbmit</code>).</p>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<a id="qortex.datasets._base.EEGBundle"></a>
+    <div class="doc doc-contents first">
+
+
+
+        <p>Loaded EEG dataset.</p>
+<h3 id="qortex.datasets._base.EEGBundle--attributes">Attributes<a class="headerlink" href="#qortex.datasets._base.EEGBundle--attributes" title="Permanent link">&para;</a></h3>
+<p>card         : Dataset metadata.
+subjects     : Subject IDs that were loaded.
+runs         : Run numbers that were loaded (for EEGBCI-style datasets).
+sfreq        : Sampling frequency in Hz.
+channel_names: Channel names (same across all files unless flagged).
+label_map    : {int → str} mapping of integer class codes to semantic names.
+local_paths  : Absolute paths to local EDF/FIF/BDF files.
+raws         : List of mne.io.BaseRaw objects (populated when preload=True).
+epochs       : [n_epochs, n_channels, n_times] float32 array after windowing.
+labels       : [n_epochs] int array after windowing.
+metadata     : Per-subject/session metadata dict.
+qc_report    : Signal QC report from qortex.neuroclassic (None until .run_qc()).</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h2 id="qortex.datasets._base.EEGBundle.n_channels" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">n_channels</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+<a href="#qortex.datasets._base.EEGBundle.n_channels" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">n_channels</span><span class="p">:</span> <span class="nb">int</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h2 id="qortex.datasets._base.EEGBundle.n_files" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">n_files</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+<a href="#qortex.datasets._base.EEGBundle.n_files" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">n_files</span><span class="p">:</span> <span class="nb">int</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="qortex.datasets._base.EEGBundle.to_windows" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">to_windows</span>
+
+
+<a href="#qortex.datasets._base.EEGBundle.to_windows" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">to_windows</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">window_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">4.0</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">overlap</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.5</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">bandpass</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">event_driven</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">tmin</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;tuple[Any, Any]&quot;</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Extract fixed-length windows and return (X, y) arrays.</p>
+<h4 id="qortex.datasets._base.EEGBundle.to_windows--parameters">Parameters<a class="headerlink" href="#qortex.datasets._base.EEGBundle.to_windows--parameters" title="Permanent link">&para;</a></h4>
+<p>window_s     : Window length in seconds.
+overlap      : Fraction of overlap between successive windows
+               (ignored when event_driven=True).
+bandpass     : Optional (low_hz, high_hz) to filter before windowing.
+event_driven : If True, extract one window per event (for task EEG).
+               If False, use sliding windows with given overlap.
+tmin         : Epoch start relative to event onset (seconds).</p>
+<h4 id="qortex.datasets._base.EEGBundle.to_windows--returns">Returns<a class="headerlink" href="#qortex.datasets._base.EEGBundle.to_windows--returns" title="Permanent link">&para;</a></h4>
+<p>(X, y)
+    X : np.ndarray, shape [n_epochs, n_channels, n_samples]
+    y : np.ndarray, shape [n_epochs], dtype int</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="qortex.datasets._base.EEGBundle.run_qc" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">run_qc</span>
+
+
+<a href="#qortex.datasets._base.EEGBundle.run_qc" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">run_qc</span><span class="p">(</span><span class="n">max_files</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">5</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Run signal QC on the first max_files files.</p>
+<p>Returns a SignalQualityReport for each file.
+Requires qortex[neuroclassic] extras.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="qortex.datasets._base.EEGBundle.info" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">info</span>
+
+
+<a href="#qortex.datasets._base.EEGBundle.info" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">info</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Print a summary of the loaded bundle.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div><hr />
+<h2 id="mribundle">MRIBundle<a class="headerlink" href="#mribundle" title="Permanent link">&para;</a></h2>
+<p>Returned by structural MRI loaders (<code>oasis1</code>, <code>ixi</code>).</p>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<a id="qortex.datasets._base.MRIBundle"></a>
+    <div class="doc doc-contents first">
+
+
+
+        <p>Loaded structural MRI dataset (T1, T2, etc.).</p>
+<h3 id="qortex.datasets._base.MRIBundle--attributes">Attributes<a class="headerlink" href="#qortex.datasets._base.MRIBundle--attributes" title="Permanent link">&para;</a></h3>
+<p>card         : Dataset metadata.
+subjects     : Subject identifiers.
+modality     : "T1", "T2", "PD", "DWI", etc.
+local_paths  : Absolute paths to NIfTI files (one per subject).
+metadata_df  : Demographic / clinical table (None until loaded).
+labels       : [n_subjects] array for the primary task (e.g. age or class).
+label_col    : Column name from the metadata table used as label.
+label_map    : {int → str} for classification tasks; None for regression.
+affines      : List of 4×4 affine matrices (None until load_images()).
+images       : List of [x, y, z] arrays (None until load_images()).
+qc_report    : Image QC report (None until .run_qc()).</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h2 id="qortex.datasets._base.MRIBundle.n_subjects" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">n_subjects</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+<a href="#qortex.datasets._base.MRIBundle.n_subjects" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">n_subjects</span><span class="p">:</span> <span class="nb">int</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="qortex.datasets._base.MRIBundle.load_images" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">load_images</span>
+
+
+<a href="#qortex.datasets._base.MRIBundle.load_images" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">load_images</span><span class="p">(</span><span class="n">max_subjects</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s1">&#39;list[Any]&#39;</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Load NIfTI images into memory as numpy arrays.</p>
+<p>Requires nibabel: pip install 'qortex[mri]'</p>
+<p>Returns list of [x, y, z] or [x, y, z, t] float32 arrays.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="qortex.datasets._base.MRIBundle.run_qc" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">run_qc</span>
+
+
+<a href="#qortex.datasets._base.MRIBundle.run_qc" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">run_qc</span><span class="p">(</span><span class="n">max_subjects</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">5</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Run image QC on the first max_subjects files.</p>
+<p>Requires nibabel + qortex[neuroclassic].</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="qortex.datasets._base.MRIBundle.info" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">info</span>
+
+
+<a href="#qortex.datasets._base.MRIBundle.info" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">info</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Print bundle summary.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div><hr />
+<h2 id="fmribundle">FMRIBundle<a class="headerlink" href="#fmribundle" title="Permanent link">&para;</a></h2>
+<p>Returned by task fMRI loaders (<code>ds000001</code>).</p>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<a id="qortex.datasets._base.FMRIBundle"></a>
+    <div class="doc doc-contents first">
+
+
+
+        <p>Loaded task fMRI dataset in BIDS layout.</p>
+<h3 id="qortex.datasets._base.FMRIBundle--attributes">Attributes<a class="headerlink" href="#qortex.datasets._base.FMRIBundle--attributes" title="Permanent link">&para;</a></h3>
+<p>card        : Dataset metadata.
+subjects    : Subject IDs.
+task        : BIDS task name.
+tr          : Repetition time in seconds.
+bold_paths  : Per-subject BOLD NIfTI paths.
+event_paths : Per-subject events.tsv paths.
+events      : Parsed event tables (list of dicts-of-lists or DataFrames).
+n_volumes   : Expected volume count per run.
+preflight   : Preflight readiness report (None until .run_preflight()).</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="qortex.datasets._base.FMRIBundle.load_events" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">load_events</span>
+
+
+<a href="#qortex.datasets._base.FMRIBundle.load_events" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">load_events</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Parse all events.tsv files into list of row-dicts.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="qortex.datasets._base.FMRIBundle.run_preflight" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">run_preflight</span>
+
+
+<a href="#qortex.datasets._base.FMRIBundle.run_preflight" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">run_preflight</span><span class="p">(</span><span class="n">dataset_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Run qortex preflight check for fMRI design readiness.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="qortex.datasets._base.FMRIBundle.info" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">info</span>
+
+
+<a href="#qortex.datasets._base.FMRIBundle.info" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">info</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div><hr />
+<h2 id="segmentationbundle">SegmentationBundle<a class="headerlink" href="#segmentationbundle" title="Permanent link">&para;</a></h2>
+<p>Returned by segmentation loaders (<code>msd_brain</code>).</p>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<a id="qortex.datasets._base.SegmentationBundle"></a>
+    <div class="doc doc-contents first">
+
+
+
+        <p>Loaded medical image segmentation dataset.</p>
+<h3 id="qortex.datasets._base.SegmentationBundle--attributes">Attributes<a class="headerlink" href="#qortex.datasets._base.SegmentationBundle--attributes" title="Permanent link">&para;</a></h3>
+<p>card         : Dataset metadata.
+case_ids     : Unique case identifiers.
+image_paths  : Per-case image file paths (list of lists for multimodal).
+mask_paths   : Per-case segmentation mask paths.
+label_map    : {int → str} mapping of mask integer values to region names.
+modalities   : List of modality names (e.g. ['FLAIR', 'T1w', 'T1gd', 'T2w']).
+split        : 'train', 'val', 'test', or 'all'.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h2 id="qortex.datasets._base.SegmentationBundle.n_cases" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">n_cases</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+<a href="#qortex.datasets._base.SegmentationBundle.n_cases" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">n_cases</span><span class="p">:</span> <span class="nb">int</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="qortex.datasets._base.SegmentationBundle.load_pair" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">load_pair</span>
+
+
+<a href="#qortex.datasets._base.SegmentationBundle.load_pair" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">load_pair</span><span class="p">(</span><span class="n">index</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s1">&#39;tuple[Any, Any]&#39;</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Load one image-mask pair as numpy arrays.</p>
+<p>Returns (image_array, mask_array).
+For multimodal: image_array shape is [n_modalities, x, y, z].</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="qortex.datasets._base.SegmentationBundle.info" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">info</span>
+
+
+<a href="#qortex.datasets._base.SegmentationBundle.info" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">info</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div><hr />
+<h2 id="datasetregistry">DatasetRegistry<a class="headerlink" href="#datasetregistry" title="Permanent link">&para;</a></h2>
+<p>The global registry that backs <code>list_available()</code> and <code>describe()</code>. Advanced users can access it directly via <code>qortex.datasets._REGISTRY</code>.</p>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<a id="qortex.datasets.DatasetRegistry"></a>
+    <div class="doc doc-contents first">
+
+
+
+        <p>Global registry of all known dataset cards.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="qortex.datasets.DatasetRegistry.register" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">register</span>
+
+
+<a href="#qortex.datasets.DatasetRegistry.register" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">register</span><span class="p">(</span><span class="n">card</span><span class="p">:</span> <span class="n">DatasetCard</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="qortex.datasets.DatasetRegistry.get" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get</span>
+
+
+<a href="#qortex.datasets.DatasetRegistry.get" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">get</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">DatasetCard</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="qortex.datasets.DatasetRegistry.list_all" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">list_all</span>
+
+
+<a href="#qortex.datasets.DatasetRegistry.list_all" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">list_all</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">DatasetCard</span><span class="p">]</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="qortex.datasets.DatasetRegistry.list_by_modality" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">list_by_modality</span>
+
+
+<a href="#qortex.datasets.DatasetRegistry.list_by_modality" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">list_by_modality</span><span class="p">(</span><span class="n">modality</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">DatasetCard</span><span class="p">]</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="qortex.datasets.DatasetRegistry.list_by_tutorial" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">list_by_tutorial</span>
+
+
+<a href="#qortex.datasets.DatasetRegistry.list_by_tutorial" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">list_by_tutorial</span><span class="p">(</span><span class="n">tutorial_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">DatasetCard</span><span class="p">]</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="qortex.datasets.DatasetRegistry.summary_table" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">summary_table</span>
+
+
+<a href="#qortex.datasets.DatasetRegistry.summary_table" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">summary_table</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Compact tabular listing of all datasets.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div><hr />
+<h2 id="available-datasets">Available datasets<a class="headerlink" href="#available-datasets" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th><code>load_data()</code> returns</th>
+<th>Tutorials</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>eegbci</code></td>
+<td><code>EEGBundle</code></td>
+<td>T01, T02</td>
+</tr>
+<tr>
+<td><code>sleep_edf</code></td>
+<td><code>EEGBundle</code></td>
+<td>T03</td>
+</tr>
+<tr>
+<td><code>chbmit</code></td>
+<td><code>EEGBundle</code></td>
+<td>T04</td>
+</tr>
+<tr>
+<td><code>oasis1</code></td>
+<td><code>MRIBundle</code></td>
+<td>T05</td>
+</tr>
+<tr>
+<td><code>ixi</code></td>
+<td><code>MRIBundle</code></td>
+<td>T06</td>
+</tr>
+<tr>
+<td><code>ds000001</code></td>
+<td><code>FMRIBundle</code></td>
+<td>T07</td>
+</tr>
+<tr>
+<td><code>msd_brain</code></td>
+<td><code>SegmentationBundle</code></td>
+<td>T08</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="qortexdatasetseegbci"><code>qortex.datasets.eegbci</code><a class="headerlink" href="#qortexdatasetseegbci" title="Permanent link">&para;</a></h3>
+<p>PhysioNet EEG Motor Movement/Imagery. 109 subjects, 160 Hz, 64-channel BCI2000.</p>
+
+
+<div class="doc doc-object doc-function">
+
+
+
+<a id="qortex.datasets.eegbci.describe"></a>
+    <div class="doc doc-contents first">
+
+        <p>Return the DatasetCard without downloading anything.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+
+<a id="qortex.datasets.eegbci.load_data"></a>
+    <div class="doc doc-contents first">
+
+        <p>Download (first call) and load EEGBCI data.</p>
+<h3 id="qortex.datasets.eegbci.load_data--parameters">Parameters<a class="headerlink" href="#qortex.datasets.eegbci.load_data--parameters" title="Permanent link">&para;</a></h3>
+<p>subjects  : Subject numbers 1–109. Defaults to [1, 2, 3].
+runs      : Run numbers 1–14. Defaults to [4, 8, 12] (left/right fist imagery).
+preload   : If True, load raw data into memory (required for to_windows()).
+verbose   : Forward MNE verbosity.</p>
+<h3 id="qortex.datasets.eegbci.load_data--returns">Returns<a class="headerlink" href="#qortex.datasets.eegbci.load_data--returns" title="Permanent link">&para;</a></h3>
+<p>EEGBundle with label_map, raws, local_paths, sfreq, channel_names.</p>
+<h3 id="qortex.datasets.eegbci.load_data--examples">Examples<a class="headerlink" href="#qortex.datasets.eegbci.load_data--examples" title="Permanent link">&para;</a></h3>
+<blockquote>
+<blockquote>
+<blockquote>
+<p>bundle = eegbci.load_data(subjects=[1, 2, 3], runs=[4, 8, 12])
+X, y = bundle.to_windows(window_s=4.0, bandpass=(8.0, 30.0))</p>
+</blockquote>
+</blockquote>
+</blockquote>
+
+
+    </div>
+
+</div><p><strong>Label map constants</strong></p>
+<table>
+<thead>
+<tr>
+<th>Constant</th>
+<th>Runs</th>
+<th>Classes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>LABEL_MAP_FIST_IMAGERY</code></td>
+<td>4, 8, 12</td>
+<td>rest / left_fist_imagery / right_fist_imagery</td>
+</tr>
+<tr>
+<td><code>LABEL_MAP_FEET_IMAGERY</code></td>
+<td>6, 10, 14</td>
+<td>rest / both_fists_imagery / both_feet_imagery</td>
+</tr>
+<tr>
+<td><code>LABEL_MAP_FIST_EXECUTION</code></td>
+<td>3, 7, 11</td>
+<td>rest / left_fist / right_fist</td>
+</tr>
+<tr>
+<td><code>LABEL_MAP_FEET_EXECUTION</code></td>
+<td>5, 9, 13</td>
+<td>rest / both_fists / both_feet</td>
+</tr>
+<tr>
+<td><code>LABEL_MAP_BASELINE</code></td>
+<td>1, 2</td>
+<td>eyes_open / eyes_closed</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="qortexdatasetssleep_edf"><code>qortex.datasets.sleep_edf</code><a class="headerlink" href="#qortexdatasetssleep_edf" title="Permanent link">&para;</a></h3>
+<p>Sleep-EDF Expanded — 5-class AASM sleep staging. Cassette + temazepam subsets.</p>
+
+
+<div class="doc doc-object doc-function">
+
+
+
+<a id="qortex.datasets.sleep_edf.describe"></a>
+    <div class="doc doc-contents first">
+
+        <p>Return the DatasetCard without downloading anything.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+
+<a id="qortex.datasets.sleep_edf.load_data"></a>
+    <div class="doc doc-contents first">
+
+        <p>Download (first call) and load Sleep-EDF data.</p>
+<h3 id="qortex.datasets.sleep_edf.load_data--parameters">Parameters<a class="headerlink" href="#qortex.datasets.sleep_edf.load_data--parameters" title="Permanent link">&para;</a></h3>
+<p>subjects        : Subject indices (0-based). Defaults to [0, 1, 2].
+recording       : "SC" (Cassette), "ST" (Telemetry), or "SC_ST" for both.
+preload         : Load raw data into memory.
+crop_wake_mins  : Crop leading/trailing wake to N minutes to reduce
+                  class imbalance. Set to None to disable.
+verbose         : MNE verbosity.</p>
+<h3 id="qortex.datasets.sleep_edf.load_data--returns">Returns<a class="headerlink" href="#qortex.datasets.sleep_edf.load_data--returns" title="Permanent link">&para;</a></h3>
+<p>EEGBundle with label_map = LABEL_MAP (5-class AASM staging).</p>
+<h3 id="qortex.datasets.sleep_edf.load_data--examples">Examples<a class="headerlink" href="#qortex.datasets.sleep_edf.load_data--examples" title="Permanent link">&para;</a></h3>
+<blockquote>
+<blockquote>
+<blockquote>
+<p>bundle = sleep_edf.load_data(subjects=[0, 1, 2, 3])
+X, y = bundle.to_windows(window_s=30.0, event_driven=False)</p>
+</blockquote>
+</blockquote>
+</blockquote>
+
+
+    </div>
+
+</div><p><strong>Label map</strong> — <code>LABEL_MAP = {0: "Wake", 1: "N1", 2: "N2", 3: "N3", 4: "REM"}</code></p>
+<hr />
+<h3 id="qortexdatasetschbmit"><code>qortex.datasets.chbmit</code><a class="headerlink" href="#qortexdatasetschbmit" title="Permanent link">&para;</a></h3>
+<p>CHB-MIT Scalp EEG Seizure Database. 23 cases, binary seizure/non-seizure labels.</p>
+
+
+<div class="doc doc-object doc-function">
+
+
+
+<a id="qortex.datasets.chbmit.describe"></a>
+    <div class="doc doc-contents first">
+
+        <p>Return the DatasetCard without downloading anything.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+
+<a id="qortex.datasets.chbmit.load_data"></a>
+    <div class="doc doc-contents first">
+
+        <p>Load CHB-MIT data from a local directory.</p>
+<p>CHB-MIT must be downloaded separately from PhysioNet (~42.6 GB).
+Provide the root directory containing case subdirectories (chb01/, etc.).</p>
+<h3 id="qortex.datasets.chbmit.load_data--parameters">Parameters<a class="headerlink" href="#qortex.datasets.chbmit.load_data--parameters" title="Permanent link">&para;</a></h3>
+<p>cases           : Case names, e.g. ["chb01", "chb02"]. Defaults to ["chb01"].
+seizure_files_only : If True, only load EDF files that contain seizures
+                   (as listed in summary.txt). Reduces download footprint.
+local_root      : Path to the downloaded dataset root.
+                  Falls back to QORTEX_DATA_DIR/chbmit or ~/.cache/qortex/datasets/chbmit.
+preload         : Load raw data into memory.
+verbose         : MNE verbosity.</p>
+<h3 id="qortex.datasets.chbmit.load_data--returns">Returns<a class="headerlink" href="#qortex.datasets.chbmit.load_data--returns" title="Permanent link">&para;</a></h3>
+<p>EEGBundle with label_map = {0: 'non_seizure', 1: 'seizure'}.
+The bundle also carries <code>.metadata['seizure_map']</code> for window-level labeling.</p>
+<h3 id="qortex.datasets.chbmit.load_data--examples">Examples<a class="headerlink" href="#qortex.datasets.chbmit.load_data--examples" title="Permanent link">&para;</a></h3>
+<blockquote>
+<blockquote>
+<blockquote>
+<p>bundle = chbmit.load_data(cases=["chb01"], seizure_files_only=True,
+...                           local_root="/data/chbmit")
+windows, labels = chbmit.label_windows_for_file(
+...     "chb01_03.edf", n_samples=..., sfreq=256.0,
+...     window_s=5.0, step_s=1.0, seizure_map=bundle.metadata["seizure_map"])</p>
+</blockquote>
+</blockquote>
+</blockquote>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<a id="qortex.datasets.chbmit.SeizureInterval"></a>
+    <div class="doc doc-contents first">
+
+
+
+        <p>A single seizure interval within an EDF file.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="qortex.datasets.chbmit.SeizureInterval.overlaps_window" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">overlaps_window</span>
+
+
+<a href="#qortex.datasets.chbmit.SeizureInterval.overlaps_window" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">overlaps_window</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">window_start</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">window_end</span><span class="p">:</span> <span class="nb">float</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>True if the seizure interval overlaps [window_start, window_end).</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+
+<a id="qortex.datasets.chbmit.parse_seizure_summary"></a>
+    <div class="doc doc-contents first">
+
+        <p>Parse a chbNN-summary.txt file into a dict of {filename: [SeizureInterval]}.</p>
+<p>Summary file format (from PhysioNet CHB-MIT documentation):
+    File Name: chb01_03.edf
+    File Start Time: 14:43:00
+    File End Time: 15:43:00
+    Number of Seizures in File: 1
+    Seizure Start Time: 2996 seconds
+    Seizure End Time: 3036 seconds</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+
+<a id="qortex.datasets.chbmit.label_windows_for_file"></a>
+    <div class="doc doc-contents first">
+
+        <p>Compute window boundaries and binary labels for one EDF file.</p>
+<h3 id="qortex.datasets.chbmit.label_windows_for_file--returns">Returns<a class="headerlink" href="#qortex.datasets.chbmit.label_windows_for_file--returns" title="Permanent link">&para;</a></h3>
+<p>(windows, labels)
+    windows : list of (start_sample, end_sample) tuples
+    labels  : list of int (0=non_seizure, 1=seizure)</p>
+
+
+    </div>
+
+</div><p><strong>Label map</strong> — <code>LABEL_MAP = {0: "non_seizure", 1: "seizure"}</code></p>
+<hr />
+<h3 id="qortexdatasetsoasis1"><code>qortex.datasets.oasis1</code><a class="headerlink" href="#qortexdatasetsoasis1" title="Permanent link">&para;</a></h3>
+<p>OASIS-1 cross-sectional structural MRI. 416 subjects, dementia classification.</p>
+
+
+<div class="doc doc-object doc-function">
+
+
+
+<a id="qortex.datasets.oasis1.describe"></a>
+    <div class="doc doc-contents first">
+
+        <p>Return the DatasetCard without downloading anything.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+
+<a id="qortex.datasets.oasis1.load_data"></a>
+    <div class="doc doc-contents first">
+
+        <p>Load OASIS-1 data from a local directory.</p>
+<p>OASIS-1 requires prior registration and manual download.
+See describe().access_instructions for the expected directory layout.</p>
+<h3 id="qortex.datasets.oasis1.load_data--parameters">Parameters<a class="headerlink" href="#qortex.datasets.oasis1.load_data--parameters" title="Permanent link">&para;</a></h3>
+<p>local_root          : Root of the extracted OASIS-1 dataset.
+                      Falls back to QORTEX_DATA_DIR/oasis1.
+cdr_binary          : Use CDR=0 vs CDR&gt;0 as the binary label.
+exclude_missing_cdr : Exclude subjects with no CDR score.
+modality            : "T1" (only T1 images are currently supported).
+max_subjects        : Limit number of subjects (useful for quick tests).</p>
+<h3 id="qortex.datasets.oasis1.load_data--returns">Returns<a class="headerlink" href="#qortex.datasets.oasis1.load_data--returns" title="Permanent link">&para;</a></h3>
+<p>MRIBundle with:
+  - label_col = 'cdr_binary'
+  - label_map = {0: 'no_dementia', 1: 'dementia'}
+  - metadata = clinical table keyed by subject_id
+  - labels = np.ndarray of 0/1 values aligned to subjects list</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+
+<a id="qortex.datasets.oasis1.load_clinical_table"></a>
+    <div class="doc doc-contents first">
+
+        <p>Parse oasis_cross-sectional.csv into {subject_id: {col: val}}.</p>
+<p>CDR column: 0=no dementia, 0.5=very mild, 1=mild, 2=moderate AD.
+CDR binary: CDR=0 → 0 (no_dementia); CDR&gt;0 → 1 (dementia).</p>
+
+
+    </div>
+
+</div><p><strong>Label map</strong> — <code>LABEL_MAP = {0: "no_dementia", 1: "dementia"}</code></p>
+<hr />
+<h3 id="qortexdatasetsixi"><code>qortex.datasets.ixi</code><a class="headerlink" href="#qortexdatasetsixi" title="Permanent link">&para;</a></h3>
+<p>IXI multimodal MRI (T1/T2/PD/MRA/DWI). 600 subjects, age regression / sex classification.</p>
+
+
+<div class="doc doc-object doc-function">
+
+
+
+<a id="qortex.datasets.ixi.describe"></a>
+    <div class="doc doc-contents first">
+
+        <p>Return the DatasetCard without downloading anything.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+
+<a id="qortex.datasets.ixi.load_data"></a>
+    <div class="doc doc-contents first">
+
+        <p>Load IXI data from a local directory.</p>
+<h3 id="qortex.datasets.ixi.load_data--parameters">Parameters<a class="headerlink" href="#qortex.datasets.ixi.load_data--parameters" title="Permanent link">&para;</a></h3>
+<p>local_root            : Root of the downloaded IXI dataset.
+                        Falls back to QORTEX_DATA_DIR/ixi.
+modalities            : List of modalities to load. Defaults to ["T1"].
+                        Options: "T1", "T2", "PD", "MRA", "DWI".
+                        Only the first modality's paths are stored as primary.
+task                  : "age_regression" or "sex_classification".
+exclude_missing_labels : Skip subjects with no label for the chosen task.
+max_subjects          : Limit for quick experiments.</p>
+<h3 id="qortex.datasets.ixi.load_data--returns">Returns<a class="headerlink" href="#qortex.datasets.ixi.load_data--returns" title="Permanent link">&para;</a></h3>
+<p>MRIBundle with:
+  - For age_regression: label_col="AGE", labels=float array, label_map=None.
+  - For sex_classification: label_col="sex_label", labels=int array,
+    label_map={0: "male", 1: "female"}.</p>
+<h3 id="qortex.datasets.ixi.load_data--examples">Examples<a class="headerlink" href="#qortex.datasets.ixi.load_data--examples" title="Permanent link">&para;</a></h3>
+<blockquote>
+<blockquote>
+<blockquote>
+<p>bundle = ixi.load_data(local_root="/data/ixi", task="age_regression",
+...                        max_subjects=50)
+bundle.load_images(max_subjects=10)</p>
+</blockquote>
+</blockquote>
+</blockquote>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+
+<a id="qortex.datasets.ixi.load_demographics"></a>
+    <div class="doc doc-contents first">
+
+        <p>Parse IXI demographics from IXI.csv or IXI.xls.</p>
+<p>Returns {ixi_id: {age, sex, site, ethnic_group, ...}}.</p>
+<p>IXI ID is an integer (1–628); the NIfTI filename encodes it as IXI%03d.
+sex codes: 1=Male, 2=Female.</p>
+
+
+    </div>
+
+</div><p><strong>Label map</strong> — <code>LABEL_MAP_SEX = {0: "male", 1: "female"}</code></p>
+<hr />
+<h3 id="qortexdatasetsds000001"><code>qortex.datasets.ds000001</code><a class="headerlink" href="#qortexdatasetsds000001" title="Permanent link">&para;</a></h3>
+<p>OpenfMRI balloon analogue risk task (BART). 16 subjects, BIDS fMRI, event design.</p>
+
+
+<div class="doc doc-object doc-function">
+
+
+
+<a id="qortex.datasets.ds000001.describe"></a>
+    <div class="doc doc-contents first">
+
+        <p>Return the DatasetCard without downloading anything.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+
+<a id="qortex.datasets.ds000001.load_data"></a>
+    <div class="doc doc-contents first">
+
+        <p>Load ds000001 BIDS dataset from a local directory.</p>
+<p>ds000001 is available for free download — no registration required.</p>
+<h3 id="qortex.datasets.ds000001.load_data--parameters">Parameters<a class="headerlink" href="#qortex.datasets.ds000001.load_data--parameters" title="Permanent link">&para;</a></h3>
+<p>local_root : Root of the BIDS dataset directory.
+             Falls back to QORTEX_DATA_DIR/ds000001.
+subjects   : List of 2-digit subject IDs (e.g. ["01", "02"]).
+             Defaults to all discovered subjects.
+tr         : Repetition time in seconds (default 2.0).</p>
+<h3 id="qortex.datasets.ds000001.load_data--returns">Returns<a class="headerlink" href="#qortex.datasets.ds000001.load_data--returns" title="Permanent link">&para;</a></h3>
+<p>FMRIBundle with BOLD and event file paths.</p>
+<h3 id="qortex.datasets.ds000001.load_data--examples">Examples<a class="headerlink" href="#qortex.datasets.ds000001.load_data--examples" title="Permanent link">&para;</a></h3>
+<blockquote>
+<blockquote>
+<blockquote>
+<p>bundle = ds000001.load_data(local_root="/data/ds000001", subjects=["01","02"])
+events = bundle.load_events()
+report = bundle.run_preflight(Path("/data/ds000001"))</p>
+</blockquote>
+</blockquote>
+</blockquote>
+
+
+    </div>
+
+</div><hr />
+<h3 id="qortexdatasetsmsd_brain"><code>qortex.datasets.msd_brain</code><a class="headerlink" href="#qortexdatasetsmsd_brain" title="Permanent link">&para;</a></h3>
+<p>MSD Brain Tumour segmentation. 4-class glioma segmentation (FLAIR, T1w, T1gd, T2w).</p>
+
+
+<div class="doc doc-object doc-function">
+
+
+
+<a id="qortex.datasets.msd_brain.describe"></a>
+    <div class="doc doc-contents first">
+
+        <p>Return the DatasetCard without downloading anything.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+
+<a id="qortex.datasets.msd_brain.load_data"></a>
+    <div class="doc doc-contents first">
+
+        <p>Load MSD Brain Tumour data via MONAI.</p>
+<h3 id="qortex.datasets.msd_brain.load_data--parameters">Parameters<a class="headerlink" href="#qortex.datasets.msd_brain.load_data--parameters" title="Permanent link">&para;</a></h3>
+<p>local_root : Directory for dataset storage.
+             Falls back to QORTEX_DATA_DIR/msd_brain.
+split      : "train" (484 cases with masks) or "test" (266 cases, no masks).
+max_cases  : Limit for fast experiments.
+download   : Download if not already cached.
+seed       : Random seed for reproducible split (if MONAI applies one).</p>
+<h3 id="qortex.datasets.msd_brain.load_data--returns">Returns<a class="headerlink" href="#qortex.datasets.msd_brain.load_data--returns" title="Permanent link">&para;</a></h3>
+<p>SegmentationBundle with:
+  - image_paths: list of lists shaped (case, modality)
+  - mask_paths: list of mask paths (empty for test split)
+  - label_map: {0: background, 1: NCR_NET, 2: edema, 3: enhancing_tumour}
+  - modalities: ['FLAIR', 'T1w', 'T1gd', 'T2w']</p>
+<h3 id="qortex.datasets.msd_brain.load_data--examples">Examples<a class="headerlink" href="#qortex.datasets.msd_brain.load_data--examples" title="Permanent link">&para;</a></h3>
+<blockquote>
+<blockquote>
+<blockquote>
+<p>bundle = msd_brain.load_data(split="train", max_cases=20)
+image, mask = bundle.load_pair(0)
+print(image.shape, mask.shape)  # (4, 240, 240, 155), (240, 240, 155)</p>
+</blockquote>
+</blockquote>
+</blockquote>
+
+
+    </div>
+
+</div><p><strong>Label map</strong> — <code>LABEL_MAP = {0: "background", 1: "NCR_NET", 2: "edema", 3: "enhancing_tumour"}</code></p>
+<p><strong>Modalities</strong> — <code>MODALITIES = ["FLAIR", "T1w", "T1gd", "T2w"]</code></p>
+<p>See the <a href="../../tutorials/">Tutorials</a> for end-to-end usage of each dataset.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../conversion/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Conversion">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Conversion
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../neuroclassic/" class="md-footer__link md-footer__link--next" aria-label="Next: Neuroclassic">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Neuroclassic
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["announce.dismiss", "content.code.annotate", "navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.indexes", "navigation.prune", "navigation.footer", "navigation.instant", "navigation.instant.progress", "navigation.path", "navigation.top", "search.highlight", "search.share", "search.suggest", "toc.follow", "content.code.copy", "content.tabs.link", "content.tooltips"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../../assets/javascripts/openneuro-stats.js"></script>
+      
+    
+  </body>
+</html>

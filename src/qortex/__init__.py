@@ -990,8 +990,8 @@ class Dataset:
         >>> splits = ds.train_test_split(
         ...     test_size=0.2, stratify_by="diagnosis", group_by="subject"
         ... )
-        >>> splits["train"]
-        ['sub-01', 'sub-03', ...]
+        >>> splits["train"]  # doctest: +SKIP
+        # ['sub-01', 'sub-03', ...]
         """
         import hashlib
 

@@ -35,8 +35,8 @@ Use the NeuroAI runtime when:
 - [Sources](sources.md) — BIDS, DICOM, NWB, XDF, LSL, BrainFlow, image, video
 - [Models](models.md) — HuggingFace, ONNX, Torch, MONAI, Ultralytics, custom plugins
 - [Outputs](outputs.md) — JSONL, Parquet, CSV, LSL markers, NIfTI, DICOM-SEG, BIDS, COCO, YOLO, overlay, HTTP
-- [Contracts](contracts.md) — SourceProfile, ModelProfile, CompatibilityReport, PreprocessPlan, ArtifactContract
-- [Ring buffer](ring-buffer.md) — lock-free windowing for real-time sources; Python fallback + Rust extension
+- Contracts — SourceProfile, ModelProfile, CompatibilityReport, PreprocessPlan, ArtifactContract
+- Ring buffer — lock-free windowing for real-time sources; Python fallback + Rust extension
 
 ## Quick example
 

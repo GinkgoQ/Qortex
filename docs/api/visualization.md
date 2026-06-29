@@ -42,11 +42,11 @@ pip install "qortex[eeg]"          # MNE only (EEG/MEG)
 
 Every rendering call flows through these types: `inspect()` returns a `VisualAsset`, `asset.plan()` returns a `VisualPlan`, and `asset.render()` returns a `VisualResult`.
 
-::: qortex.visualize.VisualWarning
+::: qortex.visualize._asset.VisualWarning
     options:
       show_source: false
 
-::: qortex.visualize.VisualAsset
+::: qortex.visualize._asset.VisualAsset
     options:
       show_source: false
       members:
@@ -63,14 +63,14 @@ Every rendering call flows through these types: `inspect()` returns a `VisualAss
         - render
         - to_dict
 
-::: qortex.visualize.VisualPlan
+::: qortex.visualize._asset.VisualPlan
     options:
       show_source: false
       members:
         - estimated_memory_mb
         - describe
 
-::: qortex.visualize.VisualResult
+::: qortex.visualize._asset.VisualResult
     options:
       show_source: false
       members:
