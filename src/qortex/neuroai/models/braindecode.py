@@ -56,6 +56,32 @@ class BrainDecodeAdapter(ModelAdapter):
     # ── ModelAdapter interface ────────────────────────────────────────────────
 
     def inspect(self) -> ModelProfile:
+        # Fast path: curated registry has confirmed contracts for known BD models.
+        from qortex.neuroai.models._contracts import lookup as _registry_lookup
+        entry = _registry_lookup(self._spec.id)
+        if entry is not None:
+            # Apply registry values so required_input() / output_schema() are consistent.
+            ic = entry.input_contract
+            self._n_channels = ic.n_channels
+            self._n_classes = entry.output_contract.n_classes
+            self._class_names = list(entry.output_contract.classes or [])
+            return ModelProfile(
+                model_id=self._spec.id,
+                provider="braindecode",
+                task=self._spec.task or "eeg_classification",
+                revision=self._spec.revision,
+                model_hash=None,
+                estimated_memory_mb=entry.estimated_memory_mb,
+                input_contract=ic,
+                output_contract=entry.output_contract,
+                warnings=[WarningItem(
+                    code="CONTRACT_FROM_REGISTRY",
+                    message=f"Input contract loaded from curated registry. {entry.notes}",
+                    severity="info",
+                )],
+            )
+
+        # Fallback: try to read config from HuggingFace Hub.
         _require_braindecode()
         self._load_model_config()
 

@@ -1731,13 +1731,10 @@ def neuroai_suggest_models(
         qortex neuroai suggest-models data.edf --task classification
         qortex neuroai suggest-models bids_dir/ --task segmentation --modality mri
     """
-    import traceback
     try:
         from qortex.neuroai.sources._registry import make_source_adapter
         from qortex.neuroai.spec import SourceSpec
         from qortex.neuroai.compatibility import CompatibilityEngine
-        from qortex.neuroai.models._registry import make_model_adapter
-        from qortex.neuroai.spec import ModelSpec
     except ImportError as exc:
         typer.echo(f"Error importing NeuroAI modules: {exc}", err=True)
         raise typer.Exit(2)
@@ -1755,91 +1752,90 @@ def neuroai_suggest_models(
 
     detected_modality = modality or src_profile.modality or "unknown"
 
-    # 2. Build candidate model list
-    candidates = _build_candidate_list(task, detected_modality, provider, top_k * 3)
+    # 2. Build candidate list from the curated contract registry (no network calls).
+    from qortex.neuroai.models._contracts import list_entries as _list_contracts
+    from qortex.neuroai.contracts import ModelProfile as _ModelProfile
 
-    # 3. Score by compatibility
+    all_entries = _list_contracts(
+        provider=None if provider in ("all", "any") else provider,
+        modality=detected_modality if detected_modality != "unknown" else None,
+    )
+
+    # If modality-filtered list is empty, fall back to task-string matching across all entries.
+    if not all_entries:
+        all_entries = _list_contracts()
+        task_lower = task.lower()
+        all_entries = [
+            e for e in all_entries
+            if task_lower in (e.output_contract.output_type or "").lower()
+            or task_lower in e.notes.lower()
+        ]
+
+    # 3. Score each registry entry via CompatibilityEngine — no model loading.
     engine = CompatibilityEngine()
-    scored: list[tuple[int, dict, str]] = []  # (score, info, status)
+    _EVIDENCE_BONUS = {
+        "confirmed": 10,
+        "inferred": 5,
+        "unknown": 2,
+        "missing": 0,
+    }
+    _STATUS_SCORE = {
+        "compatible": 40,
+        "compatible_with_transforms": 30,
+        "uncertain": 10,
+        "incompatible": 0,
+    }
 
-    for cand in candidates:
+    scored: list[tuple[int, object, str, str]] = []  # (score, entry, status, mem_str)
+
+    for entry in all_entries:
+        m_profile = _ModelProfile(
+            model_id=entry.model_id,
+            provider=entry.provider,
+            task=entry.output_contract.output_type or task,
+            input_contract=entry.input_contract,
+            output_contract=entry.output_contract,
+            estimated_memory_mb=entry.estimated_memory_mb,
+        )
         try:
-            m_spec = ModelSpec(provider=cand.get("provider", provider), id=cand["id"], task=task)
-            m_adapter = make_model_adapter(m_spec)
-            m_profile = m_adapter.inspect()
             report = engine.check(src_profile, m_profile, None)
-            status = report.status.value
-            score = {"compatible": 4, "compatible_with_transforms": 3,
-                     "uncertain": 2, "incompatible": 0}.get(status, 1)
+            compat_status = report.status.value
         except Exception:
-            status = "unknown"
-            score = 1
-        scored.append((score, cand, status))
+            compat_status = "uncertain"
 
-    # Sort and limit
-    scored.sort(key=lambda x: x[0], reverse=True)
+        evidence = str(getattr(entry.input_contract, "evidence_status", "unknown")).lower()
+        if "." in evidence:
+            evidence = evidence.split(".")[-1]
+
+        score = _STATUS_SCORE.get(compat_status, 0) + _EVIDENCE_BONUS.get(evidence, 0)
+        scored.append((score, entry, compat_status, evidence))
+
+    # Sort by score desc, then alphabetically by model_id for stable output.
+    scored.sort(key=lambda x: (-x[0], x[1].model_id))
     scored = scored[:top_k]
 
-    typer.echo(f"\nTop {len(scored)} model suggestions for task={task!r}, modality={detected_modality!r}:\n")
-    typer.echo(f"{'Model ID':<45} {'Provider':<14} {'Compatibility':<28} {'Notes'}")
-    typer.echo("-" * 110)
-    for score, cand, status in scored:
-        notes = cand.get("notes", "")
-        typer.echo(f"{cand['id']:<45} {cand.get('provider', provider):<14} {status:<28} {notes}")
+    typer.echo(
+        f"\nTop {len(scored)} model suggestions for task={task!r}, "
+        f"modality={detected_modality!r}:\n"
+    )
+    typer.echo(f"{'Model ID':<48} {'Provider':<14} {'Compatibility':<32} {'Evidence':<12} {'Notes'}")
+    typer.echo("-" * 130)
+    for _score, entry, compat_status, evidence in scored:
+        mem = (
+            f"~{entry.estimated_memory_mb:.0f} MB"
+            if entry.estimated_memory_mb is not None
+            else ""
+        )
+        notes = entry.notes[:60] + "…" if len(entry.notes) > 60 else entry.notes
+        typer.echo(
+            f"{entry.model_id:<48} {entry.provider:<14} {compat_status:<32} "
+            f"{evidence:<12} {notes}"
+        )
+        if mem:
+            typer.echo(f"{'':48} {'':14} {'':32} Memory: {mem}")
 
     if not scored:
-        typer.echo("No candidate models found. Try a different task or provider.")
-
-
-# Curated model registry for offline / fallback use
-_KNOWN_MODELS: list[dict] = [
-    {"id": "braindecode/EEGNet_8_2", "provider": "braindecode", "task": "eeg_classification", "modality": "eeg", "notes": "EEGNet — BCI baseline"},
-    {"id": "braindecode/ShallowFBCSPNet", "provider": "braindecode", "task": "eeg_classification", "modality": "eeg", "notes": "FBCSP — BCI motor imagery"},
-    {"id": "braindecode/Deep4Net", "provider": "braindecode", "task": "eeg_classification", "modality": "eeg", "notes": "Deep ConvNet for EEG"},
-    {"id": "openai/whisper-base", "provider": "huggingface", "task": "audio_classification", "modality": "audio", "notes": "Audio transcription"},
-    {"id": "microsoft/resnet-50", "provider": "huggingface", "task": "image_classification", "modality": "image", "notes": "ResNet-50 ImageNet"},
-    {"id": "ultralytics/yolov8n", "provider": "ultralytics", "task": "detection", "modality": "image", "notes": "YOLOv8 nano — fast detection"},
-    {"id": "ultralytics/yolov8n-seg", "provider": "ultralytics", "task": "segmentation", "modality": "image", "notes": "YOLOv8 segmentation"},
-    {"id": "google/vit-base-patch16-224", "provider": "huggingface", "task": "image_classification", "modality": "image", "notes": "ViT image classifier"},
-    {"id": "facebook/detr-resnet-50", "provider": "huggingface", "task": "detection", "modality": "image", "notes": "DETR object detection"},
-]
-
-_TASK_MODALITY_HF_TAGS: dict[tuple[str, str], dict] = {
-    ("classification", "eeg"): {"task": "audio-classification", "search_terms": ["eeg", "bci"]},
-    ("segmentation", "mri"): {"task": "image-segmentation", "search_terms": ["medical", "mri", "brain"]},
-    ("segmentation", "ct"): {"task": "image-segmentation", "search_terms": ["medical", "ct", "lung"]},
-    ("detection", "image"): {"task": "object-detection", "search_terms": []},
-    ("classification", "image"): {"task": "image-classification", "search_terms": []},
-    ("segmentation", "image"): {"task": "image-segmentation", "search_terms": []},
-}
-
-
-def _build_candidate_list(task: str, modality: str, provider: str, limit: int) -> list[dict]:
-    """Build candidate model list from HuggingFace Hub or fallback registry."""
-    candidates: list[dict] = []
-
-    # Filter known models
-    for m in _KNOWN_MODELS:
-        if task.lower() in m.get("task", "") or modality.lower() in m.get("modality", ""):
-            candidates.append(m)
-
-    # Try HuggingFace Hub
-    if provider in ("huggingface", "hf"):
-        try:
-            from huggingface_hub import list_models
-            tags_cfg = _TASK_MODALITY_HF_TAGS.get(
-                (task.lower(), modality.lower()),
-                {"task": task.replace("_", "-"), "search_terms": []},
-            )
-            hf_task = tags_cfg["task"]
-            results = list(list_models(task=hf_task, limit=limit, sort="downloads", direction=-1))
-            for m in results:
-                if m.modelId not in {c["id"] for c in candidates}:
-                    candidates.append({"id": m.modelId, "provider": "huggingface", "task": task})
-        except Exception:
-            pass  # Fall back to curated list
-
-    return candidates[:limit]
+        typer.echo("No candidate models found in the registry. Try --modality or --provider.")
 
 
 # ── check ─────────────────────────────────────────────────────────────────────

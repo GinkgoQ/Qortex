@@ -4,6 +4,56 @@ Every model adapter implements `inspect()` (no weights), `required_input()`, `ou
 
 Model provider is set by `model.provider` in the pipeline YAML.
 
+## Contract registry
+
+Qortex ships a curated **contract registry** (`qortex.neuroai.models._contracts`) that maps known model IDs to verified `InputContract` / `OutputContract` pairs. Every adapter consults the registry at the start of `inspect()`:
+
+- **Registry hit** → contract is returned immediately with `evidence_status=confirmed` (or `inferred` when the architecture allows flexibility). No network call is made.
+- **Registry miss** → adapter falls back to reading `config.json` from HuggingFace Hub or the ONNX graph.
+
+This means `suggest-models` and compatibility checking produce **confirmed** evidence instead of guesses for the 13 models currently in the registry.
+
+### Current coverage
+
+| Model | Provider | Modality | Task |
+|---|---|---|---|
+| `braindecode/EEGNet_8_2` | braindecode | EEG | classification |
+| `braindecode/ShallowFBCSPNet` | braindecode | EEG | classification |
+| `braindecode/Deep4Net` | braindecode | EEG | classification |
+| `braindecode/EEGConformer` | braindecode | EEG | classification |
+| `google/vit-base-patch16-224` | huggingface | image | classification |
+| `microsoft/resnet-50` | huggingface | image | classification |
+| `facebook/deit-base-patch16-224` | huggingface | image | classification |
+| `openai/whisper-base` | huggingface | audio | transcription |
+| `wholeBody_ct_segmentation` | monai | CT | segmentation |
+| `msd_brain_tumor` | monai | MRI | segmentation |
+| `ultralytics/yolov8n` | ultralytics | image | detection |
+
+### Querying the registry in Python
+
+```python
+from qortex.neuroai.models import list_model_contracts, lookup_model_contract
+
+# List all EEG models
+eeg_models = list_model_contracts(modality="eeg")
+
+# Look up a specific model
+entry = lookup_model_contract("braindecode/EEGNet_8_2")
+print(entry.input_contract.n_channels)   # 64
+print(entry.input_contract.sampling_rate_hz)  # 250.0
+print(entry.estimated_memory_mb)         # 120.0
+```
+
+### suggest-models CLI
+
+`suggest-models` uses the registry for zero-cost, offline compatibility ranking — no model weights are downloaded:
+
+```bash
+qortex neuroai suggest-models data.edf --task classification --modality eeg
+```
+
+Results are scored on two axes: compatibility status (`compatible` > `compatible_with_transforms` > `uncertain` > `incompatible`) and evidence quality (`confirmed` > `inferred` > `unknown`). Models with `confirmed` contracts always rank above equivalently compatible models with `inferred` evidence.
+
 ## HuggingFace
 
 ```yaml

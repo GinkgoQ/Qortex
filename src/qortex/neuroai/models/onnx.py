@@ -55,6 +55,25 @@ class ONNXModelAdapter(ModelAdapter):
         if self._profile is not None:
             return self._profile
 
+        # Registry lookup: ONNX models are often exported versions of known models.
+        from qortex.neuroai.models._contracts import lookup as _registry_lookup
+        entry = _registry_lookup(self._spec.id)
+        if entry is not None:
+            self._profile = ModelProfile(
+                model_id=self._spec.id,
+                provider="onnx",
+                task=self._spec.task or entry.output_contract.output_type,
+                input_contract=entry.input_contract,
+                output_contract=entry.output_contract,
+                estimated_memory_mb=entry.estimated_memory_mb,
+                warnings=[WarningItem(
+                    code="CONTRACT_FROM_REGISTRY",
+                    message=f"Input contract loaded from curated registry. {entry.notes}",
+                    severity="info",
+                )],
+            )
+            return self._profile
+
         try:
             import onnxruntime as ort
             import onnx

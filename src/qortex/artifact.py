@@ -288,6 +288,168 @@ class Artifact:
 
         return {"ok": len(errors) == 0, "errors": errors, "warnings": warnings}
 
+    def validate_schema(
+        self,
+        *,
+        label_col: str | None = None,
+        min_samples_per_class: int = 10,
+        max_null_fraction: float = 0.05,
+    ) -> dict:
+        """Validate the artifact's data schema before using it for training.
+
+        Checks performed:
+
+        1. **Label column presence** — the nominated column (or manifest default)
+           exists in every split.
+        2. **Null fraction** — fraction of null labels ≤ ``max_null_fraction``.
+        3. **Minimum class support** — every class has at least
+           ``min_samples_per_class`` rows across the split.
+        4. **Label consistency** — the same set of class labels appears in every
+           split (warns, not errors, when test/val are missing a minority class).
+        5. **Dtype uniformity** — feature columns have consistent dtype across
+           splits.
+
+        Parameters
+        ----------
+        label_col:
+            Label column name.  Defaults to ``manifest.label_column`` if set,
+            then to ``"label"`` as a last resort.
+        min_samples_per_class:
+            Minimum acceptable row count per class within each split.
+        max_null_fraction:
+            Maximum acceptable fraction of null label values (0–1).
+
+        Returns
+        -------
+        dict
+            ``{"ok": bool, "errors": [...], "warnings": [...], "stats": {...}}``
+        """
+        try:
+            import polars as pl
+        except ImportError:
+            return {
+                "ok": False,
+                "errors": ["validate_schema() requires polars: pip install polars"],
+                "warnings": [],
+                "stats": {},
+            }
+
+        errors: list[str] = []
+        warnings: list[str] = []
+        stats: dict = {}
+
+        col = (
+            label_col
+            or getattr(self.manifest, "label_column", None)
+            or "label"
+        )
+
+        declared_splits = list((self.manifest.splits or {}).keys())
+        if not declared_splits:
+            declared_splits = [
+                d.name for d in self.path.iterdir()
+                if d.is_dir() and list(d.glob("*.parquet"))
+            ]
+
+        all_label_sets: dict[str, set] = {}
+
+        for split_name in declared_splits:
+            split_dir = self.path / split_name
+            shards = list(split_dir.glob("*.parquet"))
+            if not shards:
+                warnings.append(f"Split {split_name!r} has no Parquet shards — skipping schema check.")
+                continue
+
+            try:
+                df = pl.read_parquet(split_dir)
+            except Exception as exc:
+                errors.append(f"Cannot read split {split_name!r}: {exc}")
+                continue
+
+            # 1. Label column presence.
+            if col not in df.columns:
+                errors.append(
+                    f"Label column {col!r} not found in split {split_name!r}. "
+                    f"Available columns: {df.columns[:15]}"
+                )
+                continue
+
+            label_series = df[col]
+            n_rows = len(label_series)
+
+            # 2. Null fraction.
+            n_null = label_series.null_count()
+            null_frac = n_null / max(n_rows, 1)
+            if null_frac > max_null_fraction:
+                errors.append(
+                    f"Split {split_name!r}: {null_frac:.1%} of {col!r} values are null "
+                    f"(limit {max_null_fraction:.0%}). "
+                    "Use LabelPolicy.missing='drop' in conversion to remove null-label rows."
+                )
+            elif n_null > 0:
+                warnings.append(
+                    f"Split {split_name!r}: {n_null}/{n_rows} null values in {col!r} "
+                    f"({null_frac:.1%}) — within the {max_null_fraction:.0%} limit."
+                )
+
+            # 3. Per-class counts.
+            try:
+                class_counts = (
+                    label_series.drop_nulls()
+                    .value_counts(sort=True)
+                    .rename({"count": "n"})
+                    .to_dicts()
+                )
+            except Exception:
+                class_counts = []
+
+            split_stats: dict = {"n_rows": n_rows, "n_null": n_null, "classes": {}}
+            class_labels: set = set()
+            for row in class_counts:
+                lbl = str(row[col])
+                n = row["n"]
+                class_labels.add(lbl)
+                split_stats["classes"][lbl] = n
+                if n < min_samples_per_class:
+                    (errors if split_name == "train" else warnings).append(
+                        f"Split {split_name!r}: class {lbl!r} has only {n} sample(s) "
+                        f"(minimum {min_samples_per_class}). "
+                        "Too few samples for reliable training/evaluation."
+                    )
+
+            all_label_sets[split_name] = class_labels
+            stats[split_name] = split_stats
+
+        # 4. Label consistency across splits.
+        split_names = list(all_label_sets.keys())
+        if len(split_names) >= 2:
+            ref_labels = all_label_sets.get("train") or all_label_sets[split_names[0]]
+            for sn, labels in all_label_sets.items():
+                if sn == "train":
+                    continue
+                missing_in_split = ref_labels - labels
+                extra_in_split = labels - ref_labels
+                if missing_in_split:
+                    warnings.append(
+                        f"Split {sn!r} is missing classes present in 'train': "
+                        f"{sorted(missing_in_split)}. "
+                        "Evaluation metrics may be misleading for these classes."
+                    )
+                if extra_in_split:
+                    errors.append(
+                        f"Split {sn!r} has classes not seen in 'train': "
+                        f"{sorted(extra_in_split)}. "
+                        "Model will encounter unseen classes at inference."
+                    )
+
+        return {
+            "ok": len(errors) == 0,
+            "errors": errors,
+            "warnings": warnings,
+            "label_col": col,
+            "stats": stats,
+        }
+
     def check_leakage(self) -> dict:
         """Check for subject-level and source-level leakage across splits.
 

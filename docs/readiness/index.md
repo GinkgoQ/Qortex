@@ -41,4 +41,38 @@ if report.state == "not_usable":
 
 ---
 
+## LabelPolicy — deterministic label enforcement
+
+By default `compute_readiness()` scans events.tsv files for any of the seven standard BIDS label columns (`trial_type`, `stim_type`, `condition`, …). This heuristic is permissive: it reports `label_ready=True` as long as *any* matching column name is present, regardless of content.
+
+For training you usually want to enforce a specific column and validate its values. Pass an explicit `LabelPolicy`:
+
+```python
+from qortex.core.entities import LabelPolicy
+from qortex.check.readiness import compute_readiness
+
+policy = LabelPolicy(
+    source="events",
+    column="trial_type",        # exact column name required
+    task="rest",
+    missing="drop",             # "drop" | "error" — what to do with null rows
+    positive_values=["target", "probe"],  # expected label values
+)
+
+report = compute_readiness(manifest, local_path=bids_root, label_policy=policy)
+```
+
+When a `LabelPolicy` is provided, the readiness checker enforces:
+
+| Check | Failure code | Severity |
+|---|---|---|
+| Column `policy.column` must exist | `labels.policy_column_missing` | warning |
+| Column must not be all-null | `labels.policy_column_all_null` | warning |
+| Null fraction + `missing="error"` | `labels.policy_missing_values` | error |
+| At least one `positive_values` present | `labels.policy_no_positive_values` | warning |
+
+Without `local_path` the checker cannot open events.tsv on disk and falls back to manifest-level presence detection, reporting `labels.candidate_unverified` so you can see that policy enforcement was skipped.
+
+---
+
 **Next →** [Download](../download/index.md) — once readiness is confirmed, fetch exactly the files you need.

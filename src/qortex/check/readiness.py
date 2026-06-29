@@ -1,10 +1,32 @@
-"""Decision-oriented readiness checks for Qortex datasets."""
+"""Decision-oriented readiness checks for Qortex datasets.
+
+LabelPolicy integration
+-----------------------
+Pass an explicit ``LabelPolicy`` to ``compute_readiness()`` to override the
+heuristic ``LABEL_COLUMNS`` scan with a deterministic policy:
+
+    from qortex.core.entities import LabelPolicy
+    from qortex.check.readiness import compute_readiness
+
+    policy = LabelPolicy(
+        source="events",
+        column="trial_type",
+        task="rest",
+        missing="drop",
+        positive_values=["target", "probe"],
+    )
+    report = compute_readiness(manifest, local_path=p, label_policy=policy)
+
+Without an explicit policy the checker falls back to scanning for any column
+in ``LABEL_COLUMNS`` (the seven standard BIDS event column names).
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 from qortex.core.entities import (
+    LabelPolicy,
     Manifest,
     ReadinessFinding,
     ReadinessReport,
@@ -18,6 +40,7 @@ def compute_readiness(
     local_path: Path | None = None,
     conversion_target: str | None = None,
     inspect_loaders: bool = False,
+    label_policy: LabelPolicy | None = None,
 ) -> ReadinessReport:
     """Return an actionable readiness report for a manifest/local dataset."""
     graph = ManifestGraph(manifest)
@@ -77,24 +100,31 @@ def compute_readiness(
 
         label_ready = rec.has_labels
         if local_path is not None and rec.companions.events is not None:
-            label_ready = _events_file_has_labels(local_path / rec.companions.events.path)
-            if not label_ready:
-                findings.append(ReadinessFinding(
-                    severity="warning",
-                    code="labels.column_missing",
-                    message="Events file exists but no standard label column was detected.",
-                    path=rec.companions.events.path,
-                    recording_id=rec.id,
-                    recommendation="Pass an explicit LabelPolicy column for this dataset.",
-                ))
+            events_path = local_path / rec.companions.events.path
+            label_ready, label_finding = _check_events_labels(
+                events_path, rec, label_policy
+            )
+            if label_finding is not None:
+                findings.append(label_finding)
         elif rec.has_label_candidates:
+            policy_hint = (
+                f" Explicit column: {label_policy.column!r}."
+                if label_policy and label_policy.column
+                else " Pass an explicit LabelPolicy column."
+            )
             findings.append(ReadinessFinding(
                 severity="info",
                 code="labels.candidate_unverified",
-                message="A matching events.tsv file exists, but label columns have not been verified locally.",
+                message=(
+                    "A matching events.tsv file exists, but label columns have not "
+                    "been verified locally." + policy_hint
+                ),
                 path=rec.companions.events.path if rec.companions.events else None,
                 recording_id=rec.id,
-                recommendation="Run readiness with local_path or define an explicit LabelPolicy before conversion.",
+                recommendation=(
+                    "Run readiness with local_path or define an explicit LabelPolicy "
+                    "before conversion."
+                ),
             ))
         if label_ready:
             n_label_ready += 1
@@ -170,16 +200,140 @@ def compute_readiness(
     )
 
 
+def _check_events_labels(
+    path: Path,
+    rec: "LogicalRecording",
+    policy: LabelPolicy | None,
+) -> tuple[bool, ReadinessFinding | None]:
+    """Check whether an events.tsv has usable labels given an optional LabelPolicy.
+
+    Returns
+    -------
+    (label_ready, finding_or_None)
+    """
+    if not path.exists():
+        return False, ReadinessFinding(
+            severity="warning",
+            code="labels.events_file_missing",
+            message=f"Events file listed in manifest does not exist on disk: {path.name}",
+            path=str(rec.companions.events.path if rec.companions.events else path),
+            recording_id=rec.id,
+            recommendation="Download or regenerate the events file before conversion.",
+        )
+
+    try:
+        import polars as pl
+        df = pl.read_csv(
+            path,
+            separator="\t",
+            n_rows=50,
+            null_values=["n/a", "N/A", "NA", "NaN", "nan", ""],
+            ignore_errors=True,
+        )
+    except Exception as exc:
+        return False, ReadinessFinding(
+            severity="warning",
+            code="labels.events_parse_error",
+            message=f"Could not parse events file: {exc}",
+            path=str(path),
+            recording_id=rec.id,
+        )
+
+    if policy is not None and policy.column is not None:
+        # Explicit policy: require the named column.
+        if policy.column not in df.columns:
+            return False, ReadinessFinding(
+                severity="warning",
+                code="labels.policy_column_missing",
+                message=(
+                    f"LabelPolicy requires column {policy.column!r} but it was not "
+                    f"found in {path.name}. "
+                    f"Available columns: {df.columns}"
+                ),
+                path=str(path),
+                recording_id=rec.id,
+                recommendation=(
+                    f"Check the column name or update LabelPolicy.column. "
+                    f"Found: {df.columns}"
+                ),
+            )
+        col = df[policy.column]
+        n_nulls = col.null_count()
+        n_rows = len(col)
+        if n_nulls == n_rows:
+            return False, ReadinessFinding(
+                severity="warning",
+                code="labels.policy_column_all_null",
+                message=(
+                    f"Column {policy.column!r} is present but all values are null/n.a. "
+                    f"in {path.name}."
+                ),
+                path=str(path),
+                recording_id=rec.id,
+                recommendation="Verify the events file content or choose a different column.",
+            )
+        if policy.missing == "error" and n_nulls > 0:
+            return False, ReadinessFinding(
+                severity="error",
+                code="labels.policy_missing_values",
+                message=(
+                    f"Column {policy.column!r} has {n_nulls}/{n_rows} null values "
+                    f"and LabelPolicy.missing='error'."
+                ),
+                path=str(path),
+                recording_id=rec.id,
+                recommendation=(
+                    "Set LabelPolicy.missing='drop' to silently skip null rows, "
+                    "or fix the events file."
+                ),
+            )
+        if policy.positive_values:
+            unique_vals = set(col.drop_nulls().unique().to_list())
+            matched = unique_vals & set(str(v) for v in policy.positive_values)
+            if not matched:
+                return False, ReadinessFinding(
+                    severity="warning",
+                    code="labels.policy_no_positive_values",
+                    message=(
+                        f"None of the positive_values {policy.positive_values} "
+                        f"appear in column {policy.column!r}. "
+                        f"Found: {sorted(unique_vals)[:10]}"
+                    ),
+                    path=str(path),
+                    recording_id=rec.id,
+                    recommendation="Update LabelPolicy.positive_values to match the data.",
+                )
+        return True, None
+
+    # Fallback: heuristic scan of standard BIDS label column names.
+    if any(column in LABEL_COLUMNS for column in df.columns):
+        return True, None
+
+    return False, ReadinessFinding(
+        severity="warning",
+        code="labels.column_missing",
+        message=(
+            f"Events file {path.name} exists but contains none of the standard "
+            f"BIDS label columns {sorted(LABEL_COLUMNS)}."
+        ),
+        path=str(path),
+        recording_id=rec.id,
+        recommendation=(
+            "Pass an explicit LabelPolicy(column='your_column') or rename the "
+            "events column to a standard BIDS name."
+        ),
+    )
+
+
+# Keep backward-compatible name for any external callers.
 def _events_file_has_labels(path: Path) -> bool:
+    """Heuristic check — prefers explicit LabelPolicy via _check_events_labels."""
     if not path.exists():
         return False
     try:
         import polars as pl
-
         df = pl.read_csv(
-            path,
-            separator="\t",
-            n_rows=20,
+            path, separator="\t", n_rows=20,
             null_values=["n/a", "N/A", "NA", "NaN", "nan", ""],
             ignore_errors=True,
         )

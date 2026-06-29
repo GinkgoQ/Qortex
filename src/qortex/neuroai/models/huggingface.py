@@ -67,6 +67,26 @@ class HuggingFaceAdapter(ModelAdapter):
         if self._profile is not None:
             return self._profile
 
+        # Fast path: registry lookup avoids a network call for known models.
+        from qortex.neuroai.models._contracts import lookup as _registry_lookup
+        entry = _registry_lookup(self._spec.id)
+        if entry is not None:
+            self._profile = ModelProfile(
+                model_id=self._spec.id,
+                provider="huggingface",
+                revision=self._spec.revision,
+                task=self._spec.task or entry.output_contract.output_type,
+                input_contract=entry.input_contract,
+                output_contract=entry.output_contract,
+                estimated_memory_mb=entry.estimated_memory_mb,
+                warnings=[WarningItem(
+                    code="CONTRACT_FROM_REGISTRY",
+                    message=f"Input contract loaded from curated registry. {entry.notes}",
+                    severity="info",
+                )],
+            )
+            return self._profile
+
         try:
             from transformers import AutoConfig
         except ImportError:
