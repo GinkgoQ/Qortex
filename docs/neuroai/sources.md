@@ -45,9 +45,18 @@ Returns `QortexVolume` with `axes=["z","y","x"]`, `units="HU"`, `coordinate_fram
 
 **PHI handling.** `PatientName`, `PatientID`, `PatientBirthDate`, `PatientSex`, `PatientAge`, `PatientAddress`, `ReferringPhysicianName`, and `InstitutionName` are never written to `SourceProfile` fields, logs, or provenance records. The `source_id` is derived from the directory name only. The `extra["phi_redacted"] = True` flag in `SourceProfile` confirms redaction occurred.
 
-**Preprocessing.** The `PreprocessPlanner` auto-inserts a `rescale_intensity` transform for DICOM sources to map HU values to `[0, 1]`, since most deep learning models expect normalized inputs. Add `rescale_intensity` to `preprocessing.deny` to suppress this.
+**Preprocessing.** DICOM pixel values are exposed with physical units when the
+header provides `RescaleSlope` / `RescaleIntercept`, but Qortex does not
+automatically normalize HU values to `[0, 1]`. The `PreprocessPlanner` only
+adds transforms required by the model's `InputContract`. If a model requires
+`rescale_intensity`, its contract must declare that requirement and the pipeline
+must allow that transform.
 
-**Coordinate frame.** DICOM uses LPS (Left-Posterior-Superior). If the model's `InputContract.axis_convention` is `RAS`, the `CompatibilityEngine` inserts a `reorient(from=LPS, to=RAS)` transform automatically.
+**Coordinate frame.** DICOM uses LPS (Left-Posterior-Superior). If the model's
+`InputContract.axis_convention` is `RAS`, the `CompatibilityEngine` plans a
+`reorient(from=LPS, to=RAS)` transform when `preprocessing` allows `reorient`.
+If `reorient` is denied, the compatibility report becomes `incompatible` with a
+coordinate-frame blocker.
 
 Auto-detection: a directory without `dataset_description.json` but containing `.dcm` files is routed to `DICOMFolderAdapter`.
 

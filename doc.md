@@ -214,15 +214,19 @@ PipelineSpec.from_yaml()
 All are `@dataclass`. `from_yaml()` → `from_dict()` → construct. `to_dict()` → `to_yaml()`. `content_hash()` = SHA-256 of canonical JSON (sorted keys).
 
 **Sub-specs:**
-- `SourceSpec`: type, path, query (LSL filter), subjects, sessions, modality, suffix, extra
-- `WindowSpec`: duration_s, step_s, overlap_frac, tmin, event_aligned, drop_short. Parses `"2s"` / `"500ms"` strings
+- `SourceSpec`: type, path, query (LSL filter), subjects, sessions, modality, suffix, extra. Accepts scalar aliases `subject` and `session`, then normalizes them to lists.
+- `WindowSpec`: duration_s, step_s, overlap_frac, tmin, event_aligned, drop_short. Parses `"2s"` / `"500ms"` strings and accepts both `duration_s` / `step_s` and serialized `duration` / `step`.
 - `ModelSpec`: provider, id, task, revision, trust_remote_code, extra
-- `PreprocessSpec`: mode (auto/explicit/none), allow, deny, normalize, resample, channel_select. `allows(kind)` checks deny→allow→mode
+- `PreprocessSpec`: mode (auto/explicit/none), allow, deny, normalize, resample, channel_select. `allows(kind)` first enforces mode and boolean gates, then `deny`, then `allow`. `normalize=False`, `resample=False`, and `channel_select=False` are real policy blockers, not documentation-only fields.
 - `RuntimeSpec`: device (auto/cpu/cuda/mps), latency_budget_ms, optimize (safe/speed/memory), batch_size, fp16, cache_model
 - `OutputSpec`: type, path, stream_name, append, extra
 - `TriggerSpec`: when (class, probability_gte, stable_for), emit. `evaluate(prediction_dict)` → bool
 
-`PipelineSpec.validate()` returns `list[str]` errors. Checks: required fields, known providers, plugin security gate, file existence, output types, window timing, batch_size > 0, transform name validity, trigger completeness.
+`PipelineSpec.validate()` returns `list[str]` errors. Checks: required fields, known providers, plugin security gate, file existence, output types, window timing, batch_size > 0, transform name validity, allow/deny overlap, boolean-gate contradictions, trigger completeness, trigger probability range, and `stable_for > 0`.
+
+`Pipeline.from_yaml()` and `Pipeline.from_dict()` convert parse/validation failures to `ContractValidationError`, preserving all violations in structured context. Review rule: user-facing constructors should not leak raw `TypeError`, `ValueError`, or string-scraped validation output.
+
+Boolean parsing is explicit. `"false"`, `"0"`, `"no"`, and `"off"` are false; `"true"`, `"1"`, `"yes"`, and `"on"` are true. Never use `bool(value)` for YAML/JSON config booleans.
 
 ### `contracts.py` — The type system
 

@@ -13,14 +13,15 @@ source:
   type: bids                  # see Sources page for all types
   path: data/ds004130
   modality: eeg
-  subject: "01"               # optional — single subject
-  session: null               # optional
+  subject: "01"               # optional — alias for subjects: ["01"]
+  session: null               # optional — alias for sessions
   task: null                  # optional
 
 window:
-  duration_s: 4.0             # window length in seconds
-  step_s: 2.0                 # step between windows (overlap = duration - step)
-  max_windows: null           # null = no limit
+  duration_s: 4.0             # also accepts duration: "4s"
+  step_s: 2.0                 # also accepts step: "2s" or "500ms"
+  overlap_frac: 0.0
+  drop_short: true
 
 model:
   provider: huggingface       # huggingface | onnx | torch | torchscript | braindecode | monai | ultralytics | plugin
@@ -30,10 +31,12 @@ model:
   trust_remote_code: false    # must be true for plugin provider
 
 preprocessing:
-  resample_hz: 128            # target sampling rate (null = no resampling)
-  z_score: true               # z-score per channel
-  bandpass_hz: [1.0, 40.0]   # [low, high] Hz, null = skip
-  channel_select: null        # list of channel names to keep, null = all
+  mode: auto                  # auto | explicit | none
+  allow: [resample, channel_select, cast_dtype, to_tensor]
+  deny: []                    # explicit transform names to forbid
+  normalize: false            # boolean gate for normalize
+  resample: true              # boolean gate for resample and resample_spatial
+  channel_select: true        # boolean gate for channel_select
 
 outputs:
   - type: jsonl
@@ -48,8 +51,21 @@ runtime:
   device: cpu                 # cpu | cuda | cuda:0 | mps
   fp16: false                 # half precision — cuda only
   latency_budget_ms: 50.0    # warning threshold for p95 latency
-  num_threads: null           # ONNX/Torch thread count, null = default
+  optimize: safe              # safe | speed | memory
+  batch_size: 1
+  num_workers: 0
+  cache_model: true
 ```
+
+`SourceSpec.from_dict()` accepts `subject`/`session` as scalar aliases and
+normalizes them to `subjects`/`sessions` lists. `WindowSpec.from_dict()` accepts
+both user-facing keys (`duration_s`, `step_s`, `overlap_frac`) and serialized
+keys (`duration`, `step`, `overlap`). String durations such as `"2s"` and
+`"500ms"` are parsed to seconds.
+
+Boolean fields are parsed deliberately. `"false"`, `"0"`, `"no"`, and `"off"`
+mean `False`; `"true"`, `"1"`, `"yes"`, and `"on"` mean `True`. Invalid boolean
+strings fail validation instead of relying on Python truthiness.
 
 ## Validation
 
@@ -71,6 +87,15 @@ Checks performed:
 - `window.duration_s > 0` and `window.step_s > 0` (when provided)
 - `window.step_s <= window.duration_s`
 - All values in `preprocessing.allow` and `preprocessing.deny` are valid `TransformKind` names
+- `preprocessing.allow` and `preprocessing.deny` do not contain the same transform
+- Boolean gates do not contradict `allow` (`normalize=False` cannot allow `normalize`)
+- `trigger.when.probability_gte` is numeric and between 0 and 1
+- `trigger.when.stable_for` is a positive integer
+
+`Pipeline.from_yaml()` and `Pipeline.from_dict()` raise
+`qortex.core.ContractValidationError` when parsing or validation fails. The
+exception carries `code="contract.validation_failed"` and a structured
+`context["violations"]` list for CLI, notebook, or service error handling.
 
 ## Python API
 
@@ -108,10 +133,8 @@ report = pipe.check()
 ```python
 print(report.summary())
 # CompatibilityReport: COMPATIBLE_WITH_TRANSFORMS
-# transforms: [resample(250→128Hz), normalize(zscore)]
-# blockers: []
-# warnings: [channel labels inferred from index, not names]
-# unknowns: []
+#   Required transforms (1):
+#     • cast_dtype(from=float64, to=float32)  [irreversible]
 
 for b in report.blockers:
     print(b.code, b.message)
@@ -123,6 +146,11 @@ if not report.is_runnable:
 
 The distinction between `uncertain` and `incompatible` matters: `uncertain` means a required property (e.g., model input shape) could not be read from the config — the pipeline might work, but `check()` cannot guarantee it. `incompatible` means a hard blocker was found (modality mismatch, insufficient channels, etc.).
 
+Denied required transforms are hard blockers. For example, if the source is
+`float64`, the model contract requires `float32`, and `preprocessing.deny`
+contains `cast_dtype`, the report is `incompatible` with a `DTYPE_MISMATCH`
+blocker. The runtime will not silently cast against policy.
+
 ### `plan_preprocessing()` — inspect the transform chain
 
 ```python
@@ -133,11 +161,11 @@ for t in plan.transforms:
 ```
 
 Each `TransformDescriptor` has:
-- `kind`: `TransformKind` enum (`resample`, `z_score`, `bandpass`, `channel_select`, `transpose`, `to_float32`, `normalize`, `window`)
+- `kind`: `TransformKind` enum (`resample`, `channel_select`, `channel_reorder`, `channel_map`, `bandpass`, `normalize`, `window`, `cast_dtype`, `rescale_intensity`, `reorient`, `resample_spatial`, `pad_or_crop`, `add_batch_dim`, `add_channel_dim`, `to_tensor`)
 - `required_by`: why this transform is in the plan
 - `params`: dict of transform parameters
 - `reversible`: whether the transform can be undone
-- `evidence`: `EvidenceStatus` for the requirement
+- `evidence_status`: `EvidenceStatus` for the requirement
 
 ### `run()` — execute the pipeline
 

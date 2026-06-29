@@ -29,6 +29,18 @@ Nothing in this chain is implicit. Each step produces a typed contract:
 `PipelineRunReport`, `ArtifactContract`. These contracts flow into the artifact
 directory written after each run.
 
+Pipeline configuration is parsed as a contract, not as loose YAML. `subject` and
+`session` are accepted as scalar aliases for `subjects` and `sessions`; window
+durations accept numeric seconds or strings such as `"2s"` / `"500ms"`; boolean
+strings are parsed explicitly. Invalid or contradictory specs raise
+`ContractValidationError` through `Pipeline.from_yaml()` / `Pipeline.from_dict()`.
+
+Preprocessing is also contract-driven. The compatibility engine plans only
+transforms required by the model input contract, and it respects
+`preprocessing.allow`, `preprocessing.deny`, and boolean gates such as
+`normalize`, `resample`, and `channel_select`. A denied required transform becomes
+an incompatibility blocker rather than a silent automatic operation.
+
 ## When to use it
 
 Use `qortex.Dataset` when your goal is OpenNeuro BIDS datasets — catalog search,
