@@ -248,6 +248,13 @@ source:
 window:
   duration_s: 4.0
   step_s: 2.0
+preprocessing:
+  mode: auto
+  allow: [resample, channel_select, cast_dtype, to_tensor]
+  deny: []
+  normalize: false
+  resample: true
+  channel_select: true
 model:
   provider: huggingface
   id: braindecode/EEGNet
@@ -260,8 +267,22 @@ outputs:
 runtime:
   device: cpu
   fp16: false
+  cache_model: true
   latency_budget_ms: 50.0
 ```
+
+The YAML loader accepts both singular and plural BIDS selectors (`subject` or
+`subjects`, `session` or `sessions`). Window timing accepts `duration_s` /
+`step_s` or their serialized forms `duration` / `step`, including strings such
+as `"2s"` and `"500ms"`.
+
+Preprocessing is contract-driven. Qortex does not add normalization, bandpass, or
+image intensity scaling because a modality usually benefits from it. The
+compatibility engine only plans transforms required by the model input contract,
+and it respects `allow`, `deny`, and the boolean gates above. If a required
+transform such as `cast_dtype`, `resample`, `reorient`, or `channel_select` is
+denied, the compatibility report becomes `incompatible` with a structured
+blocker instead of silently applying the transform.
 
 ```bash
 qortex neuroai check pipeline.yaml        # probe source + model, no weights loaded
@@ -280,7 +301,7 @@ pipe = Pipeline.from_yaml("pipeline.yaml")
 # Check compatibility without loading weights.
 report = pipe.check()
 print(report.summary())
-# → status: runnable | blockers: [] | transforms: [resample_250→128, z_score]
+# → CompatibilityReport: COMPATIBLE_WITH_TRANSFORMS
 
 # Inspect what preprocessing will be applied and why.
 for t in pipe.plan_preprocessing().transforms:
@@ -401,8 +422,8 @@ cd src/qortex_rs && maturin develop --release
 | NeuroAI sources (DICOM, NWB, XDF, LSL, BrainFlow, image) | Implemented; DICOM has PHI redaction + affine; integration tests pending |
 | NeuroAI models (HF, ONNX, Torch, MONAI, Ultralytics) | Implemented; integration tests pending |
 | NeuroAI outputs (JSONL, Parquet, CSV, NIfTI, DICOM-SEG, BIDS, COCO, YOLO, overlay, HTTP) | Implemented; overlay renders bounding boxes and masks on source images |
-| NeuroAI compatibility engine | Implemented; checks channels, SR, spatial shape, voxel spacing, coordinate frame, fMRI TR |
-| NeuroAI preprocessing planner | Implemented; auto-inserts rescale_intensity for DICOM/MRI, bandpass for EEG |
+| NeuroAI compatibility engine | Implemented; checks modality, channels, sampling rate, spatial shape, dtype, voxel spacing, coordinate frame, fMRI TR, and denied-transform blockers |
+| NeuroAI preprocessing planner | Implemented; contract-driven transform planning with explicit allow/deny policy, no hidden modality heuristics |
 | NeuroAI trigger system | Implemented; fires structured EventMarkerOutput to all output adapters |
 | NeuroAI ring buffer (Python + Rust) | Implemented; Rust is optional |
 | Dashboard | Experimental entrypoint; not a product |

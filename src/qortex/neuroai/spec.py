@@ -16,6 +16,14 @@ from pathlib import Path
 from typing import Any, Literal
 
 
+_VALID_TRANSFORMS = frozenset({
+    "resample", "channel_select", "channel_reorder", "channel_map",
+    "bandpass", "normalize", "window", "cast_dtype", "rescale_intensity",
+    "reorient", "resample_spatial", "pad_or_crop",
+    "add_batch_dim", "add_channel_dim", "to_tensor",
+})
+
+
 # ── Sub-specs ──────────────────────────────────────────────────────────────────
 
 @dataclass
@@ -33,17 +41,24 @@ class SourceSpec:
 
     @classmethod
     def from_dict(cls, d: dict) -> "SourceSpec":
+        if d is None:
+            d = {}
+        if not isinstance(d, dict):
+            raise TypeError("SourceSpec.from_dict() requires a mapping")
+        subjects = _as_string_list(d.get("subjects", d.get("subject")))
+        sessions = _as_string_list(d.get("sessions", d.get("session")))
         return cls(
             type=d.get("type", ""),
             path=d.get("path"),
             query=d.get("query", {}),
-            subjects=d.get("subjects"),
-            sessions=d.get("sessions"),
+            subjects=subjects,
+            sessions=sessions,
             modality=d.get("modality"),
             suffix=d.get("suffix"),
             extra={k: v for k, v in d.items()
                    if k not in ("type", "path", "query", "subjects",
-                                "sessions", "modality", "suffix")},
+                                "subject", "sessions", "session",
+                                "modality", "suffix")},
         )
 
     def to_dict(self) -> dict:
@@ -77,6 +92,11 @@ class WindowSpec:
 
     @classmethod
     def from_dict(cls, d: dict) -> "WindowSpec":
+        if d is None:
+            d = {}
+        if not isinstance(d, dict):
+            raise TypeError("WindowSpec.from_dict() requires a mapping")
+
         def _parse_time(v) -> float | None:
             if v is None:
                 return None
@@ -90,12 +110,12 @@ class WindowSpec:
             return float(s)
 
         return cls(
-            duration_s=_parse_time(d.get("duration")),
-            step_s=_parse_time(d.get("step")),
-            overlap_frac=float(d.get("overlap", 0.0)),
+            duration_s=_parse_time(d.get("duration", d.get("duration_s"))),
+            step_s=_parse_time(d.get("step", d.get("step_s"))),
+            overlap_frac=float(d.get("overlap", d.get("overlap_frac", 0.0))),
             tmin=float(d.get("tmin", 0.0)),
-            event_aligned=bool(d.get("event_aligned", False)),
-            drop_short=bool(d.get("drop_short", True)),
+            event_aligned=_as_bool(d.get("event_aligned", False)),
+            drop_short=_as_bool(d.get("drop_short", True)),
         )
 
     def to_dict(self) -> dict:
@@ -110,6 +130,8 @@ class WindowSpec:
             d["tmin"] = self.tmin
         if self.event_aligned:
             d["event_aligned"] = True
+        if not self.drop_short:
+            d["drop_short"] = False
         return d
 
 
@@ -126,12 +148,16 @@ class ModelSpec:
 
     @classmethod
     def from_dict(cls, d: dict) -> "ModelSpec":
+        if d is None:
+            d = {}
+        if not isinstance(d, dict):
+            raise TypeError("ModelSpec.from_dict() requires a mapping")
         return cls(
             provider=d.get("provider", "huggingface"),
             id=d.get("id", ""),
             task=d.get("task"),
             revision=d.get("revision"),
-            trust_remote_code=bool(d.get("trust_remote_code", False)),
+            trust_remote_code=_as_bool(d.get("trust_remote_code", False)),
             extra={k: v for k, v in d.items()
                    if k not in ("provider", "id", "task", "revision", "trust_remote_code")},
         )
@@ -161,17 +187,28 @@ class PreprocessSpec:
 
     @classmethod
     def from_dict(cls, d: dict) -> "PreprocessSpec":
+        if d is None:
+            d = {}
+        if not isinstance(d, dict):
+            raise TypeError("PreprocessSpec.from_dict() requires a mapping")
         return cls(
             mode=d.get("mode", "auto"),
             allow=list(d.get("allow", [])),
             deny=list(d.get("deny", [])),
-            normalize=bool(d.get("normalize", True)),
-            resample=bool(d.get("resample", True)),
-            channel_select=bool(d.get("channel_select", True)),
+            normalize=_as_bool(d.get("normalize", True)),
+            resample=_as_bool(d.get("resample", True)),
+            channel_select=_as_bool(d.get("channel_select", True)),
         )
 
     def allows(self, transform_kind: str) -> bool:
+        transform_kind = str(transform_kind)
         if self.mode == "none":
+            return False
+        if transform_kind == "normalize" and not self.normalize:
+            return False
+        if transform_kind in {"resample", "resample_spatial"} and not self.resample:
+            return False
+        if transform_kind == "channel_select" and not self.channel_select:
             return False
         if transform_kind in self.deny:
             return False
@@ -185,6 +222,12 @@ class PreprocessSpec:
             d["allow"] = self.allow
         if self.deny:
             d["deny"] = self.deny
+        if not self.normalize:
+            d["normalize"] = False
+        if not self.resample:
+            d["resample"] = False
+        if not self.channel_select:
+            d["channel_select"] = False
         return d
 
 
@@ -202,14 +245,18 @@ class RuntimeSpec:
 
     @classmethod
     def from_dict(cls, d: dict) -> "RuntimeSpec":
+        if d is None:
+            d = {}
+        if not isinstance(d, dict):
+            raise TypeError("RuntimeSpec.from_dict() requires a mapping")
         return cls(
             device=str(d.get("device", "auto")),
             latency_budget_ms=float(d["latency_budget_ms"]) if "latency_budget_ms" in d else None,
             optimize=d.get("optimize", "safe"),
             num_workers=int(d.get("num_workers", 0)),
             batch_size=int(d.get("batch_size", 1)),
-            fp16=bool(d.get("fp16", False)),
-            cache_model=bool(d.get("cache_model", True)),
+            fp16=_as_bool(d.get("fp16", False)),
+            cache_model=_as_bool(d.get("cache_model", True)),
         )
 
     def to_dict(self) -> dict:
@@ -222,6 +269,8 @@ class RuntimeSpec:
             d["batch_size"] = self.batch_size
         if self.fp16:
             d["fp16"] = True
+        if not self.cache_model:
+            d["cache_model"] = False
         return d
 
 
@@ -237,11 +286,15 @@ class OutputSpec:
 
     @classmethod
     def from_dict(cls, d: dict) -> "OutputSpec":
+        if d is None:
+            d = {}
+        if not isinstance(d, dict):
+            raise TypeError("OutputSpec.from_dict() requires a mapping")
         return cls(
             type=d.get("type", "jsonl"),
             path=d.get("path"),
             stream_name=d.get("stream_name"),
-            append=bool(d.get("append", False)),
+            append=_as_bool(d.get("append", False)),
             extra={k: v for k, v in d.items()
                    if k not in ("type", "path", "stream_name", "append")},
         )
@@ -252,6 +305,8 @@ class OutputSpec:
             d["path"] = self.path
         if self.stream_name:
             d["stream_name"] = self.stream_name
+        if self.append:
+            d["append"] = True
         d.update(self.extra)
         return d
 
@@ -265,6 +320,10 @@ class TriggerSpec:
 
     @classmethod
     def from_dict(cls, d: dict) -> "TriggerSpec":
+        if d is None:
+            d = {}
+        if not isinstance(d, dict):
+            raise TypeError("TriggerSpec.from_dict() requires a mapping")
         return cls(
             when=d.get("when", {}),
             emit=d.get("emit", {}),
@@ -282,7 +341,15 @@ class TriggerSpec:
             return False
 
         probs = prediction.get("probabilities", {})
-        prob = probs.get(class_name, 0.0)
+        try:
+            prob = float(probs.get(class_name, 0.0))
+        except (TypeError, ValueError):
+            return False
+        if prob_gte is not None:
+            try:
+                prob_gte = float(prob_gte)
+            except (TypeError, ValueError):
+                return False
         if prob_gte is not None and prob < prob_gte:
             return False
 
@@ -336,10 +403,14 @@ class PipelineSpec:
                     "Install qortex with its declared runtime dependencies."
                 ) from None
             d = yaml.safe_load(content)
+        if d is None:
+            d = {}
         return cls.from_dict(d)
 
     @classmethod
     def from_dict(cls, d: dict) -> "PipelineSpec":
+        if not isinstance(d, dict):
+            raise TypeError("PipelineSpec.from_dict() requires a mapping")
         source_d = d.get("source", {})
         window_d = d.get("window")
         model_d = d.get("model", {})
@@ -533,12 +604,6 @@ class PipelineSpec:
             errors.append("runtime.device must not be empty")
 
         # preprocessing.allow — check against known TransformKind values
-        _VALID_TRANSFORMS = {
-            "resample", "channel_select", "channel_reorder", "channel_map",
-            "bandpass", "normalize", "window", "cast_dtype", "rescale_intensity",
-            "reorient", "resample_spatial", "pad_or_crop",
-            "add_batch_dim", "add_channel_dim", "to_tensor",
-        }
         for tk in self.preprocessing.allow:
             if tk not in _VALID_TRANSFORMS:
                 errors.append(
@@ -552,10 +617,35 @@ class PipelineSpec:
                     f"Valid: {', '.join(sorted(_VALID_TRANSFORMS))}"
                 )
 
+        allow_set = set(self.preprocessing.allow)
+        deny_set = set(self.preprocessing.deny)
+        overlap = sorted(allow_set & deny_set)
+        if overlap:
+            errors.append(
+                "preprocessing.allow and preprocessing.deny contain the same "
+                f"transform(s): {', '.join(overlap)}"
+            )
+
         if self.preprocessing.mode not in {"auto", "explicit", "none"}:
             errors.append(
                 f"preprocessing.mode must be one of auto, explicit, none "
                 f"(got {self.preprocessing.mode!r})"
+            )
+        if not self.preprocessing.normalize and "normalize" in allow_set:
+            errors.append(
+                "preprocessing.normalize is False but preprocessing.allow includes 'normalize'"
+            )
+        if not self.preprocessing.resample and (
+            "resample" in allow_set or "resample_spatial" in allow_set
+        ):
+            errors.append(
+                "preprocessing.resample is False but preprocessing.allow includes "
+                "'resample' or 'resample_spatial'"
+            )
+        if not self.preprocessing.channel_select and "channel_select" in allow_set:
+            errors.append(
+                "preprocessing.channel_select is False but preprocessing.allow includes "
+                "'channel_select'"
             )
 
         if self.trigger is not None:
@@ -587,3 +677,29 @@ class PipelineSpec:
                 errors.append("trigger.emit must describe the event payload to emit")
 
         return errors
+
+
+def _as_bool(value: Any) -> bool:
+    """Parse common config boolean encodings without Python truthiness traps."""
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "y", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "n", "off", ""}:
+            return False
+    raise ValueError(f"Expected a boolean value, got {value!r}")
+
+
+def _as_string_list(value: Any) -> list[str] | None:
+    """Normalize scalar-or-list schema fields while preserving absence."""
+    if value is None:
+        return None
+    if isinstance(value, (list, tuple, set)):
+        return [str(v) for v in value]
+    return [str(value)]

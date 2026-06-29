@@ -117,7 +117,7 @@ class CompatibilityEngine:
 
         # ── Sampling rate check ───────────────────────────────────────────────
         sr_match = self._check_sampling_rate(
-            source, contract, preprocess, transforms, warnings, unknowns, evidence
+            source, contract, preprocess, transforms, blockers, warnings, unknowns, evidence
         )
 
         # ── Spatial shape check (volume sources) ─────────────────────────────
@@ -127,19 +127,21 @@ class CompatibilityEngine:
 
         # ── Dtype check ───────────────────────────────────────────────────────
         dtype_match = self._check_dtype(
-            source, contract, transforms, warnings, evidence
+            source, contract, preprocess, transforms, blockers, warnings, evidence
         )
 
         # ── Axis convention check ─────────────────────────────────────────────
         axis_match = self._check_axis_convention(
-            source, contract, transforms, warnings, evidence
+            source, contract, preprocess, transforms, blockers, warnings, evidence
         )
 
         # ── Voxel spacing check (volume sources) ──────────────────────────────
         self._check_voxel_spacing(source, contract, warnings, unknowns, evidence)
 
         # ── Coordinate frame check ─────────────────────────────────────────────
-        self._check_coordinate_frame(source, contract, transforms, warnings, evidence)
+        self._check_coordinate_frame(
+            source, contract, preprocess, transforms, blockers, warnings, evidence
+        )
 
         # ── fMRI timebase / TR check ───────────────────────────────────────────
         self._check_fmri_timebase(source, contract, warnings, unknowns, evidence)
@@ -344,6 +346,7 @@ class CompatibilityEngine:
         contract: InputContract,
         preprocess: PreprocessSpec,
         transforms: list,
+        blockers: list,
         warnings: list,
         unknowns: list,
         evidence: list,
@@ -461,7 +464,9 @@ class CompatibilityEngine:
         self,
         source: SourceProfile,
         contract: InputContract,
+        preprocess: PreprocessSpec,
         transforms: list,
+        blockers: list,
         warnings: list,
         evidence: list,
     ) -> EvidenceStatus:
@@ -469,6 +474,15 @@ class CompatibilityEngine:
         req_dtype = _contract_value(contract.dtype or "float32")
 
         if src_dtype != req_dtype:
+            if not preprocess.allows("cast_dtype"):
+                blockers.append(WarningItem(
+                    code="DTYPE_MISMATCH",
+                    message=f"Source dtype {src_dtype!r} does not match model dtype "
+                            f"{req_dtype!r}, and cast_dtype is not allowed.",
+                    severity="error",
+                    suggestion="Allow cast_dtype or provide data in the dtype used during training.",
+                ))
+                return EvidenceStatus.missing
             transforms.append(TransformDescriptor(
                 kind=TransformKind.cast_dtype,
                 required_by="input_contract.dtype",
@@ -491,7 +505,9 @@ class CompatibilityEngine:
         self,
         source: SourceProfile,
         contract: InputContract,
+        preprocess: PreprocessSpec,
         transforms: list,
+        blockers: list,
         warnings: list,
         evidence: list,
     ) -> EvidenceStatus:
@@ -507,6 +523,14 @@ class CompatibilityEngine:
         if src_str != req_str:
             # Most common case: source is channels_time, model wants batch_channels_time
             if "batch" in req_str and "batch" not in src_str:
+                if not preprocess.allows("add_batch_dim"):
+                    blockers.append(WarningItem(
+                        code="AXIS_BATCH_DIM_REQUIRED",
+                        message=f"Model requires axis convention {req_str!r} but source "
+                                f"provides {src_str!r}, and add_batch_dim is not allowed.",
+                        severity="error",
+                    ))
+                    return EvidenceStatus.missing
                 transforms.append(TransformDescriptor(
                     kind=TransformKind.add_batch_dim,
                     required_by="input_contract.axis_convention",
@@ -590,7 +614,9 @@ class CompatibilityEngine:
         self,
         source: SourceProfile,
         contract: InputContract,
+        preprocess: PreprocessSpec,
         transforms: list,
+        blockers: list,
         warnings: list,
         evidence: list,
     ) -> None:
@@ -612,6 +638,15 @@ class CompatibilityEngine:
         req_is_lps = req_str.upper() in _LPS or req_str.upper() == "LPS"
 
         if src_is_lps and req_is_ras:
+            if not preprocess.allows("reorient"):
+                blockers.append(WarningItem(
+                    code="COORDINATE_FRAME_MISMATCH",
+                    message="Source uses LPS (DICOM) convention but model expects RAS "
+                            "(NIfTI), and reorient is not allowed.",
+                    severity="error",
+                    suggestion="Allow reorient or use a model trained for the source coordinate frame.",
+                ))
+                return
             transforms.append(TransformDescriptor(
                 kind=TransformKind.reorient,
                 required_by="input_contract.axis_convention",

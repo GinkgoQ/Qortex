@@ -31,12 +31,10 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any
 
 from qortex.neuroai.benchmark import PipelineProfiler
 from qortex.neuroai.compatibility import CompatibilityEngine
 from qortex.neuroai.contracts import (
-    ArtifactContract,
     CompatibilityReport,
     LatencyReport,
     ModelProfile,
@@ -50,7 +48,7 @@ from qortex.neuroai.preprocess.planner import PreprocessPlanner
 from qortex.neuroai.runtime.engine import RuntimeEngine
 from qortex.neuroai.sources._registry import make_source_adapter
 from qortex.neuroai.spec import PipelineSpec
-from qortex.core.exceptions import RuntimeExecutionError
+from qortex.core.exceptions import ContractValidationError, RuntimeExecutionError
 
 log = logging.getLogger(__name__)
 
@@ -95,27 +93,31 @@ class Pipeline:
         ------
         FileNotFoundError
             When the YAML file does not exist.
-        ValueError
+        ContractValidationError
             When the spec is invalid.
         """
         p = Path(path)
         if not p.exists():
             raise FileNotFoundError(f"Pipeline YAML not found: {p}")
-        spec = PipelineSpec.from_yaml(p)
+        try:
+            spec = PipelineSpec.from_yaml(p)
+        except (TypeError, ValueError) as exc:
+            raise ContractValidationError(f"PipelineSpec({p})", [str(exc)]) from exc
         errors = spec.validate()
         if errors:
-            raise ValueError(
-                f"Invalid pipeline spec in {p}:\n" + "\n".join(f"  - {e}" for e in errors)
-            )
+            raise ContractValidationError(f"PipelineSpec({p})", errors)
         return cls(spec)
 
     @classmethod
     def from_dict(cls, d: dict) -> "Pipeline":
         """Construct a Pipeline from a dict."""
-        spec = PipelineSpec.from_dict(d)
+        try:
+            spec = PipelineSpec.from_dict(d)
+        except (TypeError, ValueError) as exc:
+            raise ContractValidationError("PipelineSpec", [str(exc)]) from exc
         errors = spec.validate()
         if errors:
-            raise ValueError("Invalid pipeline spec:\n" + "\n".join(f"  - {e}" for e in errors))
+            raise ContractValidationError("PipelineSpec", errors)
         return cls(spec)
 
     # ── Check ────────────────────────────────────────────────────────────────
@@ -296,9 +298,6 @@ class Pipeline:
                 f"Cannot benchmark — pipeline is not runnable: {compat.status.value}"
             )
 
-        from qortex.neuroai.outputs.jsonl_out import JSONLOutputAdapter
-        from io import StringIO
-
         # Dummy null output — no real I/O
         class NullOutput:
             n_written = 0
@@ -322,7 +321,6 @@ class Pipeline:
             )
             # Limit to n_windows
             from itertools import islice
-            import types
 
             def _limited_stream(adapter, n):
                 yield from islice(adapter.stream(), n)

@@ -118,6 +118,7 @@ from qortex.neuroai.outputs import (
     BoundingBox,
 )
 from qortex.neuroai.artifact import ArtifactWriter
+from qortex.core.exceptions import ContractValidationError
 
 
 def check(
@@ -161,7 +162,10 @@ def check(
         return pipe.check()
 
     if source is None or model is None:
-        raise ValueError("Provide either pipeline= or both source= and model=")
+        raise ContractValidationError(
+            "NeuroAICheckRequest",
+            ["Provide either pipeline= or both source= and model="],
+        )
 
     spec = PipelineSpec.from_dict({
         "name": "ad_hoc_check",
