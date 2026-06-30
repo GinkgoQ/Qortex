@@ -1900,7 +1900,7 @@ def neuroai_suggest_models(
         payload = {
             "source": {
                 "source_id": src_profile.source_id,
-                "modality": str(src_profile.modality),
+                "modality": _enum_or_value(src_profile.modality),
                 "n_channels": src_profile.n_channels,
                 "sampling_rate_hz": src_profile.sampling_rate_hz,
             },
@@ -2036,6 +2036,10 @@ def _jsonable_cli(value: object) -> object:
     if hasattr(value, "__dict__"):
         return _jsonable_cli(value.__dict__)
     return str(value)
+
+
+def _enum_or_value(value: object) -> object:
+    return getattr(value, "value", value)
 
 
 # ── check ─────────────────────────────────────────────────────────────────────
