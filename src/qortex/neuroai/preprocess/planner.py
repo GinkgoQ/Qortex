@@ -267,24 +267,10 @@ class TransformExecutor:
             return _resample_spatial(arr, params)
 
         elif kind == "normalize":
-            method = params.get("method", "zscore")
-            if method == "zscore":
-                mu = arr.mean(axis=-1, keepdims=True)
-                sigma = arr.std(axis=-1, keepdims=True)
-                sigma = np.where(sigma < 1e-8, 1.0, sigma)
-                arr = (arr - mu) / sigma
-            elif method == "minmax":
-                lo, hi = arr.min(), arr.max()
-                if hi > lo:
-                    arr = (arr - lo) / (hi - lo)
-            return arr
+            return _normalize(arr, params)
 
         elif kind == "rescale_intensity":
-            lo, hi = params.get("out_min", 0.0), params.get("out_max", 1.0)
-            curr_lo, curr_hi = arr.min(), arr.max()
-            if curr_hi > curr_lo:
-                arr = (arr - curr_lo) / (curr_hi - curr_lo) * (hi - lo) + lo
-            return arr
+            return _rescale_intensity(arr, params)
 
         elif kind == "cast_dtype":
             to_dtype = params.get("to", "float32")
@@ -366,6 +352,140 @@ def _coerce_numpy(data: Any) -> np.ndarray:
             "Source adapter must yield QortexTimeSeries/QortexVolume with "
             "the `data` field set, or yield raw numpy arrays directly."
         ) from exc
+
+
+def _normalize(arr: np.ndarray, params: dict) -> np.ndarray:
+    method = str(params.get("method", "zscore")).strip().lower()
+    eps = float(params.get("eps", 1e-8))
+    work = arr.astype(np.float32, copy=False)
+
+    if method in {"zscore", "channel_zscore"}:
+        axis = -1 if work.ndim >= 2 else None
+        mu = work.mean(axis=axis, keepdims=axis is not None)
+        sigma = work.std(axis=axis, keepdims=axis is not None)
+        sigma = np.where(sigma < eps, 1.0, sigma)
+        return (work - mu) / sigma
+
+    if method == "global_zscore":
+        mu = float(work.mean())
+        sigma = float(work.std())
+        if sigma < eps:
+            sigma = 1.0
+        return (work - mu) / sigma
+
+    if method == "robust_zscore":
+        axis = params.get("axis", -1 if work.ndim >= 2 else None)
+        axis = None if axis is None else int(axis)
+        median = np.median(work, axis=axis, keepdims=axis is not None)
+        q75 = np.percentile(work, 75, axis=axis, keepdims=axis is not None)
+        q25 = np.percentile(work, 25, axis=axis, keepdims=axis is not None)
+        iqr = np.asarray(q75 - q25)
+        scale = np.where(iqr < eps, 1.0, iqr / 1.349)
+        return (work - median) / scale
+
+    if method == "per_volume_zscore":
+        if work.ndim < 3:
+            raise TransformError(
+                f"per_volume_zscore expects volumetric data with ndim>=3, got shape {work.shape}"
+            )
+        if work.ndim == 4:
+            axes = tuple(range(3))
+            mu = work.mean(axis=axes, keepdims=True)
+            sigma = work.std(axis=axes, keepdims=True)
+        else:
+            mu = float(work.mean())
+            sigma = float(work.std())
+        sigma = np.where(np.asarray(sigma) < eps, 1.0, sigma)
+        return (work - mu) / sigma
+
+    if method == "minmax":
+        lo = float(work.min())
+        hi = float(work.max())
+        if hi <= lo:
+            return np.zeros_like(work)
+        out_min = float(params.get("out_min", 0.0))
+        out_max = float(params.get("out_max", 1.0))
+        return (work - lo) / (hi - lo) * (out_max - out_min) + out_min
+
+    if method == "percentile_clip":
+        lower = float(params.get("lower", params.get("p_low", 1.0)))
+        upper = float(params.get("upper", params.get("p_high", 99.0)))
+        if not 0.0 <= lower < upper <= 100.0:
+            raise TransformError(
+                f"percentile_clip requires 0 <= lower < upper <= 100, got {lower}, {upper}"
+            )
+        lo, hi = np.percentile(work, [lower, upper])
+        return np.clip(work, lo, hi)
+
+    if method == "hu_window":
+        center = params.get("center")
+        width = params.get("width")
+        if center is None or width is None:
+            raise TransformError("hu_window requires center and width")
+        width = float(width)
+        if width <= 0:
+            raise TransformError(f"hu_window width must be positive, got {width}")
+        center = float(center)
+        lo = center - width / 2.0
+        hi = center + width / 2.0
+        clipped = np.clip(work, lo, hi)
+        out_min = float(params.get("out_min", 0.0))
+        out_max = float(params.get("out_max", 1.0))
+        return (clipped - lo) / (hi - lo) * (out_max - out_min) + out_min
+
+    if method == "exponential_moving_standardize":
+        factor = float(params.get("factor_new", 0.001))
+        init_block_size = int(params.get("init_block_size", min(work.shape[-1], 1000)))
+        if not 0.0 < factor <= 1.0:
+            raise TransformError(f"factor_new must be in (0, 1], got {factor}")
+        if work.ndim < 2:
+            raise TransformError(
+                f"exponential_moving_standardize expects channels_time data, got {work.shape}"
+            )
+        return _exponential_moving_standardize(work, factor_new=factor, init_block_size=init_block_size, eps=eps)
+
+    raise TransformError(f"Unsupported normalize method: {method!r}")
+
+
+def _rescale_intensity(arr: np.ndarray, params: dict) -> np.ndarray:
+    out_min = float(params.get("out_min", 0.0))
+    out_max = float(params.get("out_max", 1.0))
+    in_min = params.get("in_min")
+    in_max = params.get("in_max")
+    curr_lo = float(arr.min()) if in_min is None else float(in_min)
+    curr_hi = float(arr.max()) if in_max is None else float(in_max)
+    if curr_hi <= curr_lo:
+        raise TransformError(
+            f"rescale_intensity requires in_max > in_min, got {curr_lo}, {curr_hi}"
+        )
+    work = arr.astype(np.float32, copy=False)
+    if params.get("clip", True):
+        work = np.clip(work, curr_lo, curr_hi)
+    return (work - curr_lo) / (curr_hi - curr_lo) * (out_max - out_min) + out_min
+
+
+def _exponential_moving_standardize(
+    arr: np.ndarray,
+    *,
+    factor_new: float,
+    init_block_size: int,
+    eps: float,
+) -> np.ndarray:
+    """Braindecode-style online standardization along the time axis."""
+    out = np.empty_like(arr, dtype=np.float32)
+    flat = arr.reshape((-1, arr.shape[-1])).astype(np.float32, copy=False)
+    out_flat = out.reshape((-1, arr.shape[-1]))
+    for row_idx, row in enumerate(flat):
+        n_init = max(1, min(init_block_size, row.shape[0]))
+        mean = float(row[:n_init].mean())
+        var = float(row[:n_init].var())
+        for t, value in enumerate(row):
+            if t >= n_init:
+                mean = (1.0 - factor_new) * mean + factor_new * float(value)
+                diff = float(value) - mean
+                var = (1.0 - factor_new) * var + factor_new * diff * diff
+            out_flat[row_idx, t] = (float(value) - mean) / max(var ** 0.5, eps)
+    return out
 
 
 def _apply_channel_select(arr: np.ndarray, params: dict) -> np.ndarray:

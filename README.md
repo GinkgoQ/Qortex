@@ -250,15 +250,28 @@ window:
   step_s: 2.0
 preprocessing:
   mode: auto
-  allow: [resample, channel_select, cast_dtype, to_tensor]
+  allow: [resample, channel_select, channel_map, cast_dtype, to_tensor]
   deny: []
   normalize: false
   resample: true
   channel_select: true
+  channel_map: {}          # target_channel: source_channel, used only when explicit
 model:
   provider: huggingface
   id: braindecode/EEGNet
   task: eeg_classification
+  # Optional universal override for research models that do not expose a
+  # reliable machine-readable contract.
+  input_contract:
+    modality: eeg
+    axis_convention: batch_channels_time
+    n_channels: 22
+    sampling_rate_hz: 250
+    window_duration_s: 4
+    dtype: float32
+  output_contract:
+    output_type: classification
+    classes: [left_hand, right_hand]
 outputs:
   - type: jsonl
     path: predictions.jsonl
@@ -268,6 +281,12 @@ runtime:
   device: cpu
   batch_size: 4
   num_workers: 2
+  source_failure_policy: strict        # strict | skip_window | continue_recording
+  preprocess_failure_policy: strict    # strict | drop_failed
+  max_windows: 100                     # optional live/offline stop condition
+  max_duration_s: 60                   # optional wall-clock cap
+  idle_timeout_s: 10                   # optional no-window guard
+  fail_on_no_windows: true
   fp16: false
   cache_model: true
   latency_budget_ms: 50.0
@@ -286,7 +305,9 @@ compatibility engine only plans transforms required by the model input contract,
 and it respects `allow`, `deny`, and the boolean gates above. If a required
 transform such as `cast_dtype`, `resample`, `reorient`, or `channel_select` is
 denied, the compatibility report becomes `incompatible` with a structured
-blocker instead of silently applying the transform.
+blocker instead of silently applying the transform. `channel_map` is executable
+only when `preprocessing.channel_map` explicitly maps every missing required
+target channel to an available source channel.
 
 Model contracts can also declare `required_transforms`,
 `preferred_transforms`, and `forbidden_transforms`. Required transforms are
@@ -295,10 +316,15 @@ policy. Unsupported axis convention mismatches are blockers unless Qortex can
 emit a concrete `transpose_axes` transform. Spatial shape mismatches can use
 `resample_spatial` only when the target shape is concrete and SciPy is
 available; otherwise the pipeline fails early instead of pretending the
-transform exists.
+transform exists. Declared intensity ranges are checked against explicit source
+metadata (`intensity_range` or `value_range`); mismatches require an allowed
+`rescale_intensity` transform. Voxel-spacing and fMRI TR mismatches are hard
+compatibility issues unless an executable, contract-declared transform can
+bridge the difference.
 
 ```bash
 qortex neuroai check pipeline.yaml --markdown
+qortex neuroai plan pipeline.yaml --json
 qortex neuroai run pipeline.yaml --artifact-dir artifacts/run_001
 qortex neuroai validate-artifact artifacts/run_001
 qortex neuroai benchmark pipeline.yaml --windows 100
@@ -340,8 +366,8 @@ pipe.replay("recording.xdf", speed=2.0)
 | Type | Class | Notes |
 |---|---|---|
 | Local file (EDF/BDF/FIF) | `LocalFileAdapter` | MNE-based |
-| BIDS dataset | `BIDSSourceAdapter` | Profiles supported recording files through the local source adapter, records BIDS entities, and reports cross-record header consistency |
-| DICOM folder | `DICOMFolderAdapter` | Groups by SeriesInstanceUID, affine from header |
+| BIDS dataset | `BIDSSourceAdapter` | Profiles supported recording files through the local source adapter, records BIDS entities, attaches BIDS provenance to streamed windows, and reports cross-record header consistency |
+| DICOM folder | `DICOMFolderAdapter` | Groups by SeriesInstanceUID, affine from header, excludes PHI/free-text DICOM metadata by default |
 | DICOMweb | `DICOMWebAdapter` | QIDO-RS metadata + WADO-RS pixels |
 | NWB | `NWBAdapter` | `ElectricalSeries` via `pynwb` |
 | XDF | `XDFAdapter` | Stream selection by type or name |
@@ -355,9 +381,9 @@ pipe.replay("recording.xdf", speed=2.0)
 |---|---|---|
 | `huggingface` | `HuggingFaceModelAdapter` | Native `transformers.pipeline` tasks only; non-native tensor tasks must use ONNX/Torch/Braindecode/MONAI/plugin |
 | `onnx` | `ONNXModelAdapter` | ONNX Runtime; CPU and CUDA EP |
-| `torch` / `torchscript` | `TorchModelAdapter` | `.pt` or `.ts`; FP16 on CUDA |
+| `torch` / `torchscript` | `TorchModelAdapter` | `.pt` or `.ts`; explicit input/output contracts required unless TorchScript graph shape is inspectable |
 | `braindecode` | `BrainDecodeAdapter` | EEGNet, ShallowFBCSPNet, etc. |
-| `monai` | `MONAIBundleAdapter` | MONAI bundles with config/spec-driven ROI size, overlap, activation, argmax/threshold, and label map |
+| `monai` | `MONAIBundleAdapter` | MONAI bundles with config/spec-driven ROI size, overlap, activation, argmax/threshold, and label map; unmapped spacing/orientation/intensity transforms block until declared explicitly |
 | `ultralytics` | `UltralyticsAdapter` | YOLOv8 detect / segment / classify |
 | `plugin` / `custom` | `CustomPluginAdapter` | Load any `.py` implementing `QortexPlugin` |
 
@@ -422,8 +448,9 @@ print(report.to_markdown())
 The validator checks required sidecars, `artifact_manifest.json` SHA-256 and
 size entries, JSONL prediction records, trigger marker records, CSV schema,
 Parquet metadata, NIfTI mask geometry, COCO/YOLO structure, DICOM output
-headers when `pydicom` is installed, and runtime/output-count consistency from
-`runtime_report.json`.
+headers when `pydicom` is installed, runtime/output-count consistency from
+`runtime_report.json`, and available `artifact_contract.json` output type/shape
+expectations.
 
 ### Ring buffer
 
@@ -460,16 +487,16 @@ cd src/qortex_rs && maturin develop --release
 | EDA + readiness scoring | Useful; score weighting evolving |
 | Parquet conversion | Useful; scenario-tested |
 | Zarr / HDF5 / WebDataset / HuggingFace / TFRecord writers | Basic; roundtrip coverage limited |
-| Torch adapter | Useful; basic batching, no advanced collation |
+| Torch adapter | Contract-gated; raw `.pt` requires explicit input/output contracts, TorchScript may infer shape but still requires output semantics |
 | Visual QC (manifest audit, fMRI, DWI, overlays, masks) | Useful; scenario-tested |
 | BIDS Validator wrapper | Useful; does not fabricate results |
 | EEG / MEG / MRI / DWI / PET loaders | Real optional-dependency loaders; need fixture coverage |
 | NeuroAI sources (DICOM, NWB, XDF, LSL, BrainFlow, image) | Implemented; DICOM has PHI redaction + affine; integration tests pending |
-| NeuroAI models (HF, ONNX, Torch, MONAI, Ultralytics, Braindecode) | Implemented; ONNX supports explicit output decoders; Braindecode requires confirmed dimensions |
+| NeuroAI models (HF, ONNX, Torch, MONAI, Ultralytics, Braindecode) | Implemented; ONNX supports explicit output decoders, Torch requires explicit contracts for raw checkpoints, MONAI blocks unmapped preprocessing semantics |
 | NeuroAI outputs (JSONL, Parquet, CSV, NIfTI, DICOM-SEG, BIDS, COCO, YOLO, overlay, HTTP) | Implemented; overlay renders bounding boxes and masks on source images |
 | NeuroAI compatibility engine | Implemented; checks modality, channels, sampling rate, spatial shape, dtype, voxel spacing, coordinate frame, fMRI TR, denied-transform blockers, and detailed `explain()` exports |
 | NeuroAI preprocessing planner/executor | Implemented; contract-driven transform planning, strict critical-transform failures, real named-channel selection, no hidden modality heuristics |
-| NeuroAI runtime batching + metadata | Implemented; `batch_size` batches windows and output metadata carries source/window details |
+| NeuroAI runtime batching + metadata | Implemented; `batch_size` batches windows, stop policies bound runs, and output metadata carries source/window details |
 | NeuroAI artifact integrity | Implemented; artifact runs route file outputs into `artifact_dir/outputs` and recursively hash outputs plus sidecars |
 | NeuroAI trigger system | Implemented; fires structured EventMarkerOutput to all output adapters |
 | NeuroAI ring buffer (Python + Rust) | Implemented; Rust is optional |
@@ -543,6 +570,7 @@ qortex compare-masks    prediction vs ground-truth mask comparison
 qortex artifact-visualize  inspect artifact samples and splits
 qortex catalog-refresh  ingest OpenNeuro metadata into catalog
 qortex neuroai check    probe source + model compatibility
+qortex neuroai plan     print executable preprocessing plan
 qortex neuroai run      run inference pipeline
 qortex neuroai validate-artifact  verify NeuroAI run artifact integrity
 qortex neuroai benchmark  latency benchmark

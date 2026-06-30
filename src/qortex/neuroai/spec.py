@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, is_dataclass
 from pathlib import Path
 from typing import Any, Literal
 
@@ -144,6 +144,8 @@ class ModelSpec:
     task: str | None = None                 # "eeg_classification" | "segmentation" | ...
     revision: str | None = None
     trust_remote_code: bool = False
+    input_contract: dict[str, Any] | None = None
+    output_contract: dict[str, Any] | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -158,8 +160,13 @@ class ModelSpec:
             task=d.get("task"),
             revision=d.get("revision"),
             trust_remote_code=_as_bool(d.get("trust_remote_code", False)),
+            input_contract=d.get("input_contract"),
+            output_contract=d.get("output_contract"),
             extra={k: v for k, v in d.items()
-                   if k not in ("provider", "id", "task", "revision", "trust_remote_code")},
+                   if k not in (
+                       "provider", "id", "task", "revision", "trust_remote_code",
+                       "input_contract", "output_contract",
+                   )},
         )
 
     def to_dict(self) -> dict:
@@ -170,6 +177,10 @@ class ModelSpec:
             d["revision"] = self.revision
         if self.trust_remote_code:
             d["trust_remote_code"] = True
+        if self.input_contract:
+            d["input_contract"] = _json_safe(self.input_contract)
+        if self.output_contract:
+            d["output_contract"] = _json_safe(self.output_contract)
         d.update(self.extra)
         return d
 
@@ -184,6 +195,7 @@ class PreprocessSpec:
     normalize: bool = True
     resample: bool = True
     channel_select: bool = True
+    channel_map: dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, d: dict) -> "PreprocessSpec":
@@ -198,6 +210,7 @@ class PreprocessSpec:
             normalize=_as_bool(d.get("normalize", True)),
             resample=_as_bool(d.get("resample", True)),
             channel_select=_as_bool(d.get("channel_select", True)),
+            channel_map={str(k): str(v) for k, v in (d.get("channel_map") or {}).items()},
         )
 
     def allows(self, transform_kind: str) -> bool:
@@ -228,6 +241,8 @@ class PreprocessSpec:
             d["resample"] = False
         if not self.channel_select:
             d["channel_select"] = False
+        if self.channel_map:
+            d["channel_map"] = dict(self.channel_map)
         return d
 
 
@@ -242,6 +257,12 @@ class RuntimeSpec:
     batch_size: int = 1
     fp16: bool = False             # requires explicit opt-in
     cache_model: bool = True
+    source_failure_policy: Literal["strict", "skip_window", "continue_recording"] = "strict"
+    preprocess_failure_policy: Literal["strict", "drop_failed"] = "strict"
+    max_windows: int | None = None
+    max_duration_s: float | None = None
+    idle_timeout_s: float | None = None
+    fail_on_no_windows: bool = True
 
     @classmethod
     def from_dict(cls, d: dict) -> "RuntimeSpec":
@@ -257,6 +278,12 @@ class RuntimeSpec:
             batch_size=int(d.get("batch_size", 1)),
             fp16=_as_bool(d.get("fp16", False)),
             cache_model=_as_bool(d.get("cache_model", True)),
+            source_failure_policy=d.get("source_failure_policy", "strict"),
+            preprocess_failure_policy=d.get("preprocess_failure_policy", "strict"),
+            max_windows=int(d["max_windows"]) if d.get("max_windows") is not None else None,
+            max_duration_s=float(d["max_duration_s"]) if d.get("max_duration_s") is not None else None,
+            idle_timeout_s=float(d["idle_timeout_s"]) if d.get("idle_timeout_s") is not None else None,
+            fail_on_no_windows=_as_bool(d.get("fail_on_no_windows", True)),
         )
 
     def to_dict(self) -> dict:
@@ -271,6 +298,18 @@ class RuntimeSpec:
             d["fp16"] = True
         if not self.cache_model:
             d["cache_model"] = False
+        if self.source_failure_policy != "strict":
+            d["source_failure_policy"] = self.source_failure_policy
+        if self.preprocess_failure_policy != "strict":
+            d["preprocess_failure_policy"] = self.preprocess_failure_policy
+        if self.max_windows is not None:
+            d["max_windows"] = self.max_windows
+        if self.max_duration_s is not None:
+            d["max_duration_s"] = self.max_duration_s
+        if self.idle_timeout_s is not None:
+            d["idle_timeout_s"] = self.idle_timeout_s
+        if not self.fail_on_no_windows:
+            d["fail_on_no_windows"] = False
         return d
 
 
@@ -622,6 +661,26 @@ class PipelineSpec:
                 f"runtime.optimize must be one of safe, speed, memory "
                 f"(got {self.runtime.optimize!r})"
             )
+        if self.runtime.source_failure_policy not in {"strict", "skip_window", "continue_recording"}:
+            errors.append(
+                "runtime.source_failure_policy must be one of strict, skip_window, "
+                f"continue_recording (got {self.runtime.source_failure_policy!r})"
+            )
+        if self.runtime.preprocess_failure_policy not in {"strict", "drop_failed"}:
+            errors.append(
+                "runtime.preprocess_failure_policy must be one of strict, drop_failed "
+                f"(got {self.runtime.preprocess_failure_policy!r})"
+            )
+        if self.runtime.max_windows is not None and self.runtime.max_windows <= 0:
+            errors.append(f"runtime.max_windows must be > 0 (got {self.runtime.max_windows})")
+        if self.runtime.max_duration_s is not None and self.runtime.max_duration_s <= 0:
+            errors.append(
+                f"runtime.max_duration_s must be > 0 (got {self.runtime.max_duration_s})"
+            )
+        if self.runtime.idle_timeout_s is not None and self.runtime.idle_timeout_s <= 0:
+            errors.append(
+                f"runtime.idle_timeout_s must be > 0 (got {self.runtime.idle_timeout_s})"
+            )
         if not str(self.runtime.device or "").strip():
             errors.append("runtime.device must not be empty")
 
@@ -722,6 +781,24 @@ def _as_bool(value: Any) -> bool:
         if normalized in {"0", "false", "no", "n", "off", ""}:
             return False
     raise ValueError(f"Expected a boolean value, got {value!r}")
+
+
+def _json_safe(value: Any) -> Any:
+    """Return a JSON-compatible representation for spec hashing/serialization."""
+
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if hasattr(value, "value"):
+        return value.value
+    if hasattr(value, "model_dump"):
+        return _json_safe(value.model_dump())
+    if is_dataclass(value) and not isinstance(value, type):
+        return _json_safe(asdict(value))
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(v) for v in value]
+    return str(value)
 
 
 def _as_string_list(value: Any) -> list[str] | None:

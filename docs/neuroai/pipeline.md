@@ -153,6 +153,51 @@ Denied required transforms are hard blockers. For example, if the source is
 contains `cast_dtype`, the report is `incompatible` with a `DTYPE_MISMATCH`
 blocker. The runtime will not silently cast against policy.
 
+Scientific geometry checks also fail closed. Declared model `intensity_range`
+is compared with explicit source `intensity_range` / `value_range` metadata and
+requires `rescale_intensity` when mismatched. Voxel-spacing mismatch must be
+handled by an allowed concrete `resample_spatial` plan or the run is blocked.
+Coordinate-frame mismatches are handled symmetrically with `reorient`; denied or
+unsupported orientation pairs are blockers. fMRI TR mismatch is incompatible
+until an explicit temporal-resampling transform exists.
+
+Missing required channels are not mapped heuristically. `channel_map` is planned
+only when the pipeline declares an executable mapping:
+
+```yaml
+preprocessing:
+  allow: [channel_map]
+  channel_map:
+    Cz: C3     # target required by model -> available source channel
+```
+
+Without the explicit map, missing model-required channels are blockers.
+
+### Explicit Model Contracts
+
+Any provider can receive a universal contract override. This is required for
+raw PyTorch checkpoints and useful for research models whose config files do
+not carry reliable neuro/medical metadata:
+
+```yaml
+model:
+  provider: torch
+  id: model.pt
+  task: eeg_classification
+  input_contract:
+    modality: eeg
+    axis_convention: batch_channels_time
+    n_channels: 22
+    sampling_rate_hz: 250
+    window_duration_s: 4
+    dtype: float32
+  output_contract:
+    output_type: classification
+    classes: [left_hand, right_hand]
+    n_classes: 2
+    produces_probabilities: true
+```
+
 ### `plan_preprocessing()` — inspect the transform chain
 
 ```python
@@ -201,6 +246,22 @@ metadata, and source provenance when the source adapter provides them.
 Source iteration and output writes remain ordered and single-owner, so record
 ordering is deterministic.
 
+Runtime failure policy is explicit:
+
+```yaml
+runtime:
+  source_failure_policy: strict        # strict | skip_window | continue_recording
+  preprocess_failure_policy: strict    # strict | drop_failed
+  max_windows: 100
+  max_duration_s: 60
+  idle_timeout_s: 10
+  fail_on_no_windows: true
+```
+
+`strict` preserves fail-fast scientific behavior. `drop_failed` keeps valid
+windows from a partially bad preprocessing batch and records failed windows in
+the latency/report error counts.
+
 The returned `PipelineRunReport` contains:
 
 ```python
@@ -248,7 +309,10 @@ bench.summary()          # human-readable string
 pipe.replay("recording.xdf", speed=2.0, output_dir=Path("replay_out/"))
 ```
 
-`replay()` swaps the pipeline's source adapter to read from `source_path` and runs the full pipeline. `speed=2.0` plays back twice as fast as real-time (for XDF/EDF sources that simulate timing via `source.replay(speed)`). `output_dir` redirects output paths.
+`replay()` constructs a temporary pipeline with `source_path` as the source,
+then re-runs compatibility and preprocessing planning against that replay
+source. The original pipeline state is not mutated. `output_dir` redirects file
+outputs.
 
 ## Trigger system
 
@@ -312,6 +376,10 @@ print(report.summary())
 qortex neuroai check pipeline.yaml
 qortex neuroai check pipeline.yaml --json
 qortex neuroai check pipeline.yaml --markdown
+
+# Print the executable preprocessing plan.
+qortex neuroai plan pipeline.yaml
+qortex neuroai plan pipeline.yaml --json
 
 # Run the pipeline and write a complete artifact directory.
 qortex neuroai run pipeline.yaml --artifact-dir artifacts/run_001

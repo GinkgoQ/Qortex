@@ -19,7 +19,7 @@ from qortex.neuroai.contracts import (
     TransformDescriptor,
     TransformKind,
 )
-from qortex.neuroai.preprocess import PreprocessPlanner, TransformExecutor
+from qortex.neuroai.preprocess import PreprocessPlanner, TransformError, TransformExecutor
 from qortex.neuroai.spec import PipelineSpec, PreprocessSpec
 
 
@@ -55,14 +55,35 @@ def main() -> None:
             "provider": "plugin",
             "id": str(plugin_path),
             "trust_remote_code": "true",
+            "input_contract": {
+                "modality": "tabular",
+                "axis_convention": "channels_time",
+                "n_channels": 4,
+                "dtype": "float32",
+            },
+            "output_contract": {
+                "output_type": "classification",
+                "classes": ["restable", "alert"],
+                "n_classes": 2,
+            },
         },
         "preprocessing": {
             "mode": "auto",
             "normalize": "false",
             "resample": "false",
             "channel_select": "false",
+            "channel_map": {"Cz": "C3"},
         },
-        "runtime": {"device": "cpu", "cache_model": "false"},
+        "runtime": {
+            "device": "cpu",
+            "cache_model": "false",
+            "source_failure_policy": "skip_window",
+            "preprocess_failure_policy": "drop_failed",
+            "max_windows": 3,
+            "max_duration_s": 10,
+            "idle_timeout_s": 5,
+            "fail_on_no_windows": "false",
+        },
         "outputs": {"type": "jsonl", "path": str(OUT / "alias.jsonl"), "append": "true"},
     })
     alias_dict = alias_spec.to_dict()
@@ -81,7 +102,14 @@ def main() -> None:
     assert alias_spec.preprocessing.allows("resample") is False
     assert alias_spec.preprocessing.allows("resample_spatial") is False
     assert alias_spec.preprocessing.allows("channel_select") is False
+    assert alias_spec.preprocessing.channel_map == {"Cz": "C3"}
+    assert alias_spec.model.input_contract["n_channels"] == 4
+    assert alias_spec.model.output_contract["classes"] == ["restable", "alert"]
     assert alias_spec.runtime.cache_model is False
+    assert alias_spec.runtime.source_failure_policy == "skip_window"
+    assert alias_spec.runtime.preprocess_failure_policy == "drop_failed"
+    assert alias_spec.runtime.max_windows == 3
+    assert alias_spec.runtime.fail_on_no_windows is False
     assert alias_spec.outputs[0].append is True
 
     contradictory = PipelineSpec.from_dict({
@@ -212,6 +240,136 @@ def main() -> None:
     assert required_transform_report.is_runnable
     assert any((t.kind.value if hasattr(t.kind, "value") else str(t.kind)) == "normalize" for t in required_transform_report.required_transforms)
 
+    channel_map_report = CompatibilityEngine().check(
+        SourceProfile(
+            source_id="channel_map_source",
+            source_type="local_file",
+            modality="eeg",
+            n_channels=2,
+            channel_names=["Fpz", "C3"],
+            sampling_rate_hz=250.0,
+            dtype="float32",
+            axis_convention=AxisConvention.channels_time,
+        ),
+        ModelProfile(
+            model_id="channel_map_model",
+            provider="plugin",
+            input_contract=InputContract(
+                modality="eeg",
+                axis_convention=AxisConvention.channels_time,
+                required_channels=["Fpz", "Cz"],
+                n_channels=2,
+                sampling_rate_hz=250.0,
+                dtype="float32",
+            ),
+        ),
+        PreprocessSpec(
+            mode="auto",
+            allow=["channel_map"],
+            channel_map={"Cz": "C3"},
+        ),
+    )
+    print("CHANNEL_MAP_STATUS", channel_map_report.status.value)
+    print("CHANNEL_MAP_TRANSFORMS", [
+        t.params for t in channel_map_report.required_transforms
+        if (t.kind.value if hasattr(t.kind, "value") else str(t.kind)) == "channel_map"
+    ])
+    assert channel_map_report.is_runnable
+    assert any((t.kind.value if hasattr(t.kind, "value") else str(t.kind)) == "channel_map" for t in channel_map_report.required_transforms)
+
+    channel_map_block_report = CompatibilityEngine().check(
+        SourceProfile(
+            source_id="channel_map_block_source",
+            source_type="local_file",
+            modality="eeg",
+            n_channels=2,
+            channel_names=["Fpz", "C3"],
+            sampling_rate_hz=250.0,
+            dtype="float32",
+            axis_convention=AxisConvention.channels_time,
+        ),
+        ModelProfile(
+            model_id="channel_map_block_model",
+            provider="plugin",
+            input_contract=InputContract(
+                modality="eeg",
+                axis_convention=AxisConvention.channels_time,
+                required_channels=["Fpz", "Cz"],
+                n_channels=2,
+                sampling_rate_hz=250.0,
+                dtype="float32",
+            ),
+        ),
+        PreprocessSpec(mode="auto", allow=["channel_map"]),
+    )
+    print("CHANNEL_MAP_BLOCK_STATUS", channel_map_block_report.status.value)
+    print("CHANNEL_MAP_BLOCKERS", [b.code for b in channel_map_block_report.blockers])
+    assert channel_map_block_report.status.value == "incompatible"
+    assert any(b.code == "MISSING_CHANNELS" for b in channel_map_block_report.blockers)
+
+    intensity_report = CompatibilityEngine().check(
+        SourceProfile(
+            source_id="intensity_source",
+            source_type="local_file",
+            modality="image",
+            n_channels=1,
+            spatial_shape=(8, 8),
+            dtype="float32",
+            axis_convention=AxisConvention.channels_first,
+            extra={"value_range": (0.0, 255.0)},
+        ),
+        ModelProfile(
+            model_id="intensity_model",
+            provider="plugin",
+            input_contract=InputContract(
+                modality="image",
+                axis_convention=AxisConvention.channels_first,
+                n_channels=1,
+                spatial_shape=(8, 8),
+                dtype="float32",
+                intensity_range=(0.0, 1.0),
+            ),
+        ),
+        PreprocessSpec(mode="auto", allow=["rescale_intensity"]),
+    )
+    print("INTENSITY_STATUS", intensity_report.status.value)
+    print("INTENSITY_TRANSFORMS", [
+        t.kind.value if hasattr(t.kind, "value") else str(t.kind)
+        for t in intensity_report.required_transforms
+    ])
+    assert intensity_report.is_runnable
+    assert any((t.kind.value if hasattr(t.kind, "value") else str(t.kind)) == "rescale_intensity" for t in intensity_report.required_transforms)
+
+    voxel_block_report = CompatibilityEngine().check(
+        SourceProfile(
+            source_id="voxel_source",
+            source_type="local_file",
+            modality="mri",
+            n_channels=1,
+            spatial_shape=(16, 16, 16),
+            voxel_sizes_mm=(2.0, 2.0, 2.0),
+            dtype="float32",
+            axis_convention=AxisConvention.RAS,
+        ),
+        ModelProfile(
+            model_id="voxel_model",
+            provider="plugin",
+            input_contract=InputContract(
+                modality="mri",
+                axis_convention=AxisConvention.RAS,
+                n_channels=1,
+                spatial_shape=(16, 16, 16),
+                voxel_sizes_mm=(1.0, 1.0, 1.0),
+                dtype="float32",
+            ),
+        ),
+        PreprocessSpec(mode="auto", deny=["resample_spatial"]),
+    )
+    print("VOXEL_BLOCK_STATUS", voxel_block_report.status.value)
+    print("VOXEL_BLOCKERS", [b.code for b in voxel_block_report.blockers])
+    assert voxel_block_report.status.value == "incompatible"
+    assert any(b.code == "VOXEL_SPACING_MISMATCH" for b in voxel_block_report.blockers)
+
     channel_plan = PreprocessPlanner().build_plan(
         CompatibilityReport(
             status=CompatibilityStatus.compatible_with_transforms,
@@ -273,6 +431,29 @@ def main() -> None:
     print("SPATIAL_RESAMPLE_SHAPE", spatial.shape)
     assert spatial.shape == (4, 4)
 
+    bad_normalize_plan = PreprocessPlanner().build_plan(
+        CompatibilityReport(
+            status=CompatibilityStatus.compatible_with_transforms,
+            source_id="bad_normalize_source",
+            model_id="bad_normalize_model",
+            required_transforms=[
+                TransformDescriptor(
+                    kind=TransformKind.normalize,
+                    required_by="manual",
+                    params={"method": "not_a_real_method"},
+                    reversible=False,
+                )
+            ],
+        ),
+        model_provider="onnx",
+    )
+    try:
+        TransformExecutor(bad_normalize_plan).apply(np.ones((2, 3), dtype=np.float32))
+    except TransformError as exc:
+        print("BAD_NORMALIZE_ERROR", str(exc).split(".")[0])
+    else:
+        raise AssertionError("unknown normalize method should raise TransformError")
+
     spec_dict = {
         "name": "project_21_neuroai_runtime",
         "source": {
@@ -284,6 +465,18 @@ def main() -> None:
             "id": str(plugin_path),
             "task": "tabular_classification",
             "trust_remote_code": True,
+            "input_contract": {
+                "modality": "tabular",
+                "axis_convention": "channels_time",
+                "n_channels": 4,
+                "dtype": "float32",
+            },
+            "output_contract": {
+                "output_type": "classification",
+                "classes": ["restable", "alert"],
+                "n_classes": 2,
+                "produces_probabilities": True,
+            },
         },
         "preprocessing": {
             "mode": "auto",
@@ -294,6 +487,8 @@ def main() -> None:
             "latency_budget_ms": 500,
             "optimize": "safe",
             "batch_size": 1,
+            "max_windows": 1,
+            "max_duration_s": 30,
         },
         "outputs": [
             {"type": "jsonl", "path": str(jsonl_path)},
@@ -387,6 +582,15 @@ def main() -> None:
     print("BENCHMARK_THROUGHPUT", bench.throughput_windows_per_s)
     assert bench.n_batches >= 1
     assert bench.throughput_windows_per_s > 0
+
+    replay_report = pipe.replay(data_path, output_dir=OUT / "replay")
+    replay_jsonl = OUT / "replay" / "predictions.jsonl"
+    print("REPLAY_SUCCESS", replay_report.success)
+    print("REPLAY_SOURCE", replay_report.source_profile.source_id if replay_report.source_profile else None)
+    assert replay_report.success, replay_report.errors
+    assert replay_jsonl.exists()
+    assert replay_report.source_profile is not None
+    assert replay_report.source_profile.path == str(data_path)
 
     print("project_21_neuroai_runtime complete")
 

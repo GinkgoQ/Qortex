@@ -1,63 +1,63 @@
 {
   "qortex_version": "0.1.0",
-  "created_at": "2026-06-30T02:36:50.032946+00:00",
-  "pipeline_ref": "ff924149d01e",
+  "created_at": "2026-06-30T03:11:55.978961+00:00",
+  "pipeline_ref": "5fe47cdc27b1",
   "n_files": 11,
   "files": {
     "artifact_contract.json": {
-      "sha256": "cf9194b658bbc64fa008635196e1dfbd4fd3fc4fdf06b9ec9c1ada58d27dfd75",
-      "size_bytes": 757,
-      "created_at": "2026-06-30T02:36:50.032946+00:00"
+      "sha256": "3a73b1d30a06a7dc06d91425f66ffbb8566e93b08e1d032dbd37cccf413e0c57",
+      "size_bytes": 981,
+      "created_at": "2026-06-30T03:11:55.978961+00:00"
     },
     "compatibility_report.json": {
       "sha256": "d6b31fbefd78093460cb9d7233ba7f9ce12d2106385b431791dbc9e0a0e9ba5f",
       "size_bytes": 1083,
-      "created_at": "2026-06-30T02:36:50.032946+00:00"
+      "created_at": "2026-06-30T03:11:55.978961+00:00"
     },
     "latency_report.json": {
-      "sha256": "fafc55b5acbb9735f0342c39641c1c778a2b28e589e8c7d38ecbb46c753479de",
-      "size_bytes": 658,
-      "created_at": "2026-06-30T02:36:50.032946+00:00"
+      "sha256": "d0127c4407ee4d806487cfbeb372697d0da5e6db55b4755c599c85849cee92cf",
+      "size_bytes": 657,
+      "created_at": "2026-06-30T03:11:55.978961+00:00"
     },
     "outputs/predictions.csv": {
-      "sha256": "4c5452270a21ad42656c589ca484c95c59dd553ae2db4c7d15d7da46bd5e7f4e",
+      "sha256": "33dd671fc93d8316c3cca4b8ad8ac97430d961f74dea47cbde5e0893da309a6e",
       "size_bytes": 1422,
-      "created_at": "2026-06-30T02:36:50.032946+00:00"
+      "created_at": "2026-06-30T03:11:55.978961+00:00"
     },
     "outputs/predictions.jsonl": {
-      "sha256": "ffb72960e0d2d89f8a60fdb3a4fa95162c10f4b7f349aaa9f8cd271476bcd8e4",
+      "sha256": "3cd4dd3794668b61b0511a2c8489ec73a91175fb4a63608b0fff7b84ccf42a78",
       "size_bytes": 1417,
-      "created_at": "2026-06-30T02:36:50.032946+00:00"
+      "created_at": "2026-06-30T03:11:55.978961+00:00"
     },
     "outputs/predictions_provenance.json": {
-      "sha256": "cf9194b658bbc64fa008635196e1dfbd4fd3fc4fdf06b9ec9c1ada58d27dfd75",
-      "size_bytes": 757,
-      "created_at": "2026-06-30T02:36:50.032946+00:00"
+      "sha256": "3a73b1d30a06a7dc06d91425f66ffbb8566e93b08e1d032dbd37cccf413e0c57",
+      "size_bytes": 981,
+      "created_at": "2026-06-30T03:11:55.978961+00:00"
     },
     "pipeline.yaml": {
-      "sha256": "3d7689bdd28c8bf94e7c7ae450dc8d7ca4ab31778a77785d1cd773dcebced72e",
-      "size_bytes": 950,
-      "created_at": "2026-06-30T02:36:50.032946+00:00"
+      "sha256": "994e8d8d988ef219cb0909203fdb2f8c3f7fc80f64fe7dd8e19d0a0deb9d4aff",
+      "size_bytes": 1243,
+      "created_at": "2026-06-30T03:11:55.978961+00:00"
     },
     "preprocess_plan.json": {
       "sha256": "3e10eb1fea2c60c65cc3efa369cf477d340ff3b16d844e7f282657ef7d33119a",
       "size_bytes": 615,
-      "created_at": "2026-06-30T02:36:50.032946+00:00"
+      "created_at": "2026-06-30T03:11:55.978961+00:00"
     },
     "provenance.json": {
-      "sha256": "b1c4c34a7fce5a82607368fbff48741b1bcdf16542c03c34a2865cb0a6115d9d",
+      "sha256": "a7a4af364e8772036972018eea3cb31a1c52f179364baf186afd4038d3ea9ae4",
       "size_bytes": 842,
-      "created_at": "2026-06-30T02:36:50.032946+00:00"
+      "created_at": "2026-06-30T03:11:55.978961+00:00"
     },
     "runtime_report.json": {
       "sha256": "c8f64c52b0b2596298363787a13d4cce625aaf770a88156b5ff8bdb36abac6b2",
       "size_bytes": 466,
-      "created_at": "2026-06-30T02:36:50.032946+00:00"
+      "created_at": "2026-06-30T03:11:55.978961+00:00"
     },
     "warnings.json": {
-      "sha256": "7f1014a238eae2092b01c6516592b859b4ac50e5aa9e5978fc5317db4780edda",
+      "sha256": "7d5e48043a5e56484536124e855d9e6c822de183e6476d2a633812e567bf1c05",
       "size_bytes": 165,
-      "created_at": "2026-06-30T02:36:50.032946+00:00"
+      "created_at": "2026-06-30T03:11:55.978961+00:00"
     }
   }
 }

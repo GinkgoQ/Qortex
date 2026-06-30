@@ -438,6 +438,14 @@ Run compatibility check for a YAML pipeline without loading model weights.
 qortex neuroai check PIPELINE_YAML [--verbose] [--json] [--markdown]
 ```
 
+### neuroai plan
+
+Run compatibility checking and print the executable preprocessing plan.
+
+```bash
+qortex neuroai plan PIPELINE_YAML [--json]
+```
+
 ### neuroai run
 
 Run a NeuroAI inference pipeline from a YAML spec.
@@ -489,9 +497,15 @@ qortex neuroai inspect-source SOURCE_PATH [--modality MODALITY] [--suffix SUFFIX
 Inspect a model and print its ModelProfile and InputContract.
 
 ```bash
-qortex neuroai inspect-model MODEL_ID [--provider {huggingface,braindecode,ultralytics,onnx}]
+qortex neuroai inspect-model MODEL_ID [--provider PROVIDER]
                               [--task TASK]
+                              [--input-contract input_contract.yaml]
+                              [--output-contract output_contract.yaml]
 ```
+
+`--input-contract` and `--output-contract` accept JSON or YAML mappings. They
+are required for raw PyTorch checkpoints and useful for any model whose config
+does not expose reliable neuro/medical input and output semantics.
 
 ### neuroai suggest-models
 

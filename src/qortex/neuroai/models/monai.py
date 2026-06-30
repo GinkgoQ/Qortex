@@ -21,6 +21,7 @@ from qortex.neuroai.contracts import (
     InputContract,
     ModelProfile,
     OutputContract,
+    WarningItem,
 )
 from qortex.neuroai.models._base import ModelAdapter, ModelOutput
 from qortex.neuroai.spec import ModelSpec, RuntimeSpec
@@ -68,6 +69,7 @@ class MONAIBundleAdapter(ModelAdapter):
             model_hash=None,
             input_contract=self.required_input(),
             output_contract=self.output_schema(),
+            warnings=_monai_transform_warnings(self._infer_config, self._spec.extra),
         )
 
     def required_input(self) -> InputContract:
@@ -316,6 +318,63 @@ def _parse_required_transforms(config: dict, extra: dict[str, Any]) -> list[dict
     # but converting those to executable Qortex transforms requires source
     # affine/orientation provenance and inverse tracking. Do not guess here.
     return []
+
+
+def _monai_transform_warnings(config: dict, extra: dict[str, Any]) -> list[WarningItem]:
+    if extra.get("required_transforms"):
+        return []
+    transform_names = _collect_monai_transform_names(config)
+    unsupported = sorted(
+        name for name in transform_names
+        if _is_preprocessing_transform_requiring_mapping(name)
+    )
+    if not unsupported:
+        return []
+    return [WarningItem(
+        code="MONAI_REQUIRED_PREPROCESSING_UNMAPPED",
+        message=(
+            "MONAI bundle config declares preprocessing transforms that Qortex "
+            "will not translate implicitly: "
+            f"{', '.join(unsupported[:12])}. Provide model.required_transforms "
+            "with explicit Qortex transforms before running this bundle."
+        ),
+        severity="error",
+        evidence={"monai_transforms": unsupported[:32]},
+        suggestion=(
+            "Declare explicit Qortex required_transforms for spacing/orientation/"
+            "intensity/crop/pad steps, or use a source already preprocessed exactly "
+            "as the MONAI bundle expects."
+        ),
+    )]
+
+
+def _collect_monai_transform_names(obj: Any) -> set[str]:
+    names: set[str] = set()
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            if key in {"_target_", "target", "name", "type"} and isinstance(value, str):
+                names.add(value.rsplit(".", 1)[-1])
+            if isinstance(key, str) and key.endswith("d") and key[:1].isupper():
+                names.add(key)
+            names.update(_collect_monai_transform_names(value))
+    elif isinstance(obj, list):
+        for value in obj:
+            names.update(_collect_monai_transform_names(value))
+    elif isinstance(obj, str) and obj.endswith("d") and obj[:1].isupper():
+        names.add(obj.rsplit(".", 1)[-1])
+    return names
+
+
+def _is_preprocessing_transform_requiring_mapping(name: str) -> bool:
+    low = name.lower()
+    return any(
+        token in low
+        for token in (
+            "spacing", "orientation", "scaleintensity", "normalizeintensity",
+            "cropforeground", "resize", "resized", "spatialpad", "borderpad",
+            "divisiblepad", "reorient",
+        )
+    )
 
 
 def _apply_monai_postprocess(out: Any, settings: dict[str, Any]) -> Any:

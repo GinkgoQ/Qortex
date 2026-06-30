@@ -32,13 +32,16 @@ import json
 import logging
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 from qortex.neuroai.benchmark import PipelineProfiler
 from qortex.neuroai.compatibility import CompatibilityEngine
 from qortex.neuroai.contracts import (
     CompatibilityReport,
+    InputContract,
     LatencyReport,
     ModelProfile,
+    OutputContract,
     PipelineRunReport,
     PreprocessPlan,
     SourceProfile,
@@ -147,6 +150,7 @@ class Pipeline:
         # Inspect model (no weight download)
         self._model_adapter = make_model_adapter(self._spec.model)
         self._model_profile = self._model_adapter.inspect()
+        _apply_model_contract_overrides(self._model_profile, self._spec.model)
         log.info("Model profile: %s", self._model_profile.model_id)
 
         # Compatibility check
@@ -253,6 +257,7 @@ class Pipeline:
             report = engine.run()
             report.source_profile = self._source_profile
             report.model_profile = self._model_profile
+            _attach_output_contract_to_artifact(report, self._model_profile)
         finally:
             for adapter in output_adapters:
                 try:
@@ -390,26 +395,12 @@ class Pipeline:
             modality=self._spec.source.modality,
         )
 
-        # Stash existing state so we can restore it after replay.
-        saved_source_adapter = self._source_adapter
-        saved_source_profile = self._source_profile
-        saved_compat = self._compat_report
-        saved_plan = self._preprocess_plan
-        saved_checked = self._checked
         original_outputs = self._spec.outputs
-
-        # Build new source adapter and re-run check against replay source.
-        self._source_adapter = make_source_adapter(
-            replay_spec,
-            window_spec=self._spec.window,
-        )
-        # Force re-check so compat report and preprocess plan are fresh for the
-        # replay source — the original source may have different channels or rate.
-        self._checked = False
+        replay_outputs = original_outputs
 
         if output_dir:
             from qortex.neuroai.spec import OutputSpec
-            self._spec.outputs = [
+            replay_outputs = [
                 OutputSpec(
                     type=o.type,
                     path=str(output_dir / Path(o.path or "replay.jsonl").name),
@@ -418,15 +409,12 @@ class Pipeline:
                 for o in original_outputs
             ]
 
-        try:
-            report = self.run()
-        finally:
-            self._source_adapter = saved_source_adapter
-            self._source_profile = saved_source_profile
-            self._compat_report = saved_compat
-            self._preprocess_plan = saved_plan
-            self._checked = saved_checked
-            self._spec.outputs = original_outputs
+        replay_pipeline = Pipeline(replace(
+            self._spec,
+            source=replay_spec,
+            outputs=replay_outputs,
+        ))
+        report = replay_pipeline.run()
 
         return report
 
@@ -519,3 +507,77 @@ def _write_artifact_sidecar(spec: PipelineSpec, report: PipelineRunReport) -> No
         log.info("Provenance written to %s", sidecar)
     except Exception as exc:
         log.debug("Could not write provenance sidecar: %s", exc)
+
+
+def _attach_output_contract_to_artifact(
+    report: PipelineRunReport,
+    model_profile: ModelProfile | None,
+) -> None:
+    contract = getattr(report, "artifact_contract", None)
+    output_contract = getattr(model_profile, "output_contract", None) if model_profile else None
+    if contract is None or output_contract is None:
+        return
+    try:
+        output_type = getattr(output_contract, "output_type", None)
+        if output_type:
+            contract.output_type = str(output_type)
+        if hasattr(output_contract, "model_dump"):
+            schema = output_contract.model_dump()
+        else:
+            schema = dict(getattr(output_contract, "__dict__", {}))
+        contract.output_schema = json.dumps(_json_safe(schema), sort_keys=True)
+    except Exception as exc:
+        log.debug("Could not attach model output contract to artifact contract: %s", exc)
+
+
+def _json_safe(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if hasattr(value, "value"):
+        return value.value
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(v) for v in value]
+    return str(value)
+
+
+def _apply_model_contract_overrides(profile: ModelProfile, model_spec: Any) -> None:
+    input_override = getattr(model_spec, "input_contract", None)
+    output_override = getattr(model_spec, "output_contract", None)
+    if input_override:
+        profile.input_contract = _coerce_input_contract(input_override)
+    if output_override:
+        profile.output_contract = _coerce_output_contract(output_override)
+
+
+def _coerce_input_contract(value: Any) -> InputContract:
+    if isinstance(value, InputContract):
+        return value
+    if hasattr(value, "model_dump"):
+        value = value.model_dump()
+    if not isinstance(value, dict):
+        raise ContractValidationError(
+            "model.input_contract",
+            [f"expected mapping, got {type(value).__name__}"],
+        )
+    try:
+        return InputContract(**value)
+    except Exception as exc:
+        raise ContractValidationError("model.input_contract", [str(exc)]) from exc
+
+
+def _coerce_output_contract(value: Any) -> OutputContract:
+    if isinstance(value, OutputContract):
+        return value
+    if hasattr(value, "model_dump"):
+        value = value.model_dump()
+    if not isinstance(value, dict):
+        raise ContractValidationError(
+            "model.output_contract",
+            [f"expected mapping, got {type(value).__name__}"],
+        )
+    try:
+        return OutputContract(**value)
+    except Exception as exc:
+        raise ContractValidationError("model.output_contract", [str(exc)]) from exc

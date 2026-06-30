@@ -1491,6 +1491,46 @@ def neuroai_check(
         raise typer.Exit(2)
 
 
+@neuroai_app.command("plan")
+def neuroai_plan(
+    pipeline: Path = typer.Argument(..., help="Path to pipeline YAML"),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON"),
+) -> None:
+    """Build and print the executable preprocessing plan.
+
+    Runs the same compatibility check as ``qortex neuroai check`` first, then
+    prints the ordered transforms that will be executed at runtime.
+    """
+    try:
+        from qortex.neuroai import Pipeline
+    except ImportError as e:
+        typer.echo(f"NeuroAI runtime requires additional dependencies: {e}", err=True)
+        raise typer.Exit(1)
+
+    try:
+        pipe = Pipeline.from_yaml(pipeline)
+        report = pipe.check()
+        plan = pipe.plan_preprocessing()
+    except Exception as exc:
+        typer.echo(f"[ERROR] {exc}", err=True)
+        raise typer.Exit(1)
+
+    if json_output:
+        if hasattr(plan, "model_dump_json"):
+            typer.echo(plan.model_dump_json(indent=2))
+        else:
+            typer.echo(json.dumps(getattr(plan, "__dict__", {}), indent=2, default=str))
+    else:
+        typer.echo(report.summary())
+        typer.echo("\n" + plan.summary())
+
+    status = report.status.value if hasattr(report.status, "value") else str(report.status)
+    if status == "incompatible":
+        raise typer.Exit(1)
+    if status == "uncertain":
+        raise typer.Exit(2)
+
+
 @neuroai_app.command("run")
 def neuroai_run(
     pipeline: Path = typer.Argument(..., help="Path to pipeline YAML"),
@@ -1731,6 +1771,16 @@ def neuroai_inspect_model(
     model_id: str = typer.Argument(..., help="Model ID or path (e.g. hf://org/model or model.onnx)"),
     provider: str = typer.Option("huggingface", "--provider", "-p"),
     task: Optional[str] = typer.Option(None, "--task"),
+    input_contract: Optional[Path] = typer.Option(
+        None,
+        "--input-contract",
+        help="JSON/YAML InputContract file for non-self-describing models",
+    ),
+    output_contract: Optional[Path] = typer.Option(
+        None,
+        "--output-contract",
+        help="JSON/YAML OutputContract file for non-self-describing models",
+    ),
 ) -> None:
     """Inspect a model and print its ModelProfile + InputContract.
 
@@ -1746,7 +1796,20 @@ def neuroai_inspect_model(
 
     # Handle hf:// prefix
     model_path = model_id.removeprefix("hf://")
-    spec = ModelSpec(provider=provider, id=model_path, task=task)
+    try:
+        input_contract_data = _load_neuroai_contract_file(input_contract)
+        output_contract_data = _load_neuroai_contract_file(output_contract)
+    except Exception as exc:
+        typer.echo(f"[ERROR] contract file could not be read: {exc}", err=True)
+        raise typer.Exit(1)
+
+    spec = ModelSpec(
+        provider=provider,
+        id=model_path,
+        task=task,
+        input_contract=input_contract_data,
+        output_contract=output_contract_data,
+    )
     try:
         adapter = make_model_adapter(spec)
         profile = adapter.inspect()
@@ -1782,6 +1845,24 @@ def neuroai_inspect_model(
         for w in profile.warnings:
             lines.append(f"  ⚠ [{w.severity}] {w.message}")
     typer.echo("\n".join(lines))
+
+
+def _load_neuroai_contract_file(path: Path | None) -> dict[str, Any] | None:
+    if path is None:
+        return None
+    text = path.read_text(encoding="utf-8")
+    suffix = path.suffix.lower()
+    if suffix == ".json":
+        data = json.loads(text)
+    else:
+        try:
+            import yaml
+        except ImportError as exc:  # pragma: no cover - depends on optional install
+            raise RuntimeError("YAML contract files require PyYAML; use JSON instead") from exc
+        data = yaml.safe_load(text)
+    if not isinstance(data, dict):
+        raise ValueError(f"{path} must contain a mapping/object")
+    return data
 
 
 @neuroai_app.command("suggest-models")

@@ -113,16 +113,41 @@ model:
 model:
   provider: torch             # or: torchscript / ts for TorchScript
   id: model.pt                # or model.ts for TorchScript
-  task: classification
+  task: eeg_classification
+  input_contract:
+    modality: eeg
+    axis_convention: batch_channels_time
+    n_channels: 22
+    sampling_rate_hz: 250
+    window_duration_s: 4
+    dtype: float32
+  output_contract:
+    output_type: classification
+    classes: [left_hand, right_hand]
+    n_classes: 2
 ```
 
 For TorchScript (`provider: torchscript` or path ending in `.ts`), loads with `torch.jit.load()`. For standard PyTorch, loads with `torch.load(weights_only=False)`.
 
-Input shape is inferred from the TorchScript graph or from the first layer's attributes (`in_features` for linear, `in_channels` for conv). FP16 is applied with `.half()` when `runtime.fp16=True` and device contains `"cuda"`.
+Raw PyTorch checkpoints are not self-describing enough for safe NeuroAI use.
+Qortex requires explicit `model.input_contract` and `model.output_contract` for
+`provider: torch`. TorchScript may omit `input_contract` only when graph input
+shape is inspectable, but still requires `output_contract` so output decoding is
+not guessed. FP16 is applied with `.half()` when `runtime.fp16=True` and device
+contains `"cuda"`.
 
-`predict()` output parsing:
-- 1D output → softmax → `ClassificationOutput`
-- Multi-dimensional output → argmax → segmentation mask
+The same contracts can be supplied when inspecting a standalone checkpoint:
+
+```bash
+qortex neuroai inspect-model model.pt --provider torch \
+  --input-contract input_contract.yaml \
+  --output-contract output_contract.yaml
+```
+
+The universal `input_contract` / `output_contract` fields are supported by all
+providers, not only Torch. Use them whenever model configs or bundle metadata do
+not fully express modality, axis convention, channels, sampling rate, geometry,
+or output schema.
 
 ## Braindecode
 
@@ -176,10 +201,11 @@ Bundle resolution order: local directory → local ZIP (extracted to tempdir) �
 `predict()` uses `monai.inferers.sliding_window_inference()` for volumetric
 data, with `roi_size`, sliding-window batch size, overlap, activation,
 argmax/threshold, and label map read from `configs/inference.json` when present
-or from explicit `model:` fields. Qortex does not guess affine-aware spacing or
-orientation transforms from bundle text alone; if a bundle requires a specific
-preprocessing chain, declare it under `model.required_transforms` so the
-compatibility engine can audit and execute it.
+or from explicit `model:` fields. Qortex does not translate MONAI
+spacing/orientation/intensity/crop/pad transforms implicitly. If those
+transforms are present in the bundle config and no explicit Qortex
+`model.required_transforms` mapping is provided, `inspect()` emits an
+error-severity model warning and compatibility blocks before runtime.
 
 ## Ultralytics (YOLOv8)
 

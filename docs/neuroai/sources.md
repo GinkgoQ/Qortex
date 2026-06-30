@@ -41,6 +41,13 @@ recordings. The representative top-level `SourceProfile` uses the first
 successfully profiled recording, while the consistency report tells users when
 the dataset is heterogeneous.
 
+During `read_batch()` and `stream()`, each yielded item receives BIDS
+`source_provenance` with `bids_root`, `relative_path`, and explicit entities
+parsed from the filename (`subject`, `session`, `task`, `run`, `suffix`, and
+other BIDS key-value entities when present). Artifact rows therefore preserve
+which subject/run produced each prediction instead of only reporting the dataset
+root.
+
 ## DICOM folder
 
 ```yaml
@@ -55,6 +62,17 @@ Returns `QortexVolume` with `axes=["z","y","x"]`, `units="HU"`, `coordinate_fram
 
 **PHI handling.** `PatientName`, `PatientID`, `PatientBirthDate`, `PatientSex`, `PatientAge`, `PatientAddress`, `ReferringPhysicianName`, and `InstitutionName` are never written to `SourceProfile` fields, logs, or provenance records. The `source_id` is derived from the directory name only. The `extra["phi_redacted"] = True` flag in `SourceProfile` confirms redaction occurred.
 
+Free-text DICOM fields such as `SeriesDescription` are also excluded by
+default because they can contain identifying or site-specific text. To expose a
+bounded sanitized copy for a controlled research workflow, opt in explicitly:
+
+```yaml
+source:
+  type: dicom
+  path: dicom/study/
+  allow_dicom_free_text_metadata: true
+```
+
 **Preprocessing.** DICOM pixel values are exposed with physical units when the
 header provides `RescaleSlope` / `RescaleIntercept`, but Qortex does not
 automatically normalize HU values to `[0, 1]`. The `PreprocessPlanner` only
@@ -63,9 +81,11 @@ adds transforms required by the model's `InputContract`. If a model requires
 must allow that transform.
 
 **Coordinate frame.** DICOM uses LPS (Left-Posterior-Superior). If the model's
-`InputContract.axis_convention` is `RAS`, the `CompatibilityEngine` plans a
-`reorient(from=LPS, to=RAS)` transform when `preprocessing` allows `reorient`.
-If `reorient` is denied, the compatibility report becomes `incompatible` with a
+`InputContract.axis_convention` differs from the source coordinate frame, the
+`CompatibilityEngine` plans a symmetric `reorient(from=..., to=...)` transform
+for executable three-letter orientation pairs when `preprocessing` allows
+`reorient`. If `reorient` is denied or the pair cannot be represented
+unambiguously, the compatibility report becomes `incompatible` with a
 coordinate-frame blocker.
 
 Auto-detection: a directory without `dataset_description.json` but containing `.dcm` files is routed to `DICOMFolderAdapter`.

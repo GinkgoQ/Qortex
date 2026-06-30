@@ -6,16 +6,18 @@ tags.
 
 PHI handling
 ------------
-PatientName, PatientID, PatientBirthDate, PatientSex, and PatientAge are
-NEVER written to SourceProfile fields, logs, or any Qortex provenance record.
-The source_id uses only the directory name (no patient-derived strings).
+PatientName, PatientID, PatientBirthDate, PatientSex, PatientAge, and free-text
+description fields are NEVER written to SourceProfile fields, logs, or any
+Qortex provenance record by default. The source_id uses only the directory name
+(no patient-derived strings). Free-text series metadata is exposed only when
+``spec.extra["allow_dicom_free_text_metadata"]`` is explicitly true.
 """
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Iterator
 
 import numpy as np
 
@@ -23,7 +25,6 @@ from qortex.core.exceptions import SourceAdapterError
 from qortex.neuroai.contracts import (
     AxisConvention,
     EvidenceStatus,
-    Modality,
     QortexVolume,
     SourceProfile,
     WarningItem,
@@ -120,7 +121,9 @@ class DICOMFolderAdapter(SourceAdapter):
         slice_thickness = float(getattr(ds, "SliceThickness", 1.0))
         rescale_slope = float(getattr(ds, "RescaleSlope", 1.0))
         rescale_intercept = float(getattr(ds, "RescaleIntercept", 0.0))
-        series_desc = str(getattr(ds, "SeriesDescription", ""))  # not PHI
+        allow_free_text = _as_bool(
+            self._spec.extra.get("allow_dicom_free_text_metadata", False)
+        )
 
         # Log only non-PHI fields
         log.info(
@@ -138,6 +141,20 @@ class DICOMFolderAdapter(SourceAdapter):
                 suggestion="Verify DICOM header or supply spacing manually.",
             ))
 
+        extra = {
+            "pixel_spacing_mm": pixel_spacing,
+            "slice_thickness_mm": slice_thickness,
+            "rescale_slope": rescale_slope,
+            "rescale_intercept": rescale_intercept,
+            "series_count": len(self._group_by_series(dcm_files)),
+            "phi_redacted": True,
+            "free_text_metadata_included": allow_free_text,
+        }
+        if allow_free_text:
+            extra["series_description"] = _safe_free_text(
+                getattr(ds, "SeriesDescription", "")
+            )
+
         return SourceProfile(
             source_id=self.source_id,
             source_type="dicom",
@@ -151,15 +168,7 @@ class DICOMFolderAdapter(SourceAdapter):
             path=str(self._root),
             warnings=warnings,
             evidence_status=EvidenceStatus.confirmed,
-            extra={
-                "pixel_spacing_mm": pixel_spacing,
-                "slice_thickness_mm": slice_thickness,
-                "rescale_slope": rescale_slope,
-                "rescale_intercept": rescale_intercept,
-                "series_description": series_desc,
-                "series_count": len(self._group_by_series(dcm_files)),
-                "phi_redacted": True,
-            },
+            extra=extra,
         )
 
     def read_batch(self) -> list[QortexData]:
@@ -276,3 +285,24 @@ def _require_pydicom():
             "Install with: pip install 'qortex[dicom]'",
             source_type="dicom",
         )
+
+
+def _safe_free_text(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    # Keep opt-in free text bounded and single-line; PHI exclusion is still the
+    # caller's responsibility when allow_dicom_free_text_metadata=True.
+    return " ".join(text.split())[:256]
+
+
+def _as_bool(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    return False

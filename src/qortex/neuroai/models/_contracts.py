@@ -266,6 +266,15 @@ _REGISTRY: list[ModelContractEntry] = [
             spatial_shape=(240, 240, 155),
             dtype="float32",
             intensity_range=None,    # per-channel z-score expected (specified in InputContract)
+            required_transforms=[
+                {
+                    "kind": "normalize",
+                    "required_by": "model_contract.preprocessing",
+                    "params": {"method": "channel_zscore", "eps": 1e-8},
+                    "reversible": False,
+                    "irreversible_reason": "MRI channel z-score normalization changes intensity scale.",
+                }
+            ],
             evidence_status=EvidenceStatus.confirmed,
         ),
         output_contract=OutputContract(

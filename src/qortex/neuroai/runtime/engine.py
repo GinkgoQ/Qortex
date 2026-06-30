@@ -12,6 +12,7 @@ allowed but will log a warning.
 from __future__ import annotations
 
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
@@ -116,19 +117,60 @@ class RuntimeEngine:
         _trigger_required: int = int(trigger.when.get("stable_for", 1)) if trigger else 1
         batch_size = max(1, int(getattr(self._spec.runtime, "batch_size", 1) or 1))
         num_workers = max(0, int(getattr(self._spec.runtime, "num_workers", 0) or 0))
+        source_failure_policy = getattr(self._spec.runtime, "source_failure_policy", "strict")
+        preprocess_failure_policy = getattr(self._spec.runtime, "preprocess_failure_policy", "strict")
+        max_windows = getattr(self._spec.runtime, "max_windows", None)
+        max_duration_s = getattr(self._spec.runtime, "max_duration_s", None)
+        idle_timeout_s = getattr(self._spec.runtime, "idle_timeout_s", None)
+        started_at = time.monotonic()
+        last_item_at = started_at
 
         with ThreadPoolExecutor(max_workers=num_workers) if num_workers > 0 else _NullExecutor() as pool:
             stream = iter(self._source.stream())
             while True:
+                now = time.monotonic()
+                if max_windows is not None and n_seen >= int(max_windows):
+                    break
+                if max_duration_s is not None and (now - started_at) >= float(max_duration_s):
+                    warnings.append(WarningItem(
+                        code="RUNTIME_MAX_DURATION_REACHED",
+                        message=f"Stopped after runtime.max_duration_s={max_duration_s}.",
+                        severity="info",
+                    ))
+                    break
+                if (
+                    idle_timeout_s is not None
+                    and n_seen == 0
+                    and (now - last_item_at) >= float(idle_timeout_s)
+                ):
+                    errors.append(
+                        f"No source windows received before idle_timeout_s={idle_timeout_s}"
+                    )
+                    break
                 batch: list[WindowRecord] = []
+                abort_source = False
                 for _ in range(batch_size):
+                    if max_windows is not None and n_seen >= int(max_windows):
+                        break
                     self._profiler.start_source_read()
                     try:
                         data_item = next(stream)
                     except StopIteration:
                         self._profiler.end_source_read()
                         break
+                    except Exception as exc:
+                        self._profiler.end_source_read()
+                        err_msg = f"Source read error at window {n_seen}: {exc}"
+                        log.warning(err_msg)
+                        errors.append(err_msg)
+                        self._profiler.commit_window(dropped=True, error=err_msg)
+                        n_seen += 1
+                        if source_failure_policy == "strict":
+                            abort_source = True
+                            break
+                        continue
                     self._profiler.end_source_read()
+                    last_item_at = time.monotonic()
                     batch.append(
                         WindowRecord(
                             index=n_seen,
@@ -143,25 +185,43 @@ class RuntimeEngine:
                     )
                     n_seen += 1
 
+                if abort_source and not batch:
+                    break
+                stop_after_batch = abort_source
                 if not batch:
                     break
 
                 # ── Preprocessing ───────────────────────────────────────────
                 self._profiler.start_preprocess()
                 preprocessed: list[WindowRecord] = []
+                dropped_preprocess: list[tuple[WindowRecord, Exception]] = []
                 try:
-                    if num_workers > 0 and len(batch) > 1:
-                        preprocessed = list(pool.map(self._preprocess_record, batch))
-                    else:
-                        preprocessed = [self._preprocess_record(record) for record in batch]
+                    preprocessed, dropped_preprocess = self._preprocess_batch(
+                        batch,
+                        pool=pool,
+                        num_workers=num_workers,
+                        failure_policy=preprocess_failure_policy,
+                    )
                 except Exception as exc:
+                    self._profiler.end_preprocess()
                     err_msg = f"Preprocess error on batch starting at window {batch[0].index}: {exc}"
                     log.warning(err_msg)
                     errors.append(err_msg)
-                    for _record in batch:
-                        self._profiler.commit_window(dropped=True, error=str(exc))
+                    self._profiler.commit_batch(len(batch), dropped=True, error=err_msg)
+                    if stop_after_batch:
+                        break
                     continue
                 self._profiler.end_preprocess()
+                for record, exc in dropped_preprocess:
+                    err_msg = f"Preprocess error on window {record.index}: {exc}"
+                    log.warning(err_msg)
+                    errors.append(err_msg)
+                if not preprocessed:
+                    first_error = str(dropped_preprocess[0][1]) if dropped_preprocess else "no preprocessed windows"
+                    self._profiler.commit_batch(len(batch), dropped=True, error=first_error)
+                    if stop_after_batch:
+                        break
+                    continue
 
                 # ── Inference ───────────────────────────────────────────────
                 self._profiler.start_inference()
@@ -178,11 +238,18 @@ class RuntimeEngine:
                             f"{len(preprocessed)} input window(s)"
                         )
                 except Exception as exc:
+                    self._profiler.end_inference()
                     err_msg = f"Inference error on batch starting at window {preprocessed[0].index}: {exc}"
                     log.warning(err_msg)
                     errors.append(err_msg)
-                    for _record in preprocessed:
-                        self._profiler.commit_window(dropped=True, error=str(exc))
+                    self._profiler.commit_batch(len(preprocessed), dropped=True, error=err_msg)
+                    for record, dropped_exc in dropped_preprocess:
+                        self._profiler.commit_window(
+                            dropped=True,
+                            error=f"Preprocess error on window {record.index}: {dropped_exc}",
+                        )
+                    if stop_after_batch:
+                        break
                     continue
                 self._profiler.end_inference()
 
@@ -228,11 +295,20 @@ class RuntimeEngine:
                     n_ok += 1
                 self._profiler.end_output_write()
                 self._profiler.commit_batch(len(prepared_outputs))
+                for record, exc in dropped_preprocess:
+                    self._profiler.commit_window(
+                        dropped=True,
+                        error=f"Preprocess error on window {record.index}: {exc}",
+                    )
+                if stop_after_batch:
+                    break
 
         latency_report = self._profiler.report()
         artifact_contract = self._make_artifact_contract(latency_report)
 
         n_outputs_written = sum(getattr(o, "n_written", 0) for o in self._outputs)
+        if n_ok == 0 and getattr(self._spec.runtime, "fail_on_no_windows", True):
+            errors.append("No windows were successfully processed.")
         success = n_ok > 0 and not any(e for e in errors)
         return PipelineRunReport(
             success=success,
@@ -264,6 +340,42 @@ class RuntimeEngine:
         record.metadata["preprocessed_shape"] = _shape_of(record.array)
         record.metadata["preprocessed_dtype"] = _dtype_of(record.array)
         return record
+
+    def _preprocess_batch(
+        self,
+        batch: list[WindowRecord],
+        *,
+        pool: Any,
+        num_workers: int,
+        failure_policy: str,
+    ) -> tuple[list[WindowRecord], list[tuple[WindowRecord, Exception]]]:
+        if failure_policy == "strict":
+            if num_workers > 0 and len(batch) > 1:
+                return list(pool.map(self._preprocess_record, batch)), []
+            return [self._preprocess_record(record) for record in batch], []
+
+        if failure_policy != "drop_failed":
+            raise RuntimeError(
+                f"Unsupported runtime.preprocess_failure_policy={failure_policy!r}"
+            )
+
+        ok: list[WindowRecord] = []
+        dropped: list[tuple[WindowRecord, Exception]] = []
+        if num_workers > 0 and len(batch) > 1 and hasattr(pool, "submit"):
+            futures = [(record, pool.submit(self._preprocess_record, record)) for record in batch]
+            for record, fut in futures:
+                try:
+                    ok.append(fut.result())
+                except Exception as exc:
+                    dropped.append((record, exc))
+            return ok, dropped
+
+        for record in batch:
+            try:
+                ok.append(self._preprocess_record(record))
+            except Exception as exc:
+                dropped.append((record, exc))
+        return ok, dropped
 
     def _make_artifact_contract(self, latency_report) -> ArtifactContract:
         from qortex import __version__

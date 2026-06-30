@@ -314,3 +314,6 @@ SHA-256 entries, JSONL prediction records, trigger marker records, CSV columns,
 Parquet metadata, NIfTI mask readability/shape, COCO JSON structure, YOLO box
 normalization, DICOM output headers when `pydicom` is installed, and
 consistency between observed output records and `runtime_report.json.outputs`.
+When `artifact_contract.json` includes the model `OutputContract`, validation
+also checks available output type evidence and NIfTI output shape against that
+contract.

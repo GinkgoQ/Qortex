@@ -217,9 +217,9 @@ All are `@dataclass`. `from_yaml()` → `from_dict()` → construct. `to_dict()`
 **Sub-specs:**
 - `SourceSpec`: type, path, query (LSL filter), subjects, sessions, modality, suffix, extra. Accepts scalar aliases `subject` and `session`, then normalizes them to lists.
 - `WindowSpec`: duration_s, step_s, overlap_frac, tmin, event_aligned, drop_short. Parses `"2s"` / `"500ms"` strings and accepts both `duration_s` / `step_s` and serialized `duration` / `step`.
-- `ModelSpec`: provider, id, task, revision, trust_remote_code, extra
-- `PreprocessSpec`: mode (auto/explicit/none), allow, deny, normalize, resample, channel_select. `allows(kind)` first enforces mode and boolean gates, then `deny`, then `allow`. `normalize=False`, `resample=False`, and `channel_select=False` are real policy blockers, not documentation-only fields.
-- `RuntimeSpec`: device (auto/cpu/cuda/mps), latency_budget_ms, optimize (safe/speed/memory), batch_size, fp16, cache_model
+- `ModelSpec`: provider, id, task, revision, trust_remote_code, universal `input_contract` / `output_contract`, extra
+- `PreprocessSpec`: mode (auto/explicit/none), allow, deny, normalize, resample, channel_select, channel_map. `allows(kind)` first enforces mode and boolean gates, then `deny`, then `allow`. `normalize=False`, `resample=False`, and `channel_select=False` are real policy blockers, not documentation-only fields. `channel_map` is executable only when every missing target channel maps to an available source channel.
+- `RuntimeSpec`: device (auto/cpu/cuda/mps), latency_budget_ms, optimize (safe/speed/memory), batch_size, num_workers, fp16, cache_model, source_failure_policy, preprocess_failure_policy, max_windows, max_duration_s, idle_timeout_s, fail_on_no_windows
 - `OutputSpec`: type, path, stream_name, append, extra
 - `TriggerSpec`: when (class, probability_gte, stable_for), emit. `evaluate(prediction_dict)` → bool
 
@@ -234,7 +234,7 @@ Boolean parsing is explicit. `"false"`, `"0"`, `"no"`, and `"off"` are false; `"
 **Enums:**
 - `EvidenceStatus`: confirmed / inferred / missing / unknown / blocked
 - `CompatibilityStatus`: compatible / compatible_with_transforms / uncertain / incompatible
-- `TransformKind`: resample, channel_select, channel_reorder, channel_map, bandpass, normalize, window, cast_dtype, rescale_intensity, reorient, resample_spatial, pad_or_crop, add_batch_dim, add_channel_dim, to_tensor
+- `TransformKind`: resample, channel_select, channel_reorder, channel_map, bandpass, normalize, window, cast_dtype, rescale_intensity, reorient, resample_spatial, pad_or_crop, add_batch_dim, add_channel_dim, transpose_axes, to_tensor
 - `AxisConvention`: RAS, LAS, LPS, spatial_zyx, spatial_xyz, channels_first, channels_last, time_channels, channels_time, batch_channels_time, batch_channels_xyz (`batch_channels_spatial` does NOT exist)
 - `Modality`: eeg, meg, ieeg, fnirs, mri, fmri, dwi, pet, dicom, image, video, tabular, signal, unknown
 
@@ -280,7 +280,8 @@ required_channels: list[str], n_channels: int|None
 sampling_rate_hz: float|None, window_duration_s: float|None
 spatial_shape: tuple|None, voxel_sizes_mm: tuple|None
 dtype: str, intensity_range: tuple|None, batch_size: int|None
-required_metadata: list[str], evidence_status: EvidenceStatus
+required_metadata: list[str], required_transforms, preferred_transforms,
+forbidden_transforms, evidence_status: EvidenceStatus
 ```
 (NOT: evidence={})
 
@@ -320,10 +321,13 @@ Per-check functions (each appends to `transforms`, `blockers`, `warnings`, `unkn
 - `_check_modality` — exact match or known alias
 - `_check_channels` — n_channels match; insert `channel_select` if src > req; blocker if src < req
 - `_check_sampling_rate` — insert `resample` if mismatch AND preprocess allows; blocker if not allowed
-- `_check_spatial` — shape + voxel; insert `resample_spatial` only for concrete target shapes and `pad_or_crop` when allowed
+- `_check_spatial_shape` — insert `resample_spatial` only for concrete target shapes and `pad_or_crop` when allowed
 - `_check_dtype` — insert `cast_dtype`
-- `_check_axis_convention` — insert `reorient` for LPS↔RAS, insert `transpose_axes` for supported layout swaps, otherwise block as incompatible
-- `_check_coordinate_frame` — DICOM LPS→RAS specific message + `reorient` transform
+- `_check_intensity_range` — compare explicit source `intensity_range` / `value_range` with `InputContract.intensity_range`; insert `rescale_intensity` only when allowed, otherwise block
+- `_check_axis_convention` — insert `transpose_axes` for supported layout swaps, otherwise block as incompatible; spatial frame pairs are delegated to coordinate-frame logic
+- `_check_voxel_spacing` — voxel spacing mismatch is transform-required or incompatible, not warning-only
+- `_check_coordinate_frame` — symmetric RAS/LPS/LAS orientation handling with `reorient`; denied or unsupported pairs block
+- `_check_fmri_timebase` — fMRI TR mismatch blocks because temporal resampling is not yet an executable transform
 - `_merge_model_required_transforms` — merge `InputContract.required_transforms` into the executable plan and block if denied
 - `_check_memory` — estimate vs `estimated_memory_mb`; warning only
 - `_check_required_metadata` — missing required fields → blocker
@@ -389,7 +393,7 @@ opt-out.
 metadata into output adapter metadata. Output summaries separate prediction
 records, marker records, and total records.
 
-**`replay(source_path, speed=1.0)`**: re-probes new source (re-builds `_source_profile` and `_preprocess_plan`); does not reload model if already loaded.
+**`replay(source_path, speed=1.0)`**: builds a temporary pipeline with the replay source spec, re-probes the new source, rebuilds compatibility/preprocessing, and runs against the replay source without mutating the original pipeline state.
 
 **`benchmark(n_windows=100)`**: calls `PipelineProfiler` without writing outputs; returns `LatencyReport`. Batch runs report both derived per-window latency and real batch p50/p95/p99 plus throughput.
 
@@ -574,7 +578,7 @@ Routes by `spec.provider`. Unknown provider → `ModelAdapterError`.
 
 `inspect()` → `AutoConfig.from_pretrained(id, revision=...)` (no weights). Extracts labels from `config.id2label`.
 `load()` → `AutoModel.from_pretrained(id, revision=...)`. Raises real `ModelAdapterError` (not dynamic class).
-`predict()` → forward pass; applies softmax for classification.
+`predict()` → forward pass for native HuggingFace tasks; classification logits are decoded with softmax when the output contract declares classification probabilities.
 
 ### `onnx.py` — `ONNXModelAdapter`
 
@@ -584,9 +588,9 @@ Routes by `spec.provider`. Unknown provider → `ModelAdapterError`.
 
 ### `torch.py` — `TorchModelAdapter`
 
-`inspect()` → SHA-256 hash of file, infers n_params from `.parameters()` if loadable without weights.
+`inspect()` → SHA-256 hash of file, infers n_params from `.parameters()` if loadable without weights, and requires explicit `model.input_contract` / `model.output_contract` for raw `.pt` checkpoints. TorchScript may omit `input_contract` only when graph input shape is inspectable, but still requires `output_contract`.
 `load()` → `torch.jit.load()` for TorchScript; `torch.load(weights_only=False)` for `.pt`. Applies `.half()` for fp16+cuda.
-`predict()` → 1D output → softmax → `ClassificationOutput`; multi-dim → argmax → segmentation.
+`predict()` decodes according to the declared task/output contract; raw PyTorch is not treated as safe self-describing neurodata.
 
 `ModelProfile`: `estimated_params=n_params` (NOT `n_parameters`). No `extra={}` field.
 `InputContract`: `evidence_status=EvidenceStatus.inferred` (NOT `evidence={}`).
@@ -602,7 +606,7 @@ deepfbcspnet → Deep4Net
 eegconformer → EEGConformer
 tidnet → TIDNet
 ```
-Unknown → `AutoModel.from_pretrained()`. Input always `[batch, channels, time]`. Applies softmax.
+Unknown built-in names are not instantiated from guessed dimensions. Input is always `[batch, channels, time]`; classification logits are decoded with softmax.
 
 `evidence_status = confirmed if n_channels else unknown`.
 
@@ -611,7 +615,8 @@ Unknown → `AutoModel.from_pretrained()`. Input always `[batch, channels, time]
 Bundle resolution: local dir → local ZIP (extract to tempdir) → MONAI Hub download.
 `inspect()` reads `configs/metadata.json` + `configs/inference.json`.
 `load()` → `monai.bundle.ConfigParser` for network, `torch.load` for weights.
-`predict()` → `monai.inferers.sliding_window_inference(roi_size=(96,96,96))` for volumes.
+`predict()` → `monai.inferers.sliding_window_inference()` for volumes, using ROI size, sliding-window batch size, overlap, activation, threshold/argmax, and label map from MONAI config or explicit `model:` fields.
+Spacing/orientation/intensity/crop/pad transforms are not translated implicitly. If a bundle config declares those transforms and the user does not provide explicit Qortex `model.required_transforms`, `inspect()` attaches an error-severity warning and compatibility blocks.
 
 `AxisConvention.batch_channels_xyz` (NOT `batch_channels_spatial`).
 

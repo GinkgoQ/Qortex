@@ -1,7 +1,7 @@
 {
   "qortex_version": "0.1.0",
-  "created_at": "2026-06-30T02:36:50.021504+00:00",
-  "pipeline_spec_hash": "580511c8e437bb1eaaede996b50260791753d1677f005c7539937a8a823dd8c2",
+  "created_at": "2026-06-30T03:11:55.964668+00:00",
+  "pipeline_spec_hash": "8356345dc9bd84af31c0723b0eff9334591795587a078c7a1d4fd683d01c0aaa",
   "pipeline_name": "project_21_neuroai_runtime",
   "source": {
     "source_id": "local_file:input_features.csv",
@@ -25,5 +25,5 @@
   "outputs_written": 2,
   "windows_processed": 1,
   "errors": [],
-  "pipeline_ref": "ff924149d01e"
+  "pipeline_ref": "5fe47cdc27b1"
 }

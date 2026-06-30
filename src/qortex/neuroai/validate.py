@@ -176,6 +176,7 @@ def validate_artifact(
 
     manifest_path = root / "artifact_manifest.json"
     manifest = _read_json(manifest_path, issues, "artifact_manifest.json")
+    artifact_contract = _read_json(root / "artifact_contract.json", issues, "artifact_contract.json")
     manifest_files = manifest.get("files", {}) if isinstance(manifest, dict) else {}
     if not isinstance(manifest_files, dict):
         issues.append(ArtifactValidationIssue(
@@ -270,6 +271,7 @@ def validate_artifact(
                     "records": None,
                     "marker_records": 0,
                 }
+            _validate_output_against_contract(stats, artifact_contract, issues)
             output_files.append(stats)
             n_prediction_records += int(stats.get("prediction_records") or stats.get("records") or 0)
             n_marker_records += int(stats.get("marker_records") or 0)
@@ -351,6 +353,7 @@ def _inspect_jsonl(
     marker_records = 0
     malformed_records = 0
     missing_metadata = 0
+    output_types: set[str] = set()
     with path.open("r", encoding="utf-8") as fh:
         for line_no, line in enumerate(fh, 1):
             line = line.strip()
@@ -393,6 +396,7 @@ def _inspect_jsonl(
                     path=rel_path,
                 ))
                 continue
+            output_types.add(str(record.get("output_type")))
             prediction_records += 1
             missing = [
                 key for key in ("window_index", "input_shape", "preprocessed_shape")
@@ -414,6 +418,7 @@ def _inspect_jsonl(
         "marker_records": marker_records,
         "malformed_records": malformed_records,
         "records_with_missing_metadata": missing_metadata,
+        "output_types": sorted(output_types),
     }
 
 
@@ -661,6 +666,94 @@ def _inspect_dicom(
         "modality": modality,
         "sop_class_uid": sop_class,
     }
+
+
+def _validate_output_against_contract(
+    stats: dict[str, Any],
+    artifact_contract: dict[str, Any],
+    issues: list[ArtifactValidationIssue],
+) -> None:
+    if not isinstance(artifact_contract, dict) or not artifact_contract:
+        return
+    expected_type = artifact_contract.get("output_type")
+    if expected_type:
+        expected = str(expected_type)
+        observed_types = stats.get("output_types")
+        if observed_types:
+            if expected not in {str(v) for v in observed_types}:
+                issues.append(ArtifactValidationIssue(
+                    code="OUTPUT_TYPE_CONTRACT_MISMATCH",
+                    message="Prediction records do not match artifact_contract.output_type.",
+                    severity="warning",
+                    path=stats.get("path"),
+                    expected=expected,
+                    observed=observed_types,
+                ))
+        elif not _file_type_satisfies_output_contract(str(stats.get("type", "")), expected):
+            issues.append(ArtifactValidationIssue(
+                code="OUTPUT_FILE_TYPE_CONTRACT_MISMATCH",
+                message="Output file type is unusual for the declared artifact output_type.",
+                severity="warning",
+                path=stats.get("path"),
+                expected=expected,
+                observed=stats.get("type"),
+            ))
+
+    schema = _artifact_output_schema(artifact_contract)
+    output_shape = schema.get("output_shape") if isinstance(schema, dict) else None
+    if stats.get("type") == "nifti" and output_shape and stats.get("shape"):
+        expected_shape = _positive_int_list(output_shape)
+        observed_shape = [int(v) for v in stats.get("shape", [])]
+        if expected_shape and observed_shape[: len(expected_shape)] != expected_shape:
+            issues.append(ArtifactValidationIssue(
+                code="NIFTI_OUTPUT_SHAPE_CONTRACT_MISMATCH",
+                message="NIfTI output shape does not match artifact output schema.",
+                severity="warning",
+                path=stats.get("path"),
+                expected=expected_shape,
+                observed=observed_shape,
+            ))
+
+
+def _artifact_output_schema(artifact_contract: dict[str, Any]) -> dict[str, Any]:
+    raw = artifact_contract.get("output_schema")
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            decoded = json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+        return decoded if isinstance(decoded, dict) else {}
+    return {}
+
+
+def _file_type_satisfies_output_contract(file_type: str, output_type: str) -> bool:
+    out = output_type.lower()
+    ftype = file_type.lower()
+    if ftype in {"jsonl", "csv", "parquet", "json"}:
+        return True
+    if ftype == "nifti":
+        return any(token in out for token in ("segmentation", "mask", "volume", "nifti"))
+    if ftype in {"coco", "yolo"}:
+        return any(token in out for token in ("detection", "bbox", "object"))
+    if ftype == "dicom":
+        return any(token in out for token in ("dicom", "seg", "sr", "structured_report"))
+    return True
+
+
+def _positive_int_list(value: Any) -> list[int]:
+    result: list[int] = []
+    if not isinstance(value, (list, tuple)):
+        return result
+    for item in value:
+        try:
+            number = int(item)
+        except (TypeError, ValueError):
+            continue
+        if number > 0:
+            result.append(number)
+    return result
 
 
 def _validate_runtime_output_counts(

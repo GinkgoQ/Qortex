@@ -144,13 +144,20 @@ class CompatibilityEngine:
             source, contract, preprocess, transforms, blockers, warnings, evidence
         )
 
+        # ── Intensity range check (image / volume sources) ────────────────────
+        self._check_intensity_range(
+            source, contract, preprocess, transforms, blockers, warnings, unknowns, evidence
+        )
+
         # ── Axis convention check ─────────────────────────────────────────────
         axis_match = self._check_axis_convention(
             source, contract, preprocess, transforms, blockers, warnings, evidence
         )
 
         # ── Voxel spacing check (volume sources) ──────────────────────────────
-        self._check_voxel_spacing(source, contract, warnings, unknowns, evidence)
+        self._check_voxel_spacing(
+            source, contract, preprocess, transforms, blockers, warnings, unknowns, evidence
+        )
 
         # ── Coordinate frame check ─────────────────────────────────────────────
         self._check_coordinate_frame(
@@ -158,7 +165,7 @@ class CompatibilityEngine:
         )
 
         # ── fMRI timebase / TR check ───────────────────────────────────────────
-        self._check_fmri_timebase(source, contract, warnings, unknowns, evidence)
+        self._check_fmri_timebase(source, contract, preprocess, blockers, warnings, unknowns, evidence)
 
         self._merge_model_required_transforms(
             contract, preprocess, transforms, blockers, warnings, evidence
@@ -301,11 +308,21 @@ class CompatibilityEngine:
         if req_names and source.channel_names:
             missing = [ch for ch in req_names if ch not in source.channel_names]
             if missing:
-                if preprocess.allows("channel_map"):
+                channel_map = getattr(preprocess, "channel_map", {}) or {}
+                mapped_missing = {
+                    target: channel_map.get(target)
+                    for target in missing
+                    if channel_map.get(target) in source.channel_names
+                }
+                if preprocess.allows("channel_map") and len(mapped_missing) == len(missing):
                     transforms.append(TransformDescriptor(
                         kind=TransformKind.channel_map,
                         required_by="input_contract.required_channels",
-                        params={"missing_channels": missing},
+                        params={
+                            "mapping": dict(channel_map),
+                            "source_names": list(source.channel_names),
+                            "target_names": list(req_names),
+                        },
                         reversible=False,
                         evidence_status=EvidenceStatus.inferred,
                     ))
@@ -315,16 +332,23 @@ class CompatibilityEngine:
                                 f"{missing[:5]}{'...' if len(missing) > 5 else ''}. "
                                 "Channel mapping will be applied.",
                         severity="warning",
-                        evidence={"missing": missing[:10]},
-                        suggestion="Ensure source has all required channels or provide a channel map.",
+                        evidence={"missing": missing[:10], "mapping": mapped_missing},
+                        suggestion="Verify the channel map before using model outputs scientifically.",
                     ))
+                    return EvidenceStatus.confirmed
                 else:
                     blockers.append(WarningItem(
                         code="MISSING_CHANNELS",
                         message=f"Model requires channels {req_names} but source has "
-                                f"{source.channel_names}. "
-                                "Transform 'channel_map' is not allowed.",
+                                f"{source.channel_names}. An explicit executable "
+                                "preprocessing.channel_map is required for missing channels.",
                         severity="error",
+                        evidence={"missing": missing[:10]},
+                        suggestion=(
+                            "Provide preprocessing.channel_map mapping required target "
+                            "channel names to available source channel names, or use a "
+                            "source with the required montage."
+                        ),
                     ))
                     return EvidenceStatus.missing
 
@@ -565,6 +589,99 @@ class CompatibilityEngine:
 
         return EvidenceStatus.confirmed
 
+    def _check_intensity_range(
+        self,
+        source: SourceProfile,
+        contract: InputContract,
+        preprocess: PreprocessSpec,
+        transforms: list,
+        blockers: list,
+        warnings: list,
+        unknowns: list,
+        evidence: list,
+    ) -> None:
+        """Verify declared numeric input range against the model contract."""
+        req_range = _coerce_numeric_range(getattr(contract, "intensity_range", None))
+        if req_range is None:
+            return
+
+        src_extra = source.extra or {}
+        src_range = (
+            _coerce_numeric_range(src_extra.get("intensity_range"))
+            or _coerce_numeric_range(src_extra.get("value_range"))
+        )
+        if src_range is None:
+            unknowns.append(
+                "source intensity_range/value_range is unknown — cannot verify "
+                f"model expected range {req_range}"
+            )
+            evidence.append({
+                "check": "intensity_range",
+                "status": "unknown",
+                "required": list(req_range),
+            })
+            return
+
+        if _ranges_close(src_range, req_range):
+            evidence.append({
+                "check": "intensity_range",
+                "status": "ok",
+                "source": list(src_range),
+                "required": list(req_range),
+            })
+            return
+
+        if preprocess.allows("rescale_intensity"):
+            transforms.append(TransformDescriptor(
+                kind=TransformKind.rescale_intensity,
+                required_by="input_contract.intensity_range",
+                params={
+                    "in_min": src_range[0],
+                    "in_max": src_range[1],
+                    "out_min": req_range[0],
+                    "out_max": req_range[1],
+                    "clip": True,
+                },
+                reversible=False,
+                irreversible_reason="Intensity rescaling changes the distribution expected by downstream interpretation.",
+                evidence_status=EvidenceStatus.inferred,
+            ))
+            warnings.append(WarningItem(
+                code="INTENSITY_RESCALE_REQUIRED",
+                message=(
+                    f"Source intensity range {src_range} does not match model "
+                    f"expected range {req_range}; rescale_intensity will be applied."
+                ),
+                severity="warning",
+                evidence={"source": list(src_range), "required": list(req_range)},
+                suggestion="Verify this rescaling matches the model training preprocessing.",
+            ))
+            evidence.append({
+                "check": "intensity_range",
+                "status": "transform_required",
+                "source": list(src_range),
+                "required": list(req_range),
+                "transform": "rescale_intensity",
+            })
+            return
+
+        blockers.append(WarningItem(
+            code="INTENSITY_RANGE_MISMATCH",
+            message=(
+                f"Source intensity range {src_range} does not match model expected "
+                f"range {req_range}, and rescale_intensity is not allowed."
+            ),
+            severity="error",
+            evidence={"source": list(src_range), "required": list(req_range)},
+            suggestion="Allow rescale_intensity with an explicit contract, or provide data already in the model training range.",
+        ))
+        evidence.append({
+            "check": "intensity_range",
+            "status": "blocked",
+            "source": list(src_range),
+            "required": list(req_range),
+        })
+
     def _check_axis_convention(
         self,
         source: SourceProfile,
@@ -701,6 +818,9 @@ class CompatibilityEngine:
         self,
         source: SourceProfile,
         contract: InputContract,
+        preprocess: PreprocessSpec,
+        transforms: list,
+        blockers: list,
         warnings: list,
         unknowns: list,
         evidence: list,
@@ -716,11 +836,11 @@ class CompatibilityEngine:
 
         # Check element-wise within 10% tolerance
         if len(req_vox) != len(src_vox):
-            warnings.append(WarningItem(
+            blockers.append(WarningItem(
                 code="VOXEL_SPACING_DIM_MISMATCH",
                 message=f"Source voxel size has {len(src_vox)} dims but model expects "
-                        f"{len(req_vox)}. Spacing check skipped.",
-                severity="warning",
+                        f"{len(req_vox)}.",
+                severity="error",
             ))
             return
 
@@ -731,13 +851,57 @@ class CompatibilityEngine:
         ]
         if mismatched:
             details = ", ".join(f"dim{i}: {s:.2f}mm vs {r:.2f}mm" for i, s, r in mismatched)
-            warnings.append(WarningItem(
+            target_shape = tuple(int(v) for v in contract.spatial_shape or () if int(v) > 0)
+            if preprocess.allows("resample_spatial") and target_shape and len(target_shape) == len(req_vox):
+                existing = next((t for t in transforms if _transform_kind_value(t) == "resample_spatial"), None)
+                if existing is not None:
+                    existing.params.update({
+                        "from_voxel_sizes_mm": [float(v) for v in src_vox],
+                        "to_voxel_sizes_mm": [float(v) for v in req_vox],
+                    })
+                else:
+                    transforms.append(TransformDescriptor(
+                        kind=TransformKind.resample_spatial,
+                        required_by="input_contract.voxel_sizes_mm",
+                        params={
+                            "from_voxel_sizes_mm": [float(v) for v in src_vox],
+                            "to_voxel_sizes_mm": [float(v) for v in req_vox],
+                            "to_shape": list(target_shape),
+                            "spatial_axes": list(range(-len(target_shape), 0)),
+                            "order": 1,
+                        },
+                        reversible=False,
+                        irreversible_reason="Voxel-size resampling interpolates image intensities and changes spatial sampling.",
+                        evidence_status=EvidenceStatus.inferred,
+                    ))
+                warnings.append(WarningItem(
+                    code="VOXEL_SPACING_RESAMPLE_REQUIRED",
+                    message=(
+                        f"Voxel spacing mismatch (>10%): {details}. "
+                        "resample_spatial will be applied to the model's declared geometry."
+                    ),
+                    severity="warning",
+                    evidence={"source_mm": list(src_vox), "required_mm": list(req_vox)},
+                    suggestion="Verify interpolation order and model training spacing before clinical or quantitative use.",
+                ))
+                evidence.append({
+                    "check": "voxel_spacing",
+                    "status": "transform_required",
+                    "source_mm": list(src_vox),
+                    "required_mm": list(req_vox),
+                    "transform": "resample_spatial",
+                })
+                return
+            blockers.append(WarningItem(
                 code="VOXEL_SPACING_MISMATCH",
                 message=f"Voxel spacing mismatch (>10%): {details}. "
-                        "Consider using resample_spatial to match the model's expected resolution.",
-                severity="warning",
+                        "This changes anatomy scale and cannot be treated as warning-only.",
+                severity="error",
                 evidence={"source_mm": list(src_vox), "required_mm": list(req_vox)},
-                suggestion="Add 'resample_spatial' to preprocessing.allow in the pipeline YAML.",
+                suggestion=(
+                    "Allow resample_spatial and declare a concrete model spatial_shape, "
+                    "or use data already sampled at the model resolution."
+                ),
             ))
         else:
             evidence.append({"check": "voxel_spacing", "status": "ok",
@@ -762,51 +926,65 @@ class CompatibilityEngine:
         src_str = _contract_value(src_conv)
         req_str = _contract_value(req_conv)
 
-        # Spatial coordinate frame mismatch (LPS vs RAS)
-        _LPS = {"LPS", "spatial_zyx"}
-        _RAS = {"RAS", "spatial_xyz"}
+        src_frame = _normalise_spatial_frame(src_str)
+        req_frame = _normalise_spatial_frame(req_str)
+        if src_frame is None or req_frame is None or src_frame == req_frame:
+            return
 
-        src_is_lps = src_str.upper() in _LPS or "lps" in src_str.lower()
-        req_is_ras = req_str.upper() in _RAS or req_str.upper() == "RAS"
-        req_is_lps = req_str.upper() in _LPS or req_str.upper() == "LPS"
-
-        if src_is_lps and req_is_ras:
+        if len(src_frame) == 3 and len(req_frame) == 3:
             if not preprocess.allows("reorient"):
                 blockers.append(WarningItem(
                     code="COORDINATE_FRAME_MISMATCH",
-                    message="Source uses LPS (DICOM) convention but model expects RAS "
-                            "(NIfTI), and reorient is not allowed.",
+                    message=(
+                        f"Source coordinate frame {src_frame!r} differs from model "
+                        f"requirement {req_frame!r}, and reorient is not allowed."
+                    ),
                     severity="error",
                     suggestion="Allow reorient or use a model trained for the source coordinate frame.",
                 ))
                 return
-            transforms.append(TransformDescriptor(
-                kind=TransformKind.reorient,
-                required_by="input_contract.axis_convention",
-                params={"from": "LPS", "to": "RAS"},
-                reversible=True,
-                evidence_status=EvidenceStatus.inferred,
-            ))
+            if not any(_transform_kind_value(t) == "reorient" and t.params.get("from") == src_frame and t.params.get("to") == req_frame for t in transforms):
+                transforms.append(TransformDescriptor(
+                    kind=TransformKind.reorient,
+                    required_by="input_contract.axis_convention",
+                    params={"from": src_frame, "to": req_frame},
+                    reversible=True,
+                    evidence_status=EvidenceStatus.inferred,
+                ))
             warnings.append(WarningItem(
                 code="COORDINATE_FRAME_MISMATCH",
-                message="Source uses LPS (DICOM) convention; model expects RAS (NIfTI). "
-                        "A reorient transform will flip the coordinate frame.",
+                message=(
+                    f"Source coordinate frame {src_frame!r} differs from model "
+                    f"requirement {req_frame!r}. A reorient transform will be applied."
+                ),
                 severity="warning",
-                evidence={"source": src_str, "required": req_str},
-                suggestion="Verify the model was trained on LPS or RAS volumes.",
+                evidence={"source": src_frame, "required": req_frame},
+                suggestion="Verify the model training coordinate convention and affine provenance.",
             ))
-        elif not src_is_lps and req_is_lps:
-            warnings.append(WarningItem(
+            evidence.append({
+                "check": "coordinate_frame",
+                "status": "transform_required",
+                "source": src_frame,
+                "required": req_frame,
+                "transform": "reorient",
+            })
+        else:
+            blockers.append(WarningItem(
                 code="COORDINATE_FRAME_MISMATCH",
-                message=f"Source coordinate frame {src_str!r} ≠ model requirement {req_str!r}. "
-                        "Manual reorientation may be required.",
-                severity="warning",
+                message=(
+                    f"Source coordinate frame {src_str!r} differs from model "
+                    f"requirement {req_str!r}; no executable reorientation is available."
+                ),
+                severity="error",
+                suggestion="Use explicit three-letter orientation codes such as RAS/LPS/LAS.",
             ))
 
     def _check_fmri_timebase(
         self,
         source: SourceProfile,
         contract: InputContract,
+        preprocess: PreprocessSpec,
+        blockers: list,
         warnings: list,
         unknowns: list,
         evidence: list,
@@ -827,14 +1005,16 @@ class CompatibilityEngine:
             return
 
         if abs(src_tr - req_tr) / max(req_tr, 1e-6) > 0.05:  # >5% mismatch
-            warnings.append(WarningItem(
+            blockers.append(WarningItem(
                 code="FMRI_TR_MISMATCH",
                 message=f"Source TR={src_tr:.3f}s but model expects TR={req_tr:.3f}s. "
-                        "Timing-dependent features (HRF, connectivity) will be incorrect.",
-                severity="warning",
+                        "Timing-dependent features (HRF, connectivity) would be incorrect.",
+                severity="error",
                 evidence={"source_tr_s": src_tr, "required_tr_s": req_tr},
-                suggestion="Resample the fMRI volume or choose a model trained on "
-                           f"TR={src_tr:.2f}s data.",
+                suggestion=(
+                    "Use a model trained on this TR or add an explicit temporal fMRI "
+                    "resampling transform before enabling this run."
+                ),
             ))
         else:
             evidence.append({"check": "fmri_tr", "status": "ok",
@@ -890,6 +1070,52 @@ def _contract_value(value: Any) -> str:
 def _transform_kind_value(transform: Any) -> str:
     kind = getattr(transform, "kind", transform)
     return _contract_value(kind)
+
+
+def _coerce_numeric_range(value: Any) -> tuple[float, float] | None:
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        candidates = (
+            (value.get("min"), value.get("max")),
+            (value.get("low"), value.get("high")),
+            (value.get("lo"), value.get("hi")),
+        )
+        for lo, hi in candidates:
+            if lo is not None and hi is not None:
+                value = (lo, hi)
+                break
+        else:
+            return None
+    if isinstance(value, (list, tuple)) and len(value) == 2:
+        try:
+            lo = float(value[0])
+            hi = float(value[1])
+        except (TypeError, ValueError):
+            return None
+        if hi <= lo:
+            return None
+        return (lo, hi)
+    return None
+
+
+def _ranges_close(a: tuple[float, float], b: tuple[float, float]) -> bool:
+    span = max(abs(b[1] - b[0]), 1e-6)
+    return abs(a[0] - b[0]) / span <= 0.01 and abs(a[1] - b[1]) / span <= 0.01
+
+
+def _normalise_spatial_frame(value: str) -> str | None:
+    raw = value.strip()
+    upper = raw.upper()
+    aliases = {
+        "SPATIAL_XYZ": "RAS",
+        "SPATIAL_ZYX": "LPS",
+    }
+    if upper in aliases:
+        return aliases[upper]
+    if len(upper) == 3 and all(ch in "LRAPSI" for ch in upper):
+        return upper
+    return None
 
 
 def _coerce_transform_descriptor(value: Any) -> TransformDescriptor:

@@ -1,19 +1,19 @@
 {
   "qortex_version": "0.1.0",
-  "created_at": "2026-06-30T02:36:50.021087+00:00",
+  "created_at": "2026-06-30T03:11:55.964084+00:00",
   "source_id": "local_file:input_features.csv",
   "model_id": "/home/arman/project/GinkgoQ/repos/Qortex/test/project_21_neuroai_runtime/tabular_risk_plugin.py",
   "model_revision": null,
   "model_hash": null,
-  "pipeline_spec_hash": "580511c8e437bb1eaaede996b50260791753d1677f005c7539937a8a823dd8c2",
+  "pipeline_spec_hash": "8356345dc9bd84af31c0723b0eff9334591795587a078c7a1d4fd683d01c0aaa",
   "preprocessing_transforms": [
     "cast_dtype",
     "to_tensor"
   ],
   "runtime_backend": "cpu",
   "device": "cpu",
-  "output_schema": null,
-  "output_type": "tabular_classification",
+  "output_schema": "{\"axis_convention\": null, \"classes\": [\"restable\", \"alert\"], \"extra_outputs\": [], \"n_classes\": 2, \"output_dtype\": \"float32\", \"output_shape\": null, \"output_type\": \"classification\", \"produces_probabilities\": true}",
+  "output_type": "classification",
   "n_records": null,
   "warnings": [],
   "unknowns": [],

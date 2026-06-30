@@ -154,7 +154,10 @@ class BIDSSourceAdapter(SourceAdapter):
                 channel_names=self._channel_names,
             )
             try:
-                results.extend(adapter.read_batch())
+                results.extend(
+                    _attach_bids_provenance(item, self._root, f)
+                    for item in adapter.read_batch()
+                )
             except Exception as exc:
                 errors.append(f"{f.relative_to(self._root)}: {exc}")
         if errors and not results:
@@ -175,7 +178,8 @@ class BIDSSourceAdapter(SourceAdapter):
                 channel_names=self._channel_names,
             )
             try:
-                yield from adapter.stream()
+                for item in adapter.stream():
+                    yield _attach_bids_provenance(item, self._root, f)
             except Exception as exc:
                 raise SourceAdapterError(
                     f"Stream error for {f.relative_to(self._root)}: {exc}",
@@ -321,6 +325,28 @@ def _parse_bids_entities(filename: str) -> dict[str, str]:
     if suffix:
         entities["suffix"] = suffix
     return entities
+
+
+def _attach_bids_provenance(item: QortexData, root: Path, file_path: Path) -> QortexData:
+    """Attach BIDS entities to a yielded source object without changing data."""
+    provenance = {
+        "bids_root": str(root),
+        "relative_path": file_path.relative_to(root).as_posix(),
+        **_parse_bids_entities(file_path.name),
+    }
+    existing = getattr(item, "source_provenance", None)
+    if isinstance(existing, dict):
+        existing.update(provenance)
+        try:
+            item.source_provenance = existing
+        except Exception:
+            pass
+    elif hasattr(item, "__dict__"):
+        try:
+            setattr(item, "source_provenance", provenance)
+        except Exception:
+            pass
+    return item
 
 
 def _profile_summary(profile: SourceProfile) -> dict[str, Any]:

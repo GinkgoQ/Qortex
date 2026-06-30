@@ -1,9 +1,10 @@
 # NeuroAI Runtime
 
-!!! warning "Experimental"
-    The NeuroAI runtime is **experimental and not production-ready**.
-    APIs, contracts, and behaviour may change without notice between minor versions.
-    See [Known limitations](#known-limitations) before using in a project.
+!!! warning "Research runtime"
+    The NeuroAI runtime is a contract-driven inference surface, but it is not a
+    clinical device and does not make medical decisions. Validate every source,
+    transform, model, and output contract for your own scientific or regulated
+    workflow before relying on results.
 
 The NeuroAI runtime connects neuroimaging data sources to AI models through a single
 declarative pipeline. It separates compatibility checking from execution: the model is
@@ -84,6 +85,7 @@ if report.is_runnable:
 
 ```bash
 qortex neuroai check pipeline.yaml
+qortex neuroai plan pipeline.yaml --json
 qortex neuroai run pipeline.yaml --artifact-dir artifacts/run_001
 qortex neuroai validate-artifact artifacts/run_001
 qortex neuroai suggest-models data.edf --task classification
@@ -95,8 +97,9 @@ qortex neuroai suggest-models data.edf --task classification
 
 `transformers.pipeline()` accepts a fixed set of native task strings
 (`image-classification`, `audio-classification`, etc.).
-Domain-specific tasks such as `eeg_classification` are **not** native pipeline tasks —
-the adapter falls back to `AutoModelForSequenceClassification` and logs a warning.
+Domain-specific tasks such as `eeg_classification` are **not** native pipeline tasks.
+The adapter fails closed for those tasks unless the user supplies an explicit
+native task, ONNX/Torch/Braindecode/MONAI model, or trusted plugin adapter.
 
 For EEG or medical-imaging models, prefer the **Braindecode**, **ONNX**, or **Torch**
 adapter.  The HuggingFace adapter's input contract inference reads `num_channels` /
@@ -117,14 +120,26 @@ The `PreprocessPlanner` inserts only transforms that the `CompatibilityEngine`
 determined are required by the model's `InputContract`.  No normalization or
 per-modality intensity rescaling is added automatically.  Wrong normalization
 destroys the distribution a model expects; only the model contract knows what's right.
+Unknown normalization methods raise `TransformError` instead of silently
+passing data through. Supported methods include `channel_zscore`,
+`global_zscore`, `robust_zscore`, `per_volume_zscore`, `minmax`,
+`percentile_clip`, `hu_window`, and `exponential_moving_standardize`.
 
 ### TransformExecutor — critical transforms raise, not skip
 
 Critical transforms — `resample`, `reorient`, `normalize`, `rescale_intensity`,
-`cast_dtype`, `bandpass`, `channel_select`, `pad_or_crop` — raise `TransformError`
+`cast_dtype`, `bandpass`, `channel_select`, `pad_or_crop`, `transpose_axes` — raise `TransformError`
 on failure.  The engine catches these at the window level, records the window as
 dropped, and continues.  Non-critical structural transforms (`add_batch_dim`,
 `to_tensor`) log a warning and pass data through.
+
+Runtime failure behavior is explicit. `runtime.source_failure_policy` controls
+source iterator errors (`strict`, `skip_window`, `continue_recording`), and
+`runtime.preprocess_failure_policy` controls batch preprocessing errors
+(`strict`, `drop_failed`).
+`runtime.max_windows`, `runtime.max_duration_s`, `runtime.idle_timeout_s`, and
+`runtime.fail_on_no_windows` bound smoke tests, offline replay, and long-running
+streams without changing model or preprocessing semantics.
 
 ### Reorientation
 
@@ -154,6 +169,7 @@ region.
 
 ### Scope
 
-The runtime covers a large surface area (many source types, many models, many
-outputs).  If you need a robust production pipeline, the OpenNeuro/BIDS metadata
-and conversion path (`qortex.Dataset`) is significantly more mature and better tested.
+The runtime covers many source, model, and output types. The strongest path is
+the contract-checked `check → plan → run → artifact → validate` workflow; source
+or model adapters marked prototype/partial should be promoted with project
+fixtures before they are used for claims.

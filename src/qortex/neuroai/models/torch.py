@@ -16,11 +16,10 @@ from qortex.neuroai.contracts import (
     AxisConvention,
     EvidenceStatus,
     InputContract,
-    Modality,
     ModelProfile,
     OutputContract,
-    WarningItem,
 )
+from qortex.core.exceptions import ModelAdapterError
 from qortex.neuroai.models._base import ModelAdapter, ModelOutput
 from qortex.neuroai.spec import ModelSpec, RuntimeSpec
 
@@ -88,6 +87,22 @@ class TorchModelAdapter(ModelAdapter):
                             break
         except Exception as exc:
             log.warning("TorchModelAdapter.inspect(): %s", exc)
+
+        if not self._spec.input_contract and not (is_ts and input_shape):
+            raise ModelAdapterError(
+                "provider='torch' requires model.input_contract because PyTorch "
+                "checkpoints do not carry reliable neuro/medical input metadata. "
+                "TorchScript models may omit it only when graph input shape is inspectable.",
+                model_id=str(self._model_path),
+                provider="torch",
+            )
+        if not self._spec.output_contract:
+            raise ModelAdapterError(
+                "provider='torch' requires model.output_contract so Qortex can decode "
+                "outputs without guessing classification/segmentation/regression semantics.",
+                model_id=str(self._model_path),
+                provider="torch",
+            )
 
         task = self._spec.task or "unknown"
         contract = self.required_input()
