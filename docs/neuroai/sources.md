@@ -26,10 +26,20 @@ source:
   modality: eeg
   subject: "01"             # optional — single subject or list
   session: null             # optional
-  task: rest                # optional
+  suffix: eeg                # optional BIDS suffix filter
+  max_profile_files: 64      # optional cap for header profiling
 ```
 
-Uses `mne_bids.BIDSPath` to locate and load recordings. `probe()` reads the BIDS sidecar without loading signal data.
+The adapter discovers subjects and datatype folders from the BIDS directory,
+selects supported data files using structural BIDS datatype/suffix fields, and
+profiles those files through `LocalFileAdapter` without loading full arrays.
+`SourceProfile.extra["recording_profiles"]` contains compact per-recording
+header summaries, and `SourceProfile.extra["consistency_report"]` marks fields
+such as channel count, sampling rate, spatial shape, voxel size, TR, dtype, and
+axis convention as `constant`, `variable`, or `absent` across the profiled
+recordings. The representative top-level `SourceProfile` uses the first
+successfully profiled recording, while the consistency report tells users when
+the dataset is heterogeneous.
 
 ## DICOM folder
 

@@ -294,3 +294,22 @@ artifacts/run_001/
 `artifact_manifest.json` is recursive: it includes sidecars, provenance files,
 and files under `outputs/`. This lets downstream consumers verify prediction
 files without re-running inference.
+
+Validate a run artifact before handing it to another workflow:
+
+```python
+from qortex.neuroai import validate_artifact
+
+report = validate_artifact("artifacts/run_001")
+print(report.summary())
+```
+
+```bash
+qortex neuroai validate-artifact artifacts/run_001
+qortex neuroai validate-artifact artifacts/run_001 --strict --json
+```
+
+The validator checks required sidecars, recursive manifest file size and
+SHA-256 entries, JSONL prediction records, trigger marker records, CSV columns,
+and consistency between `runtime_report.json` and the output record count when
+there is a single JSONL prediction stream.

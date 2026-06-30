@@ -525,6 +525,7 @@ qortex artifact-visualize  inspect artifact samples and splits
 qortex catalog-refresh  ingest OpenNeuro metadata into catalog
 qortex neuroai check    probe source + model compatibility
 qortex neuroai run      run inference pipeline
+qortex neuroai validate-artifact  verify NeuroAI run artifact integrity
 qortex neuroai benchmark  latency benchmark
 qortex neuroai replay   replay recorded session
 qortex neuroai suggest-models  rank compatible models for a source

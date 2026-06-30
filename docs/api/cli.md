@@ -432,11 +432,10 @@ qortex check eeg-channels DATASET_DIR [--output FILE]
 
 ### neuroai check
 
-Run compatibility check between a source and a model.
+Run compatibility check for a YAML pipeline without loading model weights.
 
 ```bash
-qortex neuroai check SOURCE_PATH --model MODEL_ID [--provider {huggingface,braindecode,ultralytics,onnx}]
-                  [--task TASK]
+qortex neuroai check PIPELINE_YAML [--verbose] [--json] [--markdown]
 ```
 
 ### neuroai run
@@ -444,25 +443,37 @@ qortex neuroai check SOURCE_PATH --model MODEL_ID [--provider {huggingface,brain
 Run a NeuroAI inference pipeline from a YAML spec.
 
 ```bash
-qortex neuroai run PIPELINE_YAML [--data-dir DIR] [--output DIR]
-                   [--dry-run] [--verbose]
+qortex neuroai run PIPELINE_YAML [--dry-run]
+                   [--artifact-dir DIR]
+                   [--validate-artifact/--no-validate-artifact]
+```
+
+When `--artifact-dir` is provided, file-backed outputs are written under
+`DIR/outputs/`, sidecars are written to `DIR`, and the artifact is validated by
+default after the run.
+
+### neuroai validate-artifact
+
+Validate a completed NeuroAI run artifact.
+
+```bash
+qortex neuroai validate-artifact ARTIFACT_DIR [--strict] [--json] [--markdown]
 ```
 
 ### neuroai benchmark
 
-Benchmark a model against a source or BIDS dataset.
+Benchmark a YAML pipeline without writing real outputs.
 
 ```bash
-qortex neuroai benchmark SOURCE_PATH --model MODEL_ID [--n-runs N]
-                          [--provider PROV] [--output FILE]
+qortex neuroai benchmark PIPELINE_YAML [--windows N]
 ```
 
 ### neuroai replay
 
-Replay a previously saved inference result.
+Replay a recorded source file through a YAML pipeline.
 
 ```bash
-qortex neuroai replay RESULT_PATH [--output DIR]
+qortex neuroai replay PIPELINE_YAML SOURCE_PATH [--speed FLOAT] [--output-dir DIR]
 ```
 
 ### neuroai inspect-source
@@ -470,7 +481,7 @@ qortex neuroai replay RESULT_PATH [--output DIR]
 Probe a source file and print its SourceProfile.
 
 ```bash
-qortex neuroai inspect-source SOURCE_PATH [--type {auto,edf,nifti,bids,dicom,lsl,brainflow,nwb,xdf}]
+qortex neuroai inspect-source SOURCE_PATH [--modality MODALITY] [--suffix SUFFIX]
 ```
 
 ### neuroai inspect-model
@@ -489,7 +500,7 @@ Suggest compatible models for a given source file and task.
 ```bash
 qortex neuroai suggest-models SOURCE_PATH --task {classification,segmentation,detection,regression,embedding}
                                [--modality {eeg,mri,ct,image,video}]
-                               [--top-k N] [--provider PROV]
+                               [--top-k N] [--provider PROV] [--json]
 ```
 
 ---

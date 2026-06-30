@@ -1,0 +1,29 @@
+{
+  "qortex_version": "0.1.0",
+  "created_at": "2026-06-30T02:16:48.913790+00:00",
+  "pipeline_spec_hash": "07992f0515124338a16c0d9b2419c9d2f42289f14a653ae9e09f219170414146",
+  "pipeline_name": "project_21_neuroai_runtime",
+  "source": {
+    "source_id": "local_file:input_features.csv",
+    "modality": "tabular",
+    "n_channels": 4,
+    "sampling_rate_hz": null,
+    "path": "/home/arman/project/GinkgoQ/repos/Qortex/test/project_21_neuroai_runtime/input_features.csv"
+  },
+  "model": {
+    "model_id": "local/tabular-neuro-risk-v1",
+    "provider": "plugin",
+    "task": "tabular_classification",
+    "revision": null,
+    "model_hash": null
+  },
+  "runtime": {
+    "device": "cpu",
+    "fp16": false,
+    "latency_budget_ms": 500.0
+  },
+  "outputs_written": 2,
+  "windows_processed": 1,
+  "errors": [],
+  "pipeline_ref": "832e28818a6a"
+}

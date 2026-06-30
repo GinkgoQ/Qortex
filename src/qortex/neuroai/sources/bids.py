@@ -7,7 +7,6 @@ to determine what the source can provide — without loading any signal data.
 
 from __future__ import annotations
 
-import csv
 import json
 import logging
 from pathlib import Path

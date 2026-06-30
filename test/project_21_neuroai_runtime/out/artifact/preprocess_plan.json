@@ -1,0 +1,28 @@
+{
+  "transforms": [
+    {
+      "kind": "cast_dtype",
+      "required_by": "input_contract.dtype",
+      "params": {
+        "from": "float64",
+        "to": "float32"
+      },
+      "reversible": false,
+      "irreversible_reason": "Narrowing cast may lose precision",
+      "evidence_status": "confirmed"
+    },
+    {
+      "kind": "to_tensor",
+      "required_by": "runtime",
+      "params": {
+        "as_numpy": false
+      },
+      "reversible": true,
+      "irreversible_reason": null,
+      "evidence_status": "confirmed"
+    }
+  ],
+  "has_destructive_transforms": true,
+  "warnings": [],
+  "unknowns": []
+}

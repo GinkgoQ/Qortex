@@ -105,7 +105,6 @@ def make_source_adapter(
             )
 
         ext = path.suffix.lower()
-        double_ext = "".join(path.suffixes[-2:]).lower()  # e.g. ".nii.gz"
 
         if ext == ".dcm":
             from qortex.neuroai.sources.dicom import DICOMFolderAdapter

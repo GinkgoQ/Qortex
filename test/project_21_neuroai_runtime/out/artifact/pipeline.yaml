@@ -1,0 +1,36 @@
+name: project_21_neuroai_runtime
+version: '1'
+source:
+  type: local_file
+  path: 
+    /home/arman/project/GinkgoQ/repos/Qortex/test/project_21_neuroai_runtime/input_features.csv
+model:
+  provider: plugin
+  id: 
+    /home/arman/project/GinkgoQ/repos/Qortex/test/project_21_neuroai_runtime/tabular_risk_plugin.py
+  task: tabular_classification
+  trust_remote_code: true
+preprocessing:
+  mode: auto
+  allow:
+  - normalize
+  - cast_dtype
+  - to_tensor
+runtime:
+  device: cpu
+  optimize: safe
+  latency_budget_ms: 500.0
+outputs:
+- type: jsonl
+  path: 
+    /home/arman/project/GinkgoQ/repos/Qortex/test/project_21_neuroai_runtime/out/artifact/outputs/predictions.jsonl
+- type: csv
+  path: 
+    /home/arman/project/GinkgoQ/repos/Qortex/test/project_21_neuroai_runtime/out/artifact/outputs/predictions.csv
+trigger:
+  when:
+    class: alert
+    probability_gte: 0.7
+    stable_for: 1
+  emit:
+    label: tabular_alert_marker

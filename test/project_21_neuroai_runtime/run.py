@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from qortex.neuroai import Pipeline
+from qortex.neuroai import Pipeline, validate_artifact
 from qortex.neuroai.compatibility import CompatibilityEngine
 from qortex.neuroai.contracts import (
     AxisConvention,
@@ -205,6 +205,7 @@ def main() -> None:
     print("REQUIRED_TRANSFORMS", [t.kind.value if hasattr(t.kind, "value") else str(t.kind) for t in compat.required_transforms])
     print("EVIDENCE_CHECKS", compat.evidence)
     assert compat.is_runnable, compat.summary()
+    assert any(item.get("check") == "memory_estimate" for item in compat.evidence)
 
     plan = pipe.plan_preprocessing()
     print("PREPROCESS_PLAN")
@@ -260,6 +261,14 @@ def main() -> None:
     print("ARTIFACT_MANIFEST_FILES", sorted(manifest["files"]))
     assert "outputs/predictions.jsonl" in manifest["files"]
     assert "outputs/predictions.csv" in manifest["files"]
+
+    validation = validate_artifact(OUT / "artifact")
+    print("ARTIFACT_VALIDATION_STATUS", validation.status)
+    print("ARTIFACT_VALIDATION_SUMMARY", validation.summary())
+    print("ARTIFACT_VALIDATION_OUTPUTS", json.dumps(validation.output_files, indent=2, sort_keys=True))
+    assert validation.status == "PASS", validation.to_json()
+    assert validation.n_prediction_records == 2
+    assert validation.n_marker_records == 1
 
     print("project_21_neuroai_runtime complete")
 

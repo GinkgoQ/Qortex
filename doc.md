@@ -88,7 +88,8 @@ src/qortex/
 │   ├── contracts.py    # All typed data contracts (SourceProfile, ModelProfile, …)
 │   ├── compatibility.py # CompatibilityEngine — source vs model check
 │   ├── pipeline.py     # Pipeline facade — check/run/benchmark/replay
-│   ├── artifact.py     # ArtifactWriter — 9-file provenance directory
+│   ├── artifact.py     # ArtifactWriter — provenance directory + recursive hashes
+│   ├── validate.py     # Artifact validator — sidecars, hashes, records, runtime counts
 │   ├── benchmark.py    # PipelineProfiler — p50/p95/p99 per-stage timing
 │   ├── preprocess/     # PreprocessPlanner + TransformExecutor
 │   ├── runtime/        # RuntimeEngine — streaming execution loop
@@ -407,7 +408,7 @@ for data in source.stream():
 
 All stages timed by `PipelineProfiler`. Errors per-window → append to `errors`; do not halt loop (fault-tolerant streaming).
 
-### `artifact.py` — `ArtifactWriter`
+### `artifact.py` / `validate.py` — run artifacts
 
 Writes sidecars and recursively hashed outputs on `write(artifact_dir)`:
 ```
@@ -426,6 +427,15 @@ outputs/                  — file-backed prediction outputs when Pipeline.run(.
 `_to_serialisable(obj)`: recursively converts → None/bool/int/float/str/dict/list. Handles `model_dump()`, `__dict__`, `.value` (Enum).
 
 `_sha256_file(path)` → hex string; used for manifest integrity entries.
+
+`validate_artifact(artifact_dir, strict=False)` verifies the completed run:
+- required sidecars are present
+- every manifest path stays inside the artifact root
+- file sizes and SHA-256 hashes match `artifact_manifest.json`
+- JSONL prediction records contain `output_type` and runtime metadata
+- event marker records have valid confidence values
+- CSV outputs expose expected analytics columns
+- a single JSONL prediction stream is compared against `runtime_report.json`
 
 ### `benchmark.py` — `PipelineProfiler`
 
@@ -476,8 +486,8 @@ Returns `QortexTimeSeries` with `axes=["channels", "times"]`, `sampling_frequenc
 
 ### `bids.py` — `BIDSSourceAdapter`
 
-`probe()` reads `dataset_description.json`, probes first signal file (MNE raw info) + first NIfTI (nibabel). Discovers subjects by `sub-*` dirs, modalities by subdir names.
-`_collect_target_files()` — respects `spec.modality`, `spec.subjects`, `spec.suffix`.
+`probe()` reads `dataset_description.json`, discovers subjects/modalities, profiles supported recording files through `LocalFileAdapter`, stores structural BIDS entities in metadata, and reports whether sampled recording headers are constant or variable.
+`_collect_target_files()` — respects `spec.modality`, `spec.subjects`, `spec.suffix`, BIDS datatype folders, and supported source file extensions.
 `stream()` delegates to `LocalFileAdapter` per file.
 
 PHI: reads only BIDS sidecar (never DICOM tags). No PHI in `SourceProfile`.

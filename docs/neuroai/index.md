@@ -85,7 +85,8 @@ if report.is_runnable:
 ```bash
 qortex neuroai check pipeline.yaml
 qortex neuroai run pipeline.yaml --artifact-dir artifacts/run_001
-qortex neuroai suggest-models data.edf
+qortex neuroai validate-artifact artifacts/run_001
+qortex neuroai suggest-models data.edf --task classification
 ```
 
 ## Known limitations

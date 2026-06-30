@@ -1,0 +1,47 @@
+{
+  "status": "compatible_with_transforms",
+  "source_id": "local_file:input_features.csv",
+  "model_id": "local/tabular-neuro-risk-v1",
+  "required_transforms": [
+    {
+      "kind": "cast_dtype",
+      "required_by": "input_contract.dtype",
+      "params": {
+        "from": "float64",
+        "to": "float32"
+      },
+      "reversible": false,
+      "irreversible_reason": "Narrowing cast may lose precision",
+      "evidence_status": "confirmed"
+    }
+  ],
+  "blockers": [],
+  "warnings": [],
+  "unknowns": [],
+  "evidence": [
+    {
+      "check": "modality",
+      "status": "ok",
+      "source": "tabular",
+      "required": "tabular"
+    },
+    {
+      "check": "channels",
+      "status": "ok",
+      "source_n": 4,
+      "required_n": 4
+    },
+    {
+      "check": "memory_estimate",
+      "status": "estimated",
+      "memory_mb": 3.5,
+      "batch_size": 1
+    }
+  ],
+  "channel_match": "confirmed",
+  "sampling_rate_match": "confirmed",
+  "spatial_shape_match": "unknown",
+  "dtype_match": "confirmed",
+  "axis_convention_match": "unknown",
+  "memory_estimate_mb": 3.5
+}
