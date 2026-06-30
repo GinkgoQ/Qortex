@@ -21,7 +21,6 @@ from qortex.neuroai.contracts import (
     InputContract,
     ModelProfile,
     OutputContract,
-    WarningItem,
 )
 from qortex.neuroai.models._base import ModelAdapter, ModelOutput
 from qortex.neuroai.spec import ModelSpec, RuntimeSpec
@@ -46,6 +45,7 @@ class MONAIBundleAdapter(ModelAdapter):
         self._bundle_dir: Path | None = None
         self._metadata: dict = {}
         self._infer_config: dict = {}
+        self._inference_settings: dict[str, Any] = {}
         self._device = "cpu"
 
     # ── ModelAdapter interface ────────────────────────────────────────────────
@@ -58,7 +58,6 @@ class MONAIBundleAdapter(ModelAdapter):
             or self._spec.task
             or "segmentation"
         )
-        modality = _detect_modality(self._metadata)
         in_channels, spatial_dims, output_classes = self._parse_network_def()
 
         return ModelProfile(
@@ -85,6 +84,7 @@ class MONAIBundleAdapter(ModelAdapter):
             spatial_shape=shape,
             dtype="float32",
             axis_convention=AxisConvention.batch_channels_xyz,
+            required_transforms=_parse_required_transforms(self._infer_config, self._spec.extra),
             evidence_status=(
                 EvidenceStatus.confirmed if in_channels else EvidenceStatus.inferred
             ),
@@ -113,6 +113,11 @@ class MONAIBundleAdapter(ModelAdapter):
             parser.read_config(str(config_path))
             parser["device"] = self._device
             self._model = parser.get_parsed_content("network_def")
+            self._inference_settings = _parse_inference_settings(
+                self._infer_config,
+                self._spec.extra,
+                spatial_dims=self._parse_network_def()[1],
+            )
             # Load weights
             model_pt = self._bundle_dir / "models" / "model.pt"
             if model_pt.exists():
@@ -153,15 +158,35 @@ class MONAIBundleAdapter(ModelAdapter):
         with torch.no_grad():
             try:
                 out = monai.inferers.sliding_window_inference(
-                    x, roi_size=(96, 96, 96), sw_batch_size=1,
-                    predictor=self._model, overlap=0.5,
+                    x,
+                    roi_size=self._inference_settings.get("roi_size"),
+                    sw_batch_size=int(self._inference_settings.get("sw_batch_size", 1)),
+                    predictor=self._model,
+                    overlap=float(self._inference_settings.get("overlap", 0.25)),
                 )
             except Exception:
                 out = self._model(x)
 
+        out = _apply_monai_postprocess(out, self._inference_settings)
         raw = out.cpu().numpy()
-        mask = np.argmax(raw[0], axis=0) if raw.shape[1] > 1 else raw[0, 0]
-        return ModelOutput(output_type="segmentation", raw=raw, mask=mask)
+        argmax_axis = self._inference_settings.get("argmax_axis", 1)
+        if raw.ndim >= 2 and raw.shape[int(argmax_axis)] > 1:
+            mask = np.argmax(raw, axis=int(argmax_axis))[0]
+        else:
+            threshold = self._inference_settings.get("threshold")
+            if threshold is not None:
+                mask = (raw[0, 0] >= float(threshold)).astype(np.uint8)
+            else:
+                mask = raw[0, 0]
+        return ModelOutput(
+            output_type="segmentation",
+            raw=raw,
+            mask=mask,
+            metadata={
+                "monai_inference": self._inference_settings,
+                "label_map": self._inference_settings.get("label_map", {}),
+            },
+        )
 
     def unload(self) -> None:
         self._model = None
@@ -248,3 +273,87 @@ def _load_json(path: Path) -> dict:
     except Exception:
         pass
     return {}
+
+
+def _parse_inference_settings(
+    config: dict,
+    extra: dict[str, Any],
+    *,
+    spatial_dims: int,
+) -> dict[str, Any]:
+    roi_size = (
+        extra.get("roi_size")
+        or _find_config_value(config, ("roi_size", "patch_size", "spatial_size"))
+        or ((96, 96, 96) if spatial_dims == 3 else (256, 256))
+    )
+    settings = {
+        "roi_size": _as_tuple(roi_size, spatial_dims),
+        "sw_batch_size": int(
+            extra.get("sw_batch_size")
+            or _find_config_value(config, ("sw_batch_size", "sliding_window_batch_size"))
+            or 1
+        ),
+        "overlap": float(
+            extra.get("overlap")
+            or _find_config_value(config, ("overlap", "sliding_window_overlap"))
+            or 0.25
+        ),
+        "activation": extra.get("activation") or _find_config_value(config, ("activation", "post_activation")),
+        "argmax_axis": int(extra.get("argmax_axis", _find_config_value(config, ("argmax_axis",)) or 1)),
+        "threshold": extra.get("threshold", _find_config_value(config, ("threshold",))),
+        "label_map": extra.get("label_map") or _find_config_value(config, ("label_map", "labels")) or {},
+    }
+    if settings["overlap"] < 0 or settings["overlap"] >= 1:
+        raise ValueError(f"MONAI sliding-window overlap must be in [0, 1), got {settings['overlap']}")
+    return settings
+
+
+def _parse_required_transforms(config: dict, extra: dict[str, Any]) -> list[dict[str, Any]]:
+    required = extra.get("required_transforms")
+    if required:
+        return list(required)
+    # MONAI configs frequently declare spacing/orientation as transform objects,
+    # but converting those to executable Qortex transforms requires source
+    # affine/orientation provenance and inverse tracking. Do not guess here.
+    return []
+
+
+def _apply_monai_postprocess(out: Any, settings: dict[str, Any]) -> Any:
+    activation = str(settings.get("activation") or "").lower()
+    if not activation:
+        return out
+    import torch
+    if activation == "softmax":
+        return torch.softmax(out, dim=int(settings.get("argmax_axis", 1)))
+    if activation == "sigmoid":
+        return torch.sigmoid(out)
+    return out
+
+
+def _find_config_value(obj: Any, keys: tuple[str, ...]) -> Any:
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            if str(key) in keys:
+                return value
+            found = _find_config_value(value, keys)
+            if found is not None:
+                return found
+    elif isinstance(obj, list):
+        for value in obj:
+            found = _find_config_value(value, keys)
+            if found is not None:
+                return found
+    return None
+
+
+def _as_tuple(value: Any, n: int) -> tuple[int | float, ...]:
+    if isinstance(value, str):
+        parts = [p.strip() for p in value.replace("x", ",").split(",") if p.strip()]
+        values = [float(p) for p in parts]
+    elif isinstance(value, (list, tuple)):
+        values = list(value)
+    else:
+        values = [value] * n
+    if len(values) == 1:
+        values = values * n
+    return tuple(int(v) if float(v).is_integer() else float(v) for v in values[:n])

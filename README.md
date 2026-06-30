@@ -266,9 +266,13 @@ outputs:
     stream_name: qortex_markers
 runtime:
   device: cpu
+  batch_size: 4
+  num_workers: 2
   fp16: false
   cache_model: true
   latency_budget_ms: 50.0
+artifact:
+  failure_policy: strict   # strict | warn
 ```
 
 The YAML loader accepts both singular and plural BIDS selectors (`subject` or
@@ -283,6 +287,15 @@ and it respects `allow`, `deny`, and the boolean gates above. If a required
 transform such as `cast_dtype`, `resample`, `reorient`, or `channel_select` is
 denied, the compatibility report becomes `incompatible` with a structured
 blocker instead of silently applying the transform.
+
+Model contracts can also declare `required_transforms`,
+`preferred_transforms`, and `forbidden_transforms`. Required transforms are
+merged into the executable `PreprocessPlan` and must be allowed by the pipeline
+policy. Unsupported axis convention mismatches are blockers unless Qortex can
+emit a concrete `transpose_axes` transform. Spatial shape mismatches can use
+`resample_spatial` only when the target shape is concrete and SciPy is
+available; otherwise the pipeline fails early instead of pretending the
+transform exists.
 
 ```bash
 qortex neuroai check pipeline.yaml --markdown
@@ -317,7 +330,7 @@ if report.is_runnable:
     print(validation.summary())
 
 bench = pipe.benchmark(n_windows=50)
-print(bench.summary())   # p50=12.3ms  p95=18.7ms  p99=23.1ms
+print(bench.summary())   # per-window p50/p95/p99, batch p50/p95/p99, throughput
 
 pipe.replay("recording.xdf", speed=2.0)
 ```
@@ -340,11 +353,11 @@ pipe.replay("recording.xdf", speed=2.0)
 
 | Provider | Class | Notes |
 |---|---|---|
-| `huggingface` | `HuggingFaceModelAdapter` | Any HF model via `AutoModel` |
+| `huggingface` | `HuggingFaceModelAdapter` | Native `transformers.pipeline` tasks only; non-native tensor tasks must use ONNX/Torch/Braindecode/MONAI/plugin |
 | `onnx` | `ONNXModelAdapter` | ONNX Runtime; CPU and CUDA EP |
 | `torch` / `torchscript` | `TorchModelAdapter` | `.pt` or `.ts`; FP16 on CUDA |
 | `braindecode` | `BrainDecodeAdapter` | EEGNet, ShallowFBCSPNet, etc. |
-| `monai` | `MONAIBundleAdapter` | MONAI Hub bundles; sliding window inference |
+| `monai` | `MONAIBundleAdapter` | MONAI bundles with config/spec-driven ROI size, overlap, activation, argmax/threshold, and label map |
 | `ultralytics` | `UltralyticsAdapter` | YOLOv8 detect / segment / classify |
 | `plugin` / `custom` | `CustomPluginAdapter` | Load any `.py` implementing `QortexPlugin` |
 
@@ -390,6 +403,11 @@ artifacts/run_001/
     predictions.csv
 ```
 
+Artifact writing is strict by default when `artifact_dir` is requested. If
+`ArtifactWriter` fails, `Pipeline.run()` raises instead of returning a run that
+cannot be reproduced. Use `artifact.failure_policy: warn` only for exploratory
+runs where a missing artifact is acceptable.
+
 Validate the completed run before sharing it or using it as a downstream
 evidence object:
 
@@ -402,9 +420,10 @@ print(report.to_markdown())
 ```
 
 The validator checks required sidecars, `artifact_manifest.json` SHA-256 and
-size entries, JSONL prediction records, trigger marker records, CSV schema, and
-runtime/output-count consistency when a single JSONL prediction stream is
-present.
+size entries, JSONL prediction records, trigger marker records, CSV schema,
+Parquet metadata, NIfTI mask geometry, COCO/YOLO structure, DICOM output
+headers when `pydicom` is installed, and runtime/output-count consistency from
+`runtime_report.json`.
 
 ### Ring buffer
 

@@ -14,18 +14,13 @@ the evidence_status is set to EvidenceStatus.inferred or EvidenceStatus.unknown.
 
 from __future__ import annotations
 
-import hashlib
 import logging
-from pathlib import Path
 from typing import Any
-
-import numpy as np
 
 from qortex.neuroai.contracts import (
     AxisConvention,
     EvidenceStatus,
     InputContract,
-    Modality,
     ModelProfile,
     OutputContract,
     WarningItem,
@@ -167,8 +162,7 @@ class HuggingFaceAdapter(ModelAdapter):
 
     def load(self, runtime: RuntimeSpec) -> None:
         try:
-            import torch
-            from transformers import AutoModel, pipeline as hf_pipeline
+            from transformers import pipeline as hf_pipeline
         except ImportError:
             raise ImportError(
                 "HuggingFace inference requires transformers + torch. "
@@ -180,9 +174,8 @@ class HuggingFaceAdapter(ModelAdapter):
 
         task = self._spec.task
 
-        # HuggingFace pipeline() only accepts tasks it knows natively.
-        # Domain-specific tasks (eeg_classification, etc.) are not pipeline tasks
-        # and will raise.  Fall through to AutoModel for those.
+        # HuggingFace pipeline() only accepts tasks it knows natively. Domain
+        # tensor tasks must provide their own adapter or explicit processor.
         _HF_NATIVE_TASKS = {
             "text-classification", "image-classification", "image-segmentation",
             "object-detection", "audio-classification", "feature-extraction",
@@ -192,12 +185,15 @@ class HuggingFaceAdapter(ModelAdapter):
         _use_pipeline = task in _HF_NATIVE_TASKS
 
         if task and task not in _HF_NATIVE_TASKS:
-            log.warning(
-                "Task %r is not a native HuggingFace pipeline task. "
-                "Falling back to AutoModelForSequenceClassification. "
-                "For EEG or medical-imaging models, use the braindecode, onnx, "
-                "or torch adapter instead.",
-                task,
+            from qortex.core.exceptions import ModelAdapterError
+            raise ModelAdapterError(
+                f"Task {task!r} is not a native HuggingFace pipeline task. "
+                "Qortex will not guess a tensor processor or silently load "
+                "AutoModelForSequenceClassification for non-text data. Use "
+                "provider='braindecode', 'onnx', 'torch', 'monai', or a plugin "
+                "with an explicit input processor/decoder.",
+                model_id=self._spec.id,
+                provider="huggingface",
             )
 
         try:
@@ -210,12 +206,7 @@ class HuggingFaceAdapter(ModelAdapter):
                     trust_remote_code=self._spec.trust_remote_code,
                 )
             else:
-                from transformers import AutoModelForSequenceClassification
-                self._model = AutoModelForSequenceClassification.from_pretrained(
-                    self._spec.id,
-                    revision=self._spec.revision,
-                    trust_remote_code=self._spec.trust_remote_code,
-                ).to(device)
+                raise RuntimeError("Internal error: non-native HuggingFace task reached loader")
         except Exception as exc:
             from qortex.core.exceptions import ModelAdapterError
             raise ModelAdapterError(

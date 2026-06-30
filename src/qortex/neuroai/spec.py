@@ -20,7 +20,7 @@ _VALID_TRANSFORMS = frozenset({
     "resample", "channel_select", "channel_reorder", "channel_map",
     "bandpass", "normalize", "window", "cast_dtype", "rescale_intensity",
     "reorient", "resample_spatial", "pad_or_crop",
-    "add_batch_dim", "add_channel_dim", "to_tensor",
+    "add_batch_dim", "add_channel_dim", "transpose_axes", "to_tensor",
 })
 
 
@@ -360,6 +360,24 @@ class TriggerSpec:
         return True
 
 
+@dataclass
+class ArtifactSpec:
+    """Artifact writing policy for reproducible NeuroAI runs."""
+
+    failure_policy: Literal["strict", "warn"] = "strict"
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "ArtifactSpec":
+        if d is None:
+            d = {}
+        if not isinstance(d, dict):
+            raise TypeError("ArtifactSpec.from_dict() requires a mapping")
+        return cls(failure_policy=str(d.get("failure_policy", "strict")).lower())
+
+    def to_dict(self) -> dict:
+        return {"failure_policy": self.failure_policy}
+
+
 # ── Pipeline Spec ─────────────────────────────────────────────────────────────
 
 @dataclass
@@ -384,6 +402,7 @@ class PipelineSpec:
     runtime: RuntimeSpec = field(default_factory=RuntimeSpec)
     outputs: list[OutputSpec] = field(default_factory=list)
     trigger: TriggerSpec | None = None
+    artifact: ArtifactSpec = field(default_factory=ArtifactSpec)
     description: str = ""
     version: str = "1"
 
@@ -418,6 +437,7 @@ class PipelineSpec:
         runtime_d = d.get("runtime", {})
         outputs_d = d.get("output", d.get("outputs", []))
         trigger_d = d.get("trigger")
+        artifact_d = d.get("artifact", {})
 
         if isinstance(outputs_d, dict):
             outputs_d = [outputs_d]
@@ -431,6 +451,7 @@ class PipelineSpec:
             runtime=RuntimeSpec.from_dict(runtime_d),
             outputs=[OutputSpec.from_dict(o) for o in outputs_d],
             trigger=TriggerSpec.from_dict(trigger_d) if trigger_d else None,
+            artifact=ArtifactSpec.from_dict(artifact_d),
             description=d.get("description", ""),
             version=str(d.get("version", "1")),
         )
@@ -444,6 +465,7 @@ class PipelineSpec:
             "preprocessing": self.preprocessing.to_dict(),
             "runtime": self.runtime.to_dict(),
             "outputs": [o.to_dict() for o in self.outputs],
+            "artifact": self.artifact.to_dict(),
         }
         if self.window:
             d["window"] = self.window.to_dict()
@@ -675,6 +697,12 @@ class PipelineSpec:
                     errors.append("trigger.when.stable_for must be an integer")
             if not emit:
                 errors.append("trigger.emit must describe the event payload to emit")
+
+        if self.artifact.failure_policy not in {"strict", "warn"}:
+            errors.append(
+                f"artifact.failure_policy must be one of strict, warn "
+                f"(got {self.artifact.failure_policy!r})"
+            )
 
         return errors
 

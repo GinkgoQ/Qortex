@@ -31,8 +31,7 @@ from __future__ import annotations
 import logging
 import statistics
 import time
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
 from qortex.neuroai.contracts import LatencyBreakdown, LatencyReport
 
@@ -51,6 +50,19 @@ class _WindowTiming:
     error: str | None = None
 
 
+@dataclass
+class _BatchTiming:
+    n_windows: int
+    source_read_ms: float
+    preprocess_ms: float
+    inference_ms: float
+    postprocess_ms: float
+    output_write_ms: float
+    total_ms: float
+    dropped: bool = False
+    error: str | None = None
+
+
 class PipelineProfiler:
     """Accumulate per-stage timings and produce a LatencyReport.
 
@@ -64,6 +76,7 @@ class PipelineProfiler:
     def __init__(self, budget_ms: float | None = None) -> None:
         self._budget = budget_ms
         self._windows: list[_WindowTiming] = []
+        self._batches: list[_BatchTiming] = []
         self._current: _WindowTiming = _WindowTiming()
         self._stage_start: float = 0.0
 
@@ -114,6 +127,54 @@ class PipelineProfiler:
         self._windows.append(w)
         self._current = _WindowTiming()
 
+    def commit_batch(
+        self,
+        n_windows: int,
+        *,
+        dropped: bool = False,
+        error: str | None = None,
+    ) -> None:
+        """Finalize the current timing as a batch and derive per-window timing.
+
+        Runtime batching measures preprocessing and inference for the whole
+        batch. Reporting those values as if they belonged to a single window is
+        misleading, so this method stores the real batch timing and distributes
+        stage timing evenly across batch members for per-window percentile
+        summaries.
+        """
+        n = max(int(n_windows), 1)
+        w = self._current
+        total = (
+            w.source_read_ms
+            + w.preprocess_ms
+            + w.inference_ms
+            + w.postprocess_ms
+            + w.output_write_ms
+        )
+        self._batches.append(_BatchTiming(
+            n_windows=n,
+            source_read_ms=w.source_read_ms,
+            preprocess_ms=w.preprocess_ms,
+            inference_ms=w.inference_ms,
+            postprocess_ms=w.postprocess_ms,
+            output_write_ms=w.output_write_ms,
+            total_ms=total,
+            dropped=dropped,
+            error=error,
+        ))
+        for _ in range(n):
+            self._windows.append(_WindowTiming(
+                source_read_ms=w.source_read_ms / n,
+                preprocess_ms=w.preprocess_ms / n,
+                inference_ms=w.inference_ms / n,
+                postprocess_ms=w.postprocess_ms / n,
+                output_write_ms=w.output_write_ms / n,
+                total_ms=total / n,
+                dropped=dropped,
+                error=error,
+            ))
+        self._current = _WindowTiming()
+
     # ── Report ────────────────────────────────────────────────────────────────
 
     def report(self) -> LatencyReport:
@@ -128,12 +189,18 @@ class PipelineProfiler:
                                   status="FAIL")
 
         all_totals_sorted = sorted(all_totals)
-        n = len(all_totals_sorted)
         p50 = _percentile(all_totals_sorted, 50)
         p95 = _percentile(all_totals_sorted, 95)
         p99 = _percentile(all_totals_sorted, 99)
         mean = statistics.mean(all_totals)
         n_dropped = sum(1 for w in self._windows if w.dropped)
+        batch_totals = [b.total_ms for b in self._batches if not b.dropped]
+        batch_totals_sorted = sorted(batch_totals)
+        batch_p50 = _percentile(batch_totals_sorted, 50)
+        batch_p95 = _percentile(batch_totals_sorted, 95)
+        batch_p99 = _percentile(batch_totals_sorted, 99)
+        measured_seconds = sum(batch_totals) / 1000.0 if batch_totals else sum(all_totals) / 1000.0
+        throughput = (len(all_totals) / measured_seconds) if measured_seconds > 0 else 0.0
 
         breakdown = LatencyBreakdown(
             source_read_ms=statistics.mean(w.source_read_ms for w in self._windows if not w.dropped),
@@ -160,12 +227,18 @@ class PipelineProfiler:
             p95_ms=p95,
             p99_ms=p99,
             mean_ms=mean,
+            n_batches=len(self._batches),
+            batch_p50_ms=batch_p50,
+            batch_p95_ms=batch_p95,
+            batch_p99_ms=batch_p99,
+            throughput_windows_per_s=throughput,
             breakdown=breakdown,
             status=status,
         )
 
     def reset(self) -> None:
         self._windows.clear()
+        self._batches.clear()
         self._current = _WindowTiming()
 
 

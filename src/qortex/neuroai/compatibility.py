@@ -110,6 +110,17 @@ class CompatibilityEngine:
         unknowns: list[str] = []
         evidence: list[dict[str, Any]] = []
 
+        forbidden_transforms = {
+            str(kind)
+            for kind in getattr(contract, "forbidden_transforms", []) or []
+        }
+        if forbidden_transforms:
+            evidence.append({
+                "check": "model_forbidden_transforms",
+                "status": "declared",
+                "forbidden": sorted(forbidden_transforms),
+            })
+
         # ── Modality check ────────────────────────────────────────────────────
         self._check_modality(source, contract, blockers, warnings, evidence)
 
@@ -148,6 +159,23 @@ class CompatibilityEngine:
 
         # ── fMRI timebase / TR check ───────────────────────────────────────────
         self._check_fmri_timebase(source, contract, warnings, unknowns, evidence)
+
+        self._merge_model_required_transforms(
+            contract, preprocess, transforms, blockers, warnings, evidence
+        )
+
+        for transform in transforms:
+            kind = _transform_kind_value(transform)
+            if kind in forbidden_transforms:
+                blockers.append(WarningItem(
+                    code="FORBIDDEN_TRANSFORM_REQUIRED",
+                    message=(
+                        f"Transform {kind!r} is required for compatibility but the "
+                        "model input contract forbids it."
+                    ),
+                    severity="error",
+                    suggestion="Choose a source already matching the model contract or a model with compatible preprocessing.",
+                ))
 
         # ── Memory estimate ───────────────────────────────────────────────────
         mem_mb = self._estimate_memory(source, model, runtime=runtime, window=window)
@@ -443,6 +471,16 @@ class CompatibilityEngine:
         if src_shape is None:
             unknowns.append("source.spatial_shape is unknown")
             return EvidenceStatus.unknown
+        req_shape = tuple(int(v) for v in req_shape)
+        src_shape = tuple(int(v) for v in src_shape)
+        if any(v <= 0 for v in req_shape):
+            evidence.append({
+                "check": "spatial_shape",
+                "status": "dynamic_requirement",
+                "source_shape": list(src_shape),
+                "required_shape": list(req_shape),
+            })
+            return EvidenceStatus.inferred
 
         if src_shape != req_shape:
             if preprocess.allows("pad_or_crop"):
@@ -464,8 +502,14 @@ class CompatibilityEngine:
                 transforms.append(TransformDescriptor(
                     kind=TransformKind.resample_spatial,
                     required_by="input_contract.spatial_shape",
-                    params={"from_shape": list(src_shape), "to_shape": list(req_shape)},
+                    params={
+                        "from_shape": list(src_shape),
+                        "to_shape": list(req_shape),
+                        "spatial_axes": list(range(-len(req_shape), 0)),
+                        "order": 1,
+                    },
                     reversible=False,
+                    irreversible_reason="Spatial interpolation changes voxel intensities",
                 ))
                 return EvidenceStatus.confirmed
             else:
@@ -568,21 +612,90 @@ class CompatibilityEngine:
                                  "source": src_str, "required": req_str,
                                  "transform": "reorient"})
             else:
-                warnings.append(WarningItem(
+                order = _axis_transpose_order(src_str, req_str, source)
+                if order is not None and preprocess.allows("transpose_axes"):
+                    transforms.append(TransformDescriptor(
+                        kind=TransformKind.transpose_axes,
+                        required_by="input_contract.axis_convention",
+                        params={"from": src_str, "to": req_str, "order": order},
+                        reversible=True,
+                    ))
+                    warnings.append(WarningItem(
+                        code="AXIS_TRANSPOSE_REQUIRED",
+                        message=(
+                            f"Source axis convention {src_str!r} must be transposed to "
+                            f"{req_str!r} before inference."
+                        ),
+                        severity="warning",
+                        evidence={"source": src_str, "required": req_str, "order": order},
+                    ))
+                    evidence.append({"check": "axis_convention", "status": "transform_required",
+                                     "source": src_str, "required": req_str,
+                                     "transform": "transpose_axes", "order": order})
+                    return EvidenceStatus.confirmed
+                blockers.append(WarningItem(
                     code="AXIS_CONVENTION_MISMATCH",
                     message=f"Source axis convention {src_str!r} ≠ model requirement {req_str!r}. "
-                            "Automatic transposition may be applied.",
-                    severity="warning",
+                            "No supported executable axis transform is available.",
+                    severity="error",
                     suggestion="Verify that the source and model share the same axis layout, "
-                               "or add an explicit transpose transform.",
+                               "or allow/provide an explicit transpose_axes transform.",
                 ))
                 evidence.append({"check": "axis_convention", "status": "mismatch",
                                  "source": src_str, "required": req_str})
+                return EvidenceStatus.missing
         else:
             evidence.append({"check": "axis_convention", "status": "ok",
                              "source": src_str, "required": req_str})
 
         return EvidenceStatus.confirmed
+
+    def _merge_model_required_transforms(
+        self,
+        contract: InputContract,
+        preprocess: PreprocessSpec,
+        transforms: list,
+        blockers: list,
+        warnings: list,
+        evidence: list,
+    ) -> None:
+        required = getattr(contract, "required_transforms", []) or []
+        for item in required:
+            try:
+                transform = _coerce_transform_descriptor(item)
+            except Exception as exc:
+                blockers.append(WarningItem(
+                    code="MODEL_REQUIRED_TRANSFORM_INVALID",
+                    message=f"Invalid model-required transform declaration: {exc}",
+                    severity="error",
+                ))
+                continue
+            kind = _transform_kind_value(transform)
+            if not preprocess.allows(kind):
+                blockers.append(WarningItem(
+                    code="MODEL_REQUIRED_TRANSFORM_DENIED",
+                    message=(
+                        f"Model requires preprocessing transform {kind!r}, but the "
+                        "pipeline preprocessing policy does not allow it."
+                    ),
+                    severity="error",
+                    suggestion=f"Add {kind!r} to preprocessing.allow or choose a model/source pair that does not need it.",
+                ))
+                continue
+            if not any(_transform_kind_value(existing) == kind and existing.params == transform.params for existing in transforms):
+                transforms.append(transform)
+                warnings.append(WarningItem(
+                    code="MODEL_REQUIRED_TRANSFORM",
+                    message=f"Model input contract requires preprocessing transform {kind!r}.",
+                    severity="warning",
+                    evidence={"kind": kind, "params": transform.params},
+                ))
+            evidence.append({
+                "check": "model_required_transform",
+                "status": "planned",
+                "transform": kind,
+                "params": transform.params,
+            })
 
     def _check_voxel_spacing(
         self,
@@ -772,6 +885,54 @@ def _contract_value(value: Any) -> str:
     if enum_value is not None:
         return str(enum_value)
     return str(value)
+
+
+def _transform_kind_value(transform: Any) -> str:
+    kind = getattr(transform, "kind", transform)
+    return _contract_value(kind)
+
+
+def _coerce_transform_descriptor(value: Any) -> TransformDescriptor:
+    if isinstance(value, TransformDescriptor):
+        return value
+    if hasattr(value, "model_dump"):
+        value = value.model_dump()
+    if not isinstance(value, dict):
+        raise TypeError(f"expected TransformDescriptor or mapping, got {type(value).__name__}")
+    kind = value.get("kind")
+    if not kind:
+        raise ValueError("required transform is missing 'kind'")
+    return TransformDescriptor(
+        kind=kind,
+        required_by=value.get("required_by", "input_contract.required_transforms"),
+        params=dict(value.get("params") or {}),
+        reversible=bool(value.get("reversible", False)),
+        irreversible_reason=value.get("irreversible_reason"),
+        evidence_status=value.get("evidence_status", EvidenceStatus.confirmed),
+    )
+
+
+def _axis_transpose_order(src: str, req: str, source: SourceProfile) -> list[int] | None:
+    src_norm = src.lower()
+    req_norm = req.lower()
+    shape = tuple(source.spatial_shape or ())
+    n_spatial = len(shape) if shape else 2
+
+    if src_norm == "channels_last" and req_norm == "channels_first":
+        if n_spatial == 2:
+            return [2, 0, 1]
+        if n_spatial == 3:
+            return [3, 0, 1, 2]
+    if src_norm == "channels_first" and req_norm == "channels_last":
+        if n_spatial == 2:
+            return [1, 2, 0]
+        if n_spatial == 3:
+            return [1, 2, 3, 0]
+    if src_norm == "time_channels" and req_norm == "channels_time":
+        return [1, 0]
+    if src_norm == "channels_time" and req_norm == "time_channels":
+        return [1, 0]
+    return None
 
 
 def _dtype_nbytes(dtype: Any) -> int:

@@ -121,6 +121,97 @@ def main() -> None:
     assert deny_cast_report.status.value == "incompatible"
     assert any(b.code == "DTYPE_MISMATCH" for b in deny_cast_report.blockers)
 
+    axis_block_report = CompatibilityEngine().check(
+        SourceProfile(
+            source_id="axis_source",
+            source_type="local_file",
+            modality="image",
+            n_channels=3,
+            spatial_shape=(32, 32),
+            dtype="float32",
+            axis_convention=AxisConvention.channels_last,
+        ),
+        ModelProfile(
+            model_id="axis_model",
+            provider="plugin",
+            input_contract=InputContract(
+                modality="image",
+                axis_convention=AxisConvention.channels_first,
+                spatial_shape=(32, 32),
+                n_channels=3,
+                dtype="float32",
+            ),
+        ),
+        PreprocessSpec(mode="auto", deny=["transpose_axes"]),
+    )
+    print("AXIS_BLOCK_STATUS", axis_block_report.status.value)
+    print("AXIS_BLOCKERS", [b.code for b in axis_block_report.blockers])
+    assert axis_block_report.status.value == "incompatible"
+    assert any(b.code == "AXIS_CONVENTION_MISMATCH" for b in axis_block_report.blockers)
+
+    axis_transform_report = CompatibilityEngine().check(
+        SourceProfile(
+            source_id="axis_source",
+            source_type="local_file",
+            modality="image",
+            n_channels=3,
+            spatial_shape=(32, 32),
+            dtype="float32",
+            axis_convention=AxisConvention.channels_last,
+        ),
+        ModelProfile(
+            model_id="axis_model",
+            provider="plugin",
+            input_contract=InputContract(
+                modality="image",
+                axis_convention=AxisConvention.channels_first,
+                spatial_shape=(32, 32),
+                n_channels=3,
+                dtype="float32",
+            ),
+        ),
+        PreprocessSpec(mode="auto", allow=["transpose_axes"]),
+    )
+    print("AXIS_TRANSFORM_STATUS", axis_transform_report.status.value)
+    print("AXIS_TRANSFORMS", [t.kind.value if hasattr(t.kind, "value") else str(t.kind) for t in axis_transform_report.required_transforms])
+    assert axis_transform_report.is_runnable
+    assert any((t.kind.value if hasattr(t.kind, "value") else str(t.kind)) == "transpose_axes" for t in axis_transform_report.required_transforms)
+
+    required_transform_report = CompatibilityEngine().check(
+        SourceProfile(
+            source_id="required_transform_source",
+            source_type="local_file",
+            modality="tabular",
+            n_channels=4,
+            dtype="float32",
+            axis_convention=AxisConvention.channels_time,
+        ),
+        ModelProfile(
+            model_id="required_transform_model",
+            provider="plugin",
+            input_contract=InputContract(
+                modality="tabular",
+                axis_convention=AxisConvention.channels_time,
+                n_channels=4,
+                dtype="float32",
+                required_transforms=[
+                    {
+                        "kind": "normalize",
+                        "required_by": "input_contract.required_transforms",
+                        "params": {"method": "zscore"},
+                        "reversible": False,
+                        "irreversible_reason": "Model was trained on z-scored features",
+                    }
+                ],
+            ),
+        ),
+        PreprocessSpec(mode="auto", allow=["normalize"]),
+    )
+    print("REQUIRED_TRANSFORM_STATUS", required_transform_report.status.value)
+    print("REQUIRED_TRANSFORM_KINDS", [t.kind.value if hasattr(t.kind, "value") else str(t.kind) for t in required_transform_report.required_transforms])
+    assert required_transform_report.is_runnable
+    assert any((t.kind.value if hasattr(t.kind, "value") else str(t.kind)) == "normalize" for t in required_transform_report.required_transforms)
+
     channel_plan = PreprocessPlanner().build_plan(
         CompatibilityReport(
             status=CompatibilityStatus.compatible_with_transforms,
@@ -160,6 +251,27 @@ def main() -> None:
     assert "window" not in channel_transform_names
     assert selected.shape == (2, 3)
     assert selected.tolist() == [[2.0, 2.0, 2.0], [3.0, 3.0, 3.0]]
+
+    spatial_plan = PreprocessPlanner().build_plan(
+        CompatibilityReport(
+            status=CompatibilityStatus.compatible_with_transforms,
+            source_id="manual_spatial_source",
+            model_id="manual_spatial_model",
+            required_transforms=[
+                TransformDescriptor(
+                    kind=TransformKind.resample_spatial,
+                    required_by="input_contract.spatial_shape",
+                    params={"to_shape": [4, 4], "spatial_axes": [0, 1], "order": 1},
+                    reversible=False,
+                    irreversible_reason="Interpolation",
+                )
+            ],
+        ),
+        model_provider="onnx",
+    )
+    spatial = TransformExecutor(spatial_plan).apply(np.arange(4, dtype=np.float32).reshape(2, 2))
+    print("SPATIAL_RESAMPLE_SHAPE", spatial.shape)
+    assert spatial.shape == (4, 4)
 
     spec_dict = {
         "name": "project_21_neuroai_runtime",
@@ -269,6 +381,12 @@ def main() -> None:
     assert validation.status == "PASS", validation.to_json()
     assert validation.n_prediction_records == 2
     assert validation.n_marker_records == 1
+
+    bench = pipe.benchmark(n_windows=1)
+    print("BENCHMARK_BATCHES", bench.n_batches)
+    print("BENCHMARK_THROUGHPUT", bench.throughput_windows_per_s)
+    assert bench.n_batches >= 1
+    assert bench.throughput_windows_per_s > 0
 
     print("project_21_neuroai_runtime complete")
 

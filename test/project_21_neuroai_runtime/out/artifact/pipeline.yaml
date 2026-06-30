@@ -27,6 +27,8 @@ outputs:
 - type: csv
   path: 
     /home/arman/project/GinkgoQ/repos/Qortex/test/project_21_neuroai_runtime/out/artifact/outputs/predictions.csv
+artifact:
+  failure_policy: strict
 trigger:
   when:
     class: alert

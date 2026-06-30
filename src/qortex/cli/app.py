@@ -1830,9 +1830,10 @@ def neuroai_suggest_models(
     from qortex.neuroai.models._contracts import list_entries as _list_contracts
     from qortex.neuroai.contracts import ModelProfile as _ModelProfile
 
+    modality_filter = detected_modality if detected_modality != "unknown" else None
     all_entries = _list_contracts(
         provider=None if provider in ("all", "any") else provider,
-        modality=detected_modality if detected_modality != "unknown" else None,
+        modality=modality_filter,
     )
 
     allowed_output_types = _neuroai_task_output_types(task)
@@ -1844,7 +1845,7 @@ def neuroai_suggest_models(
     # If modality-filtered list is empty, fall back to typed task matching across
     # all entries. This still uses explicit OutputContract values, not free-text
     # notes or model names.
-    if not all_entries:
+    if not all_entries and modality_filter is None:
         all_entries = _list_contracts()
         all_entries = [
             e for e in all_entries
@@ -1866,7 +1867,7 @@ def neuroai_suggest_models(
         "incompatible": 0,
     }
 
-    scored: list[tuple[int, object, str, str]] = []  # (score, entry, status, mem_str)
+    scored: list[tuple[int, object, str, str, object | None]] = []
 
     for entry in all_entries:
         m_profile = _ModelProfile(
@@ -1881,6 +1882,7 @@ def neuroai_suggest_models(
             report = engine.check(src_profile, m_profile, None)
             compat_status = report.status.value
         except Exception:
+            report = None
             compat_status = "uncertain"
 
         evidence = str(getattr(entry.input_contract, "evidence_status", "unknown")).lower()
@@ -1888,7 +1890,7 @@ def neuroai_suggest_models(
             evidence = evidence.split(".")[-1]
 
         score = _STATUS_SCORE.get(compat_status, 0) + _EVIDENCE_BONUS.get(evidence, 0)
-        scored.append((score, entry, compat_status, evidence))
+        scored.append((score, entry, compat_status, evidence, report))
 
     # Sort by score desc, then alphabetically by model_id for stable output.
     scored.sort(key=lambda x: (-x[0], x[1].model_id))
@@ -1914,11 +1916,16 @@ def neuroai_suggest_models(
                     "estimated_memory_mb": entry.estimated_memory_mb,
                     "output_type": entry.output_contract.output_type,
                     "notes": entry.notes,
+                    "required_transforms": _compat_report_items(report, "required_transforms"),
+                    "blockers": _compat_report_items(report, "blockers"),
+                    "warnings": _compat_report_items(report, "warnings"),
+                    "unknowns": list(getattr(report, "unknowns", []) or []) if report is not None else [],
+                    "why_ranked_here": _ranking_reasons(score, compat_status, evidence, report),
                 }
-                for score, entry, compat_status, evidence in scored
+                for score, entry, compat_status, evidence, report in scored
             ],
         }
-        typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
+        typer.echo(json.dumps(_jsonable_cli(payload), indent=2, ensure_ascii=False))
         return
 
     typer.echo(
@@ -1927,7 +1934,7 @@ def neuroai_suggest_models(
     )
     typer.echo(f"{'Model ID':<48} {'Provider':<14} {'Compatibility':<32} {'Evidence':<12} {'Notes'}")
     typer.echo("-" * 130)
-    for _score, entry, compat_status, evidence in scored:
+    for _score, entry, compat_status, evidence, report in scored:
         mem = (
             f"~{entry.estimated_memory_mb:.0f} MB"
             if entry.estimated_memory_mb is not None
@@ -1940,6 +1947,9 @@ def neuroai_suggest_models(
         )
         if mem:
             typer.echo(f"{'':48} {'':14} {'':32} Memory: {mem}")
+        details = _ranking_reasons(_score, compat_status, evidence, report)
+        if details:
+            typer.echo(f"{'':48} {'':14} {'':32} Why: {'; '.join(details[:3])}")
 
     if not scored:
         typer.echo("No candidate models found in the registry. Try --modality or --provider.")
@@ -1971,6 +1981,61 @@ def _entry_matches_task(output_type: str | None, allowed_output_types: set[str])
     if output_type is None:
         return False
     return output_type.strip().lower() in allowed_output_types
+
+
+def _compat_report_items(report: object | None, attr: str) -> list[dict[str, object]]:
+    if report is None:
+        return []
+    items = getattr(report, attr, []) or []
+    result = []
+    for item in items:
+        if hasattr(item, "model_dump"):
+            result.append(_jsonable_cli(item.model_dump()))
+        elif hasattr(item, "__dict__"):
+            result.append(_jsonable_cli(dict(item.__dict__)))
+        else:
+            result.append({"value": str(item)})
+    return result
+
+
+def _ranking_reasons(
+    score: int,
+    compat_status: str,
+    evidence: str,
+    report: object | None,
+) -> list[str]:
+    reasons = [
+        f"compatibility={compat_status}",
+        f"contract_evidence={evidence}",
+        f"score={score}",
+    ]
+    if report is not None:
+        transforms = getattr(report, "required_transforms", []) or []
+        blockers = getattr(report, "blockers", []) or []
+        unknowns = getattr(report, "unknowns", []) or []
+        if transforms:
+            reasons.append(f"requires {len(transforms)} transform(s)")
+        if blockers:
+            reasons.append(f"has {len(blockers)} blocker(s)")
+        if unknowns:
+            reasons.append(f"has {len(unknowns)} unknown(s)")
+    return reasons
+
+
+def _jsonable_cli(value: object) -> object:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if hasattr(value, "value"):
+        return getattr(value, "value")
+    if isinstance(value, dict):
+        return {str(k): _jsonable_cli(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_jsonable_cli(v) for v in value]
+    if hasattr(value, "model_dump"):
+        return _jsonable_cli(value.model_dump())
+    if hasattr(value, "__dict__"):
+        return _jsonable_cli(value.__dict__)
+    return str(value)
 
 
 # ── check ─────────────────────────────────────────────────────────────────────

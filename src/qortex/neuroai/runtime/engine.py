@@ -12,6 +12,7 @@ allowed but will log a warning.
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -40,6 +41,19 @@ class WindowRecord:
     data_item: Any
     array: Any | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+class _NullExecutor:
+    """Context-compatible sequential executor used when num_workers=0."""
+
+    def __enter__(self) -> "_NullExecutor":
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        return None
+
+    def map(self, fn: Any, items: list[Any]) -> list[Any]:
+        return [fn(item) for item in items]
 
 
 class RuntimeEngine:
@@ -101,8 +115,9 @@ class RuntimeEngine:
         _trigger_streak: int = 0
         _trigger_required: int = int(trigger.when.get("stable_for", 1)) if trigger else 1
         batch_size = max(1, int(getattr(self._spec.runtime, "batch_size", 1) or 1))
+        num_workers = max(0, int(getattr(self._spec.runtime, "num_workers", 0) or 0))
 
-        try:
+        with ThreadPoolExecutor(max_workers=num_workers) if num_workers > 0 else _NullExecutor() as pool:
             stream = iter(self._source.stream())
             while True:
                 batch: list[WindowRecord] = []
@@ -135,14 +150,10 @@ class RuntimeEngine:
                 self._profiler.start_preprocess()
                 preprocessed: list[WindowRecord] = []
                 try:
-                    for record in batch:
-                        raw_array = _extract_array(record.data_item)
-                        record.metadata["input_shape"] = _shape_of(raw_array)
-                        record.metadata["input_dtype"] = _dtype_of(raw_array)
-                        record.array = self._executor.apply(raw_array)
-                        record.metadata["preprocessed_shape"] = _shape_of(record.array)
-                        record.metadata["preprocessed_dtype"] = _dtype_of(record.array)
-                        preprocessed.append(record)
+                    if num_workers > 0 and len(batch) > 1:
+                        preprocessed = list(pool.map(self._preprocess_record, batch))
+                    else:
+                        preprocessed = [self._preprocess_record(record) for record in batch]
                 except Exception as exc:
                     err_msg = f"Preprocess error on batch starting at window {batch[0].index}: {exc}"
                     log.warning(err_msg)
@@ -175,9 +186,10 @@ class RuntimeEngine:
                     continue
                 self._profiler.end_inference()
 
+                self._profiler.start_postprocess()
+                prepared_outputs: list[tuple[WindowRecord, ModelOutput, bool, dict[str, Any]]] = []
                 for record, output in zip(preprocessed, outputs):
                     # ── Postprocess (trigger evaluation) ────────────────────
-                    self._profiler.start_postprocess()
                     trigger_fired = False
                     if trigger is not None:
                         pred_dict = {
@@ -192,12 +204,14 @@ class RuntimeEngine:
                             trigger_fired = True
                             log.info("Trigger fired at window %d: %s", record.index, trigger.emit)
                             _trigger_streak = 0
-                    self._profiler.end_postprocess()
-
-                    # ── Output write ────────────────────────────────────────
-                    self._profiler.start_output_write()
                     meta = dict(record.metadata)
                     meta["trigger_fired"] = trigger_fired
+                    prepared_outputs.append((record, output, trigger_fired, meta))
+                self._profiler.end_postprocess()
+
+                # ── Output write ────────────────────────────────────────────
+                self._profiler.start_output_write()
+                for record, output, trigger_fired, meta in prepared_outputs:
                     for out_adapter in self._outputs:
                         try:
                             out_adapter.write(output, metadata=meta)
@@ -211,13 +225,9 @@ class RuntimeEngine:
                         _emit_trigger_event(
                             trigger, record.index, output, self._outputs, self._source.source_id
                         )
-                    self._profiler.end_output_write()
-
-                    self._profiler.commit_window()
                     n_ok += 1
-
-        except KeyboardInterrupt:
-            log.info("Pipeline interrupted by user after %d windows.", n_ok)
+                self._profiler.end_output_write()
+                self._profiler.commit_batch(len(prepared_outputs))
 
         latency_report = self._profiler.report()
         artifact_contract = self._make_artifact_contract(latency_report)
@@ -245,6 +255,15 @@ class RuntimeEngine:
             n_windows_processed=n_ok,
             n_outputs_written=n_outputs_written,
         )
+
+    def _preprocess_record(self, record: WindowRecord) -> WindowRecord:
+        raw_array = _extract_array(record.data_item)
+        record.metadata["input_shape"] = _shape_of(raw_array)
+        record.metadata["input_dtype"] = _dtype_of(raw_array)
+        record.array = self._executor.apply(raw_array)
+        record.metadata["preprocessed_shape"] = _shape_of(record.array)
+        record.metadata["preprocessed_dtype"] = _dtype_of(record.array)
+        return record
 
     def _make_artifact_contract(self, latency_report) -> ArtifactContract:
         from qortex import __version__

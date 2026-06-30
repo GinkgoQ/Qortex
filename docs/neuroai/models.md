@@ -64,7 +64,16 @@ model:
   revision: main
 ```
 
-Uses `transformers.AutoConfig` for `inspect()` and `AutoModel.from_pretrained()` for `load()`. The `task` hint is passed to `AutoModel.from_pretrained(task)`. If the model repo has a `config.json`, `inspect()` reads input shape, hidden size, and label map from it.
+Uses `transformers.AutoConfig` for `inspect()` and `transformers.pipeline()`
+for native HuggingFace pipeline tasks such as `text-classification`,
+`image-classification`, `image-segmentation`, `object-detection`,
+`audio-classification`, and `feature-extraction`.
+
+Qortex does **not** fall back to `AutoModelForSequenceClassification` for
+non-native tensor tasks such as raw EEG or medical-imaging arrays. That would
+silently run the wrong processor and produce meaningless outputs. Use
+`provider: braindecode`, `onnx`, `torch`, `monai`, or `plugin` when the model
+requires a domain-specific tensor pipeline.
 
 For models that are not in the `transformers` ecosystem (e.g., braindecode models hosted on HF Hub), use `provider: braindecode` instead.
 
@@ -144,8 +153,8 @@ registry, HuggingFace config, or explicit YAML fields under `model.input` and
 `model.output`. Qortex does not instantiate a 64-channel / 512-sample / 2-class
 fallback model, because that would produce scientifically meaningless outputs.
 
-Unknown names fall back to `AutoModel.from_pretrained()`. Input is always
-`[batch, channels, time]`. Output has softmax applied.
+Unknown built-in names are not instantiated with guessed dimensions. Input is
+always `[batch, channels, time]`. Output logits are decoded with softmax.
 
 ## MONAI bundle
 
@@ -153,13 +162,24 @@ Unknown names fall back to `AutoModel.from_pretrained()`. Input is always
 model:
   provider: monai
   id: wholeBody_ct_segmentation   # MONAI Hub bundle name, local path, or local ZIP
+  roi_size: [96, 96, 96]          # optional override
+  sw_batch_size: 1
+  overlap: 0.25
+  activation: softmax
+  argmax_axis: 1
 ```
 
 Bundle resolution order: local directory → local ZIP (extracted to tempdir) → MONAI Hub download.
 
 `inspect()` reads `configs/metadata.json` and `configs/inference.json` for network parameters. `load()` uses `monai.bundle.ConfigParser` for the network definition and `torch.load` for weights.
 
-`predict()` uses `monai.inferers.sliding_window_inference(roi_size=(96, 96, 96))` for volumetric data. Returns `VolumePredictionOutput`.
+`predict()` uses `monai.inferers.sliding_window_inference()` for volumetric
+data, with `roi_size`, sliding-window batch size, overlap, activation,
+argmax/threshold, and label map read from `configs/inference.json` when present
+or from explicit `model:` fields. Qortex does not guess affine-aware spacing or
+orientation transforms from bundle text alone; if a bundle requires a specific
+preprocessing chain, declare it under `model.required_transforms` so the
+compatibility engine can audit and execute it.
 
 ## Ultralytics (YOLOv8)
 

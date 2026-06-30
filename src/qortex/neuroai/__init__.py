@@ -43,6 +43,7 @@ from qortex.neuroai.pipeline import Pipeline
 from qortex.neuroai.spec import (
     ModelSpec,
     OutputSpec,
+    ArtifactSpec,
     PipelineSpec,
     PreprocessSpec,
     RuntimeSpec,
@@ -169,6 +170,7 @@ __all__ = [
     "PreprocessSpec",
     "RuntimeSpec",
     "OutputSpec",
+    "ArtifactSpec",
     "TriggerSpec",
     # Contracts
     "SourceProfile",

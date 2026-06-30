@@ -276,7 +276,13 @@ class Pipeline:
                     model_profile=self._model_profile,
                 )
             except Exception as exc:
-                log.warning("ArtifactWriter failed (non-fatal): %s", exc)
+                failure_policy = str(getattr(self._spec.artifact, "failure_policy", "strict")).lower()
+                if failure_policy == "warn":
+                    log.warning("ArtifactWriter failed (non-fatal by policy): %s", exc)
+                else:
+                    raise _make_runtime_error(
+                        f"ArtifactWriter failed for requested artifact_dir={artifact_dir}: {exc}"
+                    ) from exc
 
         return report
 
@@ -331,11 +337,12 @@ class Pipeline:
             # Limit to n_windows
             from itertools import islice
 
-            def _limited_stream(adapter, n):
-                yield from islice(adapter.stream(), n)
-
             original_stream = self._source_adapter.stream
-            self._source_adapter.stream = lambda: _limited_stream(self._source_adapter, n_windows)
+
+            def _limited_stream():
+                yield from islice(original_stream(), n_windows)
+
+            self._source_adapter.stream = _limited_stream
             try:
                 engine.run()
             finally:

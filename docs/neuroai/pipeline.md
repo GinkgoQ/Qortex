@@ -163,7 +163,7 @@ for t in plan.transforms:
 ```
 
 Each `TransformDescriptor` has:
-- `kind`: `TransformKind` enum (`resample`, `channel_select`, `channel_reorder`, `channel_map`, `bandpass`, `normalize`, `window`, `cast_dtype`, `rescale_intensity`, `reorient`, `resample_spatial`, `pad_or_crop`, `add_batch_dim`, `add_channel_dim`, `to_tensor`)
+- `kind`: `TransformKind` enum (`resample`, `channel_select`, `channel_reorder`, `channel_map`, `bandpass`, `normalize`, `window`, `cast_dtype`, `rescale_intensity`, `reorient`, `resample_spatial`, `pad_or_crop`, `add_batch_dim`, `add_channel_dim`, `transpose_axes`, `to_tensor`)
 - `required_by`: why this transform is in the plan
 - `params`: dict of transform parameters
 - `reversible`: whether the transform can be undone
@@ -183,11 +183,23 @@ run = pipe.run(artifact_dir="artifacts/run_001")
 `artifact_dir/outputs/` and `ArtifactWriter` hashes both sidecars and output
 files (see [Outputs](outputs.md#artifact-directory)).
 
+Artifact writing is strict by default when `artifact_dir` is provided. Add this
+only for exploratory runs where a missing artifact should not fail the command:
+
+```yaml
+artifact:
+  failure_policy: warn     # default: strict
+```
+
 The runtime processes windows in batches up to `runtime.batch_size`. Adapters
 that implement `predict_batch()` can run true batched inference; other adapters
 use the base sequential fallback. Output metadata preserves source/window
 details such as shape, dtype, axes, channel names, sampling frequency, voxel
 metadata, and source provenance when the source adapter provides them.
+
+`runtime.num_workers` enables ordered parallel preprocessing for each batch.
+Source iteration and output writes remain ordered and single-owner, so record
+ordering is deterministic.
 
 The returned `PipelineRunReport` contains:
 
@@ -208,7 +220,11 @@ print(bench.summary())
 # p50=12.3ms  p95=18.7ms  p99=23.1ms  budget=50ms  status=ok
 ```
 
-`benchmark()` loads weights, runs `n_windows` windows through source → preprocess → inference, and records per-stage timing. No output adapters are opened — nothing is written to disk or LSL.
+`benchmark()` loads weights, runs `n_windows` windows through source →
+preprocess → inference, and records per-stage timing. No output adapters are
+opened — nothing is written to disk or LSL. For `batch_size > 1`, Qortex stores
+real batch timings and reports derived per-window latency separately, instead
+of assigning the whole batch latency to the first window.
 
 `LatencyReport` fields:
 
@@ -216,6 +232,9 @@ print(bench.summary())
 bench.p50_ms, bench.p95_ms, bench.p99_ms
 bench.mean_ms
 bench.breakdown          # LatencyBreakdown with source/preprocess/inference/postprocess/output timings
+bench.n_batches
+bench.batch_p50_ms, bench.batch_p95_ms, bench.batch_p99_ms
+bench.throughput_windows_per_s
 bench.budget_ms          # from spec.runtime.latency_budget_ms
 bench.status             # PASS | FAIL | UNKNOWN
 bench.n_windows

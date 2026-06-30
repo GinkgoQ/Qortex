@@ -57,8 +57,9 @@ _TRANSFORM_ORDER: dict[str, int] = {
     TransformKind.cast_dtype.value:        10,
     TransformKind.add_batch_dim.value:     11,
     TransformKind.add_channel_dim.value:   12,
-    TransformKind.to_tensor.value:         13,
-    TransformKind.window.value:            14,
+    TransformKind.transpose_axes.value:    13,
+    TransformKind.to_tensor.value:         14,
+    TransformKind.window.value:            15,
 }
 
 
@@ -151,7 +152,7 @@ class TransformExecutor:
         "resample", "resample_spatial", "reorient",
         "normalize", "rescale_intensity", "cast_dtype", "bandpass",
         "channel_select", "channel_map", "channel_reorder", "window",
-        "pad_or_crop",
+        "pad_or_crop", "transpose_axes",
     })
 
     def apply(self, data: Any) -> Any:
@@ -262,6 +263,9 @@ class TransformExecutor:
                 arr = resample_poly(arr, ratio_num // g, ratio_den // g, axis=-1)
             return arr
 
+        elif kind == "resample_spatial":
+            return _resample_spatial(arr, params)
+
         elif kind == "normalize":
             method = params.get("method", "zscore")
             if method == "zscore":
@@ -300,6 +304,17 @@ class TransformExecutor:
             from_frame = params.get("from", "LPS")
             to_frame = params.get("to", "RAS")
             return _reorient_volume(arr, from_frame=from_frame, to_frame=to_frame)
+
+        elif kind == "transpose_axes":
+            order = params.get("order")
+            if order is None:
+                raise TransformError("transpose_axes requires an explicit axis order")
+            order = tuple(int(i) for i in order)
+            if sorted(order) != list(range(arr.ndim)):
+                raise TransformError(
+                    f"transpose_axes order {order} is invalid for array shape {arr.shape}"
+                )
+            return np.ascontiguousarray(np.transpose(arr, order))
 
         elif kind == "to_tensor":
             # If data is already a torch tensor, leave it as-is.
@@ -474,6 +489,58 @@ def _pad_or_crop(arr: np.ndarray, target_shape: tuple) -> np.ndarray:
     slices_dst = tuple(slice(0, min(s, t)) for s, t in zip(arr.shape, target_shape))
     result[slices_dst] = arr[slices_src]
     return result
+
+
+def _resample_spatial(arr: np.ndarray, params: dict) -> np.ndarray:
+    """Resample spatial axes to a target shape using spline interpolation.
+
+    The compatibility engine emits this only when a model contract declares a
+    concrete target spatial shape. By default the transform operates on the last
+    ``len(to_shape)`` axes, preserving leading batch/channel axes.
+    """
+    to_shape_raw = params.get("to_shape")
+    if not to_shape_raw:
+        raise TransformError("resample_spatial requires to_shape")
+    to_shape = tuple(int(v) for v in to_shape_raw)
+    if any(v <= 0 for v in to_shape):
+        raise TransformError(f"resample_spatial target shape must be positive, got {to_shape}")
+    spatial_axes = params.get("spatial_axes")
+    if spatial_axes is None:
+        if len(to_shape) > arr.ndim:
+            raise TransformError(
+                f"resample_spatial target shape {to_shape} has more dims than input {arr.shape}"
+            )
+        spatial_axes = tuple(range(arr.ndim - len(to_shape), arr.ndim))
+    else:
+        spatial_axes = tuple(int(i) for i in spatial_axes)
+    if len(spatial_axes) != len(to_shape):
+        raise TransformError(
+            f"resample_spatial spatial_axes {spatial_axes} do not match target shape {to_shape}"
+        )
+    if any(axis < 0 or axis >= arr.ndim for axis in spatial_axes):
+        raise TransformError(
+            f"resample_spatial spatial_axes {spatial_axes} invalid for input shape {arr.shape}"
+        )
+
+    zoom_factors = [1.0] * arr.ndim
+    for axis, target in zip(spatial_axes, to_shape):
+        current = arr.shape[axis]
+        if current <= 0:
+            raise TransformError(f"resample_spatial input axis {axis} has invalid size {current}")
+        zoom_factors[axis] = float(target) / float(current)
+
+    try:
+        from scipy.ndimage import zoom
+    except ImportError as exc:
+        raise TransformError(
+            "resample_spatial requires scipy.ndimage.zoom. Install scipy or "
+            "disable resample_spatial in preprocessing."
+        ) from exc
+
+    order = int(params.get("order", 1))
+    mode = str(params.get("mode", "nearest"))
+    resampled = zoom(arr, zoom=zoom_factors, order=order, mode=mode)
+    return np.ascontiguousarray(resampled.astype(arr.dtype, copy=False))
 
 
 def _reorient_volume(arr: np.ndarray, from_frame: str, to_frame: str) -> np.ndarray:

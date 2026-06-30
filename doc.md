@@ -306,9 +306,9 @@ summary() → str   (starts with "CompatibilityReport: COMPATIBLE…")
 
 **`TransformDescriptor`**: kind, params: dict, reason, reversible: bool, affects_field
 
-**`LatencyReport`**: per-stage breakdowns `(source_read, preprocess, inference, postprocess, output_write)`, each with `p50_ms, p95_ms, p99_ms`. `budget_ms`, `n_windows`, `n_dropped`. `summary()`.
+**`LatencyReport`**: per-stage breakdowns `(source_read, preprocess, inference, postprocess, output_write)`, per-window `p50_ms, p95_ms, p99_ms`, batch `batch_p50_ms, batch_p95_ms, batch_p99_ms`, throughput, `budget_ms`, `n_windows`, `n_batches`, `n_dropped`. `summary()`.
 
-**`PipelineRunReport`**: n_windows, n_ok, n_errors, duration_s, latency_report, artifact_contract
+**`PipelineRunReport`**: n_windows, n_ok, n_errors, duration_s, latency_report, artifact_contract, per-adapter output counts
 
 **`ArtifactContract`**: artifact_dir, run_id, pipeline_hash, source_id, model_id, n_outputs
 
@@ -320,10 +320,11 @@ Per-check functions (each appends to `transforms`, `blockers`, `warnings`, `unkn
 - `_check_modality` — exact match or known alias
 - `_check_channels` — n_channels match; insert `channel_select` if src > req; blocker if src < req
 - `_check_sampling_rate` — insert `resample` if mismatch AND preprocess allows; blocker if not allowed
-- `_check_spatial` — shape + voxel; insert `resample_spatial` + `pad_or_crop`
+- `_check_spatial` — shape + voxel; insert `resample_spatial` only for concrete target shapes and `pad_or_crop` when allowed
 - `_check_dtype` — insert `cast_dtype`
-- `_check_axis_convention` — insert `reorient` for LPS↔RAS; skip generic warning when `_SPATIAL_FRAMES` pair (handled by `_check_coordinate_frame`)
+- `_check_axis_convention` — insert `reorient` for LPS↔RAS, insert `transpose_axes` for supported layout swaps, otherwise block as incompatible
 - `_check_coordinate_frame` — DICOM LPS→RAS specific message + `reorient` transform
+- `_merge_model_required_transforms` — merge `InputContract.required_transforms` into the executable plan and block if denied
 - `_check_memory` — estimate vs `estimated_memory_mb`; warning only
 - `_check_required_metadata` — missing required fields → blocker
 
@@ -359,10 +360,13 @@ channel_select=1, channel_map=2, channel_reorder=3
 resample=4, resample_spatial=4
 bandpass=5, pad_or_crop=6, reorient=7
 rescale_intensity=8, normalize=9, cast_dtype=10
-add_batch_dim=11, add_channel_dim=12, to_tensor=13, window=14
+add_batch_dim=11, add_channel_dim=12, transpose_axes=13, to_tensor=14, window=15
 ```
 
-`reorient` performs actual coordinate flip (not a no-op): `data = data[::-1, :, :]` for z-axis LPS→RAS flip.
+`reorient` uses nibabel orientation transforms when available and only falls
+back to direct LPS↔RAS axis flips when nibabel is missing. `transpose_axes`
+requires an explicit axis order. `resample_spatial` uses SciPy interpolation
+and fails clearly if SciPy is unavailable.
 
 ### `pipeline.py` — `Pipeline` facade
 
@@ -376,7 +380,9 @@ State machine: `_checked: bool`, `_source_profile`, `_model_profile`, `_compat_r
 
 **`run(artifact_dir=None)`**: loads model, routes file-backed outputs into
 `artifact_dir/outputs/` when requested, creates output adapters, runs
-`RuntimeEngine`, calls `ArtifactWriter.write()` if `artifact_dir` set.
+`RuntimeEngine`, calls `ArtifactWriter.write()` if `artifact_dir` set. Artifact
+writing is strict by default; `artifact.failure_policy: warn` is the explicit
+opt-out.
 
 `RuntimeEngine` batches windows up to `RuntimeSpec.batch_size`, calls
 `predict_batch()` when more than one item is available, and carries source/window
@@ -385,7 +391,7 @@ records, marker records, and total records.
 
 **`replay(source_path, speed=1.0)`**: re-probes new source (re-builds `_source_profile` and `_preprocess_plan`); does not reload model if already loaded.
 
-**`benchmark(n_windows=100)`**: calls `PipelineProfiler` without writing outputs; returns `LatencyReport`.
+**`benchmark(n_windows=100)`**: calls `PipelineProfiler` without writing outputs; returns `LatencyReport`. Batch runs report both derived per-window latency and real batch p50/p95/p99 plus throughput.
 
 ### `runtime/engine.py` — `RuntimeEngine`
 
@@ -435,7 +441,8 @@ outputs/                  — file-backed prediction outputs when Pipeline.run(.
 - JSONL prediction records contain `output_type` and runtime metadata
 - event marker records have valid confidence values
 - CSV outputs expose expected analytics columns
-- a single JSONL prediction stream is compared against `runtime_report.json`
+- Parquet, NIfTI, COCO, YOLO, and DICOM outputs get type-specific structural checks when optional dependencies are installed
+- observed output counts are compared against `runtime_report.json.outputs`
 
 ### `benchmark.py` — `PipelineProfiler`
 

@@ -63,6 +63,7 @@ class TransformKind(str, Enum):
     pad_or_crop       = "pad_or_crop"
     add_batch_dim     = "add_batch_dim"
     add_channel_dim   = "add_channel_dim"
+    transpose_axes    = "transpose_axes"
     to_tensor         = "to_tensor"
 
 class Modality(str, Enum):
@@ -294,12 +295,18 @@ class InputContract(BaseModel if _PYDANTIC else object):
 
     # Evidence
     required_metadata: list[str] = Field(default_factory=list) if _PYDANTIC else []
+    required_transforms: list[Any] = Field(default_factory=list) if _PYDANTIC else []
+    preferred_transforms: list[Any] = Field(default_factory=list) if _PYDANTIC else []
+    forbidden_transforms: list[str] = Field(default_factory=list) if _PYDANTIC else []
     evidence_status: EvidenceStatus = EvidenceStatus.confirmed
 
     if not _PYDANTIC:
         def __init__(self, **kwargs):
             self.required_channels = []
             self.required_metadata = []
+            self.required_transforms = []
+            self.preferred_transforms = []
+            self.forbidden_transforms = []
             self.evidence_status = EvidenceStatus.confirmed
             for k, v in kwargs.items():
                 setattr(self, k, v)
@@ -602,6 +609,11 @@ class LatencyReport(BaseModel if _PYDANTIC else object):
     p95_ms: float = 0.0
     p99_ms: float = 0.0
     mean_ms: float = 0.0
+    n_batches: int = 0
+    batch_p50_ms: float = 0.0
+    batch_p95_ms: float = 0.0
+    batch_p99_ms: float = 0.0
+    throughput_windows_per_s: float = 0.0
     breakdown: LatencyBreakdown = Field(default_factory=LatencyBreakdown) if _PYDANTIC else None
     status: Literal["PASS", "FAIL", "UNKNOWN"] = "UNKNOWN"
 
@@ -614,6 +626,11 @@ class LatencyReport(BaseModel if _PYDANTIC else object):
             self.p95_ms = 0.0
             self.p99_ms = 0.0
             self.mean_ms = 0.0
+            self.n_batches = 0
+            self.batch_p50_ms = 0.0
+            self.batch_p95_ms = 0.0
+            self.batch_p99_ms = 0.0
+            self.throughput_windows_per_s = 0.0
             self.breakdown = LatencyBreakdown()
             self.status = "UNKNOWN"
             for k, v in kwargs.items():
@@ -637,6 +654,10 @@ class LatencyReport(BaseModel if _PYDANTIC else object):
         if self.budget_ms is not None:
             lines.append(f"Latency budget:         {self.budget_ms:>8.1f} ms")
         lines.append(f"Windows / dropped:      {self.n_windows} / {self.n_dropped}")
+        if self.n_batches:
+            lines.append(f"Batches:                {self.n_batches}")
+            lines.append(f"Batch p50 / p95 / p99:  {self.batch_p50_ms:.1f} / {self.batch_p95_ms:.1f} / {self.batch_p99_ms:.1f} ms")
+            lines.append(f"Throughput:             {self.throughput_windows_per_s:.2f} windows/s")
         lines.append(f"Status: {self.status}")
         return "\n".join(lines)
 

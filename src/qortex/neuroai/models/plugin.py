@@ -145,7 +145,10 @@ class CustomPluginAdapter(ModelAdapter):
     # ── Internal helpers ──────────────────────────────────────────────────────
 
     def _ensure_plugin_loaded(self) -> None:
-        if self._module is not None:
+        if self._module is not None and self._plugin_instance is not None:
+            return
+        if self._module is not None and self._plugin_instance is None:
+            self._plugin_instance = self._module.QortexPlugin()
             return
 
         log.warning(

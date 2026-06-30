@@ -253,6 +253,16 @@ def validate_artifact(
                 stats = _inspect_jsonl(path, rel_path, issues, strict=strict)
             elif path.suffix.lower() == ".csv":
                 stats = _inspect_csv(path, rel_path, issues)
+            elif path.suffix.lower() == ".parquet":
+                stats = _inspect_parquet(path, rel_path, issues)
+            elif path.name.endswith(".nii") or path.name.endswith(".nii.gz"):
+                stats = _inspect_nifti(path, rel_path, issues)
+            elif path.suffix.lower() == ".json":
+                stats = _inspect_json_output(path, rel_path, issues)
+            elif path.suffix.lower() == ".txt":
+                stats = _inspect_yolo_txt(path, rel_path, issues)
+            elif path.suffix.lower() in {".dcm", ".dicom"}:
+                stats = _inspect_dicom(path, rel_path, issues)
             else:
                 stats = {
                     "path": rel_path,
@@ -284,6 +294,8 @@ def validate_artifact(
                 expected=expected,
                 observed=observed,
             ))
+
+    _validate_runtime_output_counts(runtime_report, output_files, issues)
 
     if strict:
         for issue in issues:
@@ -438,6 +450,247 @@ def _inspect_csv(
         "marker_records": 0,
         "columns": sorted(fieldnames),
     }
+
+
+def _inspect_parquet(
+    path: Path,
+    rel_path: str,
+    issues: list[ArtifactValidationIssue],
+) -> dict[str, Any]:
+    try:
+        import pyarrow.parquet as pq
+        meta = pq.read_metadata(path)
+        schema = meta.schema.to_arrow_schema()
+        columns = list(schema.names)
+        records = int(meta.num_rows)
+    except ImportError:
+        try:
+            import pandas as pd
+            df = pd.read_parquet(path)
+            columns = list(df.columns)
+            records = int(len(df))
+        except ImportError:
+            issues.append(ArtifactValidationIssue(
+                code="PARQUET_VALIDATOR_DEPENDENCY_MISSING",
+                message="Parquet validation requires pyarrow or pandas.",
+                severity="warning",
+                path=rel_path,
+            ))
+            return {"path": rel_path, "type": "parquet", "records": None, "marker_records": 0}
+        except Exception as exc:
+            issues.append(ArtifactValidationIssue(
+                code="PARQUET_READ_FAILED",
+                message=f"Cannot read Parquet output: {exc}",
+                severity="error",
+                path=rel_path,
+            ))
+            return {"path": rel_path, "type": "parquet", "records": 0, "marker_records": 0}
+    except Exception as exc:
+        issues.append(ArtifactValidationIssue(
+            code="PARQUET_READ_FAILED",
+            message=f"Cannot read Parquet output: {exc}",
+            severity="error",
+            path=rel_path,
+        ))
+        return {"path": rel_path, "type": "parquet", "records": 0, "marker_records": 0}
+    missing = {"output_type"} - set(columns)
+    if missing:
+        issues.append(ArtifactValidationIssue(
+            code="PARQUET_SCHEMA_INCOMPLETE",
+            message=f"Parquet output is missing columns: {', '.join(sorted(missing))}",
+            severity="warning",
+            path=rel_path,
+        ))
+    return {
+        "path": rel_path,
+        "type": "parquet",
+        "records": records,
+        "marker_records": 0,
+        "columns": columns,
+    }
+
+
+def _inspect_nifti(
+    path: Path,
+    rel_path: str,
+    issues: list[ArtifactValidationIssue],
+) -> dict[str, Any]:
+    try:
+        import nibabel as nib
+        img = nib.load(str(path))
+        shape = tuple(int(v) for v in img.shape)
+        dtype = str(img.get_data_dtype())
+        affine = img.affine.tolist()
+    except ImportError:
+        issues.append(ArtifactValidationIssue(
+            code="NIFTI_VALIDATOR_DEPENDENCY_MISSING",
+            message="NIfTI validation requires nibabel.",
+            severity="warning",
+            path=rel_path,
+        ))
+        return {"path": rel_path, "type": "nifti", "records": 1, "marker_records": 0}
+    except Exception as exc:
+        issues.append(ArtifactValidationIssue(
+            code="NIFTI_READ_FAILED",
+            message=f"Cannot read NIfTI output: {exc}",
+            severity="error",
+            path=rel_path,
+        ))
+        return {"path": rel_path, "type": "nifti", "records": 0, "marker_records": 0}
+    if len(shape) < 3:
+        issues.append(ArtifactValidationIssue(
+            code="NIFTI_SHAPE_INVALID",
+            message=f"NIfTI output should be at least 3D, got shape {shape}.",
+            severity="warning",
+            path=rel_path,
+        ))
+    return {
+        "path": rel_path,
+        "type": "nifti",
+        "records": 1,
+        "marker_records": 0,
+        "shape": list(shape),
+        "dtype": dtype,
+        "affine": affine,
+    }
+
+
+def _inspect_json_output(
+    path: Path,
+    rel_path: str,
+    issues: list[ArtifactValidationIssue],
+) -> dict[str, Any]:
+    payload = _read_json(path, issues, rel_path)
+    if rel_path.endswith("coco.json") or {"images", "annotations", "categories"} <= set(payload):
+        for key in ("images", "annotations", "categories"):
+            if not isinstance(payload.get(key), list):
+                issues.append(ArtifactValidationIssue(
+                    code="COCO_SCHEMA_INVALID",
+                    message=f"COCO output requires list field {key!r}.",
+                    severity="error",
+                    path=rel_path,
+                ))
+        return {
+            "path": rel_path,
+            "type": "coco",
+            "records": len(payload.get("annotations", [])) if isinstance(payload.get("annotations"), list) else 0,
+            "marker_records": 0,
+            "n_images": len(payload.get("images", [])) if isinstance(payload.get("images"), list) else 0,
+            "n_categories": len(payload.get("categories", [])) if isinstance(payload.get("categories"), list) else 0,
+        }
+    return {"path": rel_path, "type": "json", "records": None, "marker_records": 0}
+
+
+def _inspect_yolo_txt(
+    path: Path,
+    rel_path: str,
+    issues: list[ArtifactValidationIssue],
+) -> dict[str, Any]:
+    records = 0
+    for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        parts = line.split()
+        if len(parts) not in {5, 6}:
+            issues.append(ArtifactValidationIssue(
+                code="YOLO_RECORD_INVALID",
+                message=f"YOLO line {line_no} must have 5 or 6 fields.",
+                severity="error",
+                path=rel_path,
+            ))
+            continue
+        try:
+            values = [float(v) for v in parts[1:5]]
+        except ValueError:
+            issues.append(ArtifactValidationIssue(
+                code="YOLO_RECORD_INVALID",
+                message=f"YOLO line {line_no} has non-numeric box coordinates.",
+                severity="error",
+                path=rel_path,
+            ))
+            continue
+        if any(v < 0.0 or v > 1.0 for v in values):
+            issues.append(ArtifactValidationIssue(
+                code="YOLO_COORDINATE_RANGE_INVALID",
+                message=f"YOLO line {line_no} has coordinates outside [0, 1].",
+                severity="error",
+                path=rel_path,
+            ))
+        records += 1
+    return {"path": rel_path, "type": "yolo", "records": records, "marker_records": 0}
+
+
+def _inspect_dicom(
+    path: Path,
+    rel_path: str,
+    issues: list[ArtifactValidationIssue],
+) -> dict[str, Any]:
+    try:
+        import pydicom
+        ds = pydicom.dcmread(str(path), stop_before_pixels=True, force=True)
+        sop_class = str(getattr(ds, "SOPClassUID", ""))
+        modality = str(getattr(ds, "Modality", ""))
+    except ImportError:
+        issues.append(ArtifactValidationIssue(
+            code="DICOM_VALIDATOR_DEPENDENCY_MISSING",
+            message="DICOM validation requires pydicom.",
+            severity="warning",
+            path=rel_path,
+        ))
+        return {"path": rel_path, "type": "dicom", "records": 1, "marker_records": 0}
+    except Exception as exc:
+        issues.append(ArtifactValidationIssue(
+            code="DICOM_READ_FAILED",
+            message=f"Cannot read DICOM output: {exc}",
+            severity="error",
+            path=rel_path,
+        ))
+        return {"path": rel_path, "type": "dicom", "records": 0, "marker_records": 0}
+    if modality not in {"SEG", "SR"}:
+        issues.append(ArtifactValidationIssue(
+            code="DICOM_OUTPUT_MODALITY_UNEXPECTED",
+            message=f"DICOM output modality is {modality!r}; expected SEG or SR for NeuroAI outputs.",
+            severity="warning",
+            path=rel_path,
+        ))
+    return {
+        "path": rel_path,
+        "type": "dicom",
+        "records": 1,
+        "marker_records": 0,
+        "modality": modality,
+        "sop_class_uid": sop_class,
+    }
+
+
+def _validate_runtime_output_counts(
+    runtime_report: dict[str, Any],
+    output_files: list[dict[str, Any]],
+    issues: list[ArtifactValidationIssue],
+) -> None:
+    declared = runtime_report.get("outputs") if isinstance(runtime_report, dict) else None
+    if not isinstance(declared, list) or not declared:
+        return
+    declared_predictions = sum(int(item.get("n_prediction_records", 0) or 0) for item in declared if isinstance(item, dict))
+    declared_markers = sum(int(item.get("n_marker_records", 0) or 0) for item in declared if isinstance(item, dict))
+    observed_predictions = sum(int(item.get("prediction_records") or item.get("records") or 0) for item in output_files)
+    observed_markers = sum(int(item.get("marker_records") or 0) for item in output_files)
+    if declared_predictions and declared_predictions != observed_predictions:
+        issues.append(ArtifactValidationIssue(
+            code="RUNTIME_OUTPUT_PREDICTION_COUNT_MISMATCH",
+            message="Observed output prediction records do not match runtime_report.outputs.",
+            severity="warning",
+            expected=declared_predictions,
+            observed=observed_predictions,
+        ))
+    if declared_markers != observed_markers:
+        issues.append(ArtifactValidationIssue(
+            code="RUNTIME_OUTPUT_MARKER_COUNT_MISMATCH",
+            message="Observed output marker records do not match runtime_report.outputs.",
+            severity="warning",
+            expected=declared_markers,
+            observed=observed_markers,
+        ))
 
 
 def _safe_child(root: Path, rel: str) -> Path | None:

@@ -311,5 +311,6 @@ qortex neuroai validate-artifact artifacts/run_001 --strict --json
 
 The validator checks required sidecars, recursive manifest file size and
 SHA-256 entries, JSONL prediction records, trigger marker records, CSV columns,
-and consistency between `runtime_report.json` and the output record count when
-there is a single JSONL prediction stream.
+Parquet metadata, NIfTI mask readability/shape, COCO JSON structure, YOLO box
+normalization, DICOM output headers when `pydicom` is installed, and
+consistency between observed output records and `runtime_report.json.outputs`.

@@ -104,6 +104,10 @@ class BIDSSourceAdapter(SourceAdapter):
 
         primary_modality = self._target_modality or (modalities[0] if modalities else None)
         abstraction = getattr(representative, "abstraction", None)
+        profiled_all = bool(target_files) and len(recording_profiles) == len(target_files)
+        internally_constant = recording_profiles and not any(
+            v.get("status") == "variable" for v in consistency.values()
+        )
 
         return SourceProfile(
             source_id=self.source_id,
@@ -124,7 +128,7 @@ class BIDSSourceAdapter(SourceAdapter):
             or AxisConvention.channels_time,
             evidence_status=(
                 EvidenceStatus.confirmed
-                if recording_profiles and not any(v.get("status") == "variable" for v in consistency.values())
+                if internally_constant and profiled_all
                 else EvidenceStatus.inferred
             ),
             warnings=warnings,

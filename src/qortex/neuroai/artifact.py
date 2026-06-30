@@ -203,6 +203,7 @@ class ArtifactWriter:
             "success": getattr(run_report, "success", None),
             "n_outputs_written": getattr(run_report, "n_outputs_written", 0),
             "n_windows_processed": getattr(run_report, "n_windows_processed", 0),
+            "outputs": _to_serialisable(getattr(run_report, "outputs", [])),
             "errors": getattr(run_report, "errors", []),
             "warnings": _to_serialisable(getattr(run_report, "warnings", [])),
         }
