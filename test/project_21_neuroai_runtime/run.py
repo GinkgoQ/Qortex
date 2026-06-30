@@ -5,9 +5,21 @@ import json
 import shutil
 from pathlib import Path
 
+import numpy as np
+
 from qortex.neuroai import Pipeline
 from qortex.neuroai.compatibility import CompatibilityEngine
-from qortex.neuroai.contracts import AxisConvention, InputContract, ModelProfile, SourceProfile
+from qortex.neuroai.contracts import (
+    AxisConvention,
+    CompatibilityReport,
+    CompatibilityStatus,
+    InputContract,
+    ModelProfile,
+    SourceProfile,
+    TransformDescriptor,
+    TransformKind,
+)
+from qortex.neuroai.preprocess import PreprocessPlanner, TransformExecutor
 from qortex.neuroai.spec import PipelineSpec, PreprocessSpec
 
 
@@ -109,6 +121,46 @@ def main() -> None:
     assert deny_cast_report.status.value == "incompatible"
     assert any(b.code == "DTYPE_MISMATCH" for b in deny_cast_report.blockers)
 
+    channel_plan = PreprocessPlanner().build_plan(
+        CompatibilityReport(
+            status=CompatibilityStatus.compatible_with_transforms,
+            source_id="manual_channel_source",
+            model_id="manual_channel_model",
+            required_transforms=[
+                TransformDescriptor(
+                    kind=TransformKind.channel_select,
+                    required_by="input_contract.required_channels",
+                    params={
+                        "mode": "names",
+                        "names": ["C3", "C4"],
+                        "source_names": ["Fp1", "C3", "C4", "Oz"],
+                        "missing_policy": "error",
+                    },
+                    reversible=True,
+                )
+            ],
+        ),
+        window_duration_s=2.0,
+        model_provider="onnx",
+    )
+    channel_transform_names = [
+        t.kind.value if hasattr(t.kind, "value") else str(t.kind)
+        for t in channel_plan.transforms
+    ]
+    selected = TransformExecutor(channel_plan).apply(
+        np.array([
+            [1.0, 1.0, 1.0],
+            [2.0, 2.0, 2.0],
+            [3.0, 3.0, 3.0],
+            [4.0, 4.0, 4.0],
+        ], dtype=np.float32)
+    )
+    print("CHANNEL_PLAN_TRANSFORMS", channel_transform_names)
+    print("CHANNEL_SELECT_RESULT", selected.tolist())
+    assert "window" not in channel_transform_names
+    assert selected.shape == (2, 3)
+    assert selected.tolist() == [[2.0, 2.0, 2.0], [3.0, 3.0, 3.0]]
+
     spec_dict = {
         "name": "project_21_neuroai_runtime",
         "source": {
@@ -159,17 +211,23 @@ def main() -> None:
     print(plan.summary())
 
     report = pipe.run(artifact_dir=OUT / "artifact")
+    artifact_jsonl_path = OUT / "artifact" / "outputs" / "predictions.jsonl"
+    artifact_csv_path = OUT / "artifact" / "outputs" / "predictions.csv"
     print("RUN_SUCCESS", report.success)
     print("WINDOWS_PROCESSED", report.n_windows_processed)
     print("OUTPUTS_WRITTEN", report.n_outputs_written)
+    print("OUTPUT_RECORD_COUNTS", report.outputs)
     print("LATENCY_STATUS", report.latency_report.status if report.latency_report else None)
     print("RUN_ERRORS", report.errors)
     assert report.success, report.errors
     assert report.n_outputs_written == 2, report.outputs
+    assert artifact_jsonl_path.exists()
+    assert artifact_csv_path.exists()
+    assert any(item.get("n_marker_records") == 1 for item in report.outputs)
 
     jsonl_records = [
         json.loads(line)
-        for line in jsonl_path.read_text(encoding="utf-8").splitlines()
+        for line in artifact_jsonl_path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
     print("JSONL_RECORDS", json.dumps(jsonl_records, indent=2, sort_keys=True))
@@ -182,9 +240,11 @@ def main() -> None:
     assert "probabilities" in prediction
     assert prediction["class"] == "alert"
     assert prediction["trigger_fired"] is True
+    assert prediction["input_shape"]
+    assert prediction["preprocessed_shape"]
     assert marker["label"] == "alert"
 
-    with csv_path.open(newline="", encoding="utf-8") as f:
+    with artifact_csv_path.open(newline="", encoding="utf-8") as f:
         csv_records = list(csv.DictReader(f))
     print("CSV_RECORDS", json.dumps(csv_records, indent=2, sort_keys=True))
     assert len(csv_records) == 1
@@ -196,6 +256,10 @@ def main() -> None:
     print("ARTIFACT_FILES", [p.name for p in provenance_files])
     assert (OUT / "artifact" / "artifact_manifest.json").exists()
     assert (OUT / "artifact" / "provenance.json").exists()
+    manifest = json.loads((OUT / "artifact" / "artifact_manifest.json").read_text(encoding="utf-8"))
+    print("ARTIFACT_MANIFEST_FILES", sorted(manifest["files"]))
+    assert "outputs/predictions.jsonl" in manifest["files"]
+    assert "outputs/predictions.csv" in manifest["files"]
 
     print("project_21_neuroai_runtime complete")
 

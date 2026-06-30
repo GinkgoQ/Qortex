@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from pathlib import Path
 from typing import Any
 
 from qortex.neuroai.models._base import ModelOutput
@@ -35,6 +34,21 @@ class OutputAdapter(ABC):
     def n_written(self) -> int:
         """Number of records successfully written so far."""
         return self._n_written
+
+    @property
+    def n_prediction_records(self) -> int:
+        """Number of primary prediction records written."""
+        return self._n_written
+
+    @property
+    def n_marker_records(self) -> int:
+        """Number of trigger/event marker records written."""
+        return 0
+
+    @property
+    def n_output_records_total(self) -> int:
+        """Total records written, including markers when supported."""
+        return self.n_prediction_records + self.n_marker_records
 
     def write_marker(self, marker: Any) -> None:
         """Write a structured EventMarkerOutput (trigger event).

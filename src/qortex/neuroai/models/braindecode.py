@@ -21,6 +21,7 @@ from qortex.neuroai.contracts import (
 )
 from qortex.neuroai.models._base import ModelAdapter, ModelOutput
 from qortex.neuroai.spec import ModelSpec, RuntimeSpec
+from qortex.core.exceptions import ContractValidationError
 
 log = logging.getLogger(__name__)
 
@@ -52,6 +53,7 @@ class BrainDecodeAdapter(ModelAdapter):
         self._n_times: int | None = None
         self._n_classes: int | None = None
         self._class_names: list[str] = []
+        self._apply_explicit_contract()
 
     # ── ModelAdapter interface ────────────────────────────────────────────────
 
@@ -116,7 +118,6 @@ class BrainDecodeAdapter(ModelAdapter):
         )
 
     def load(self, runtime: RuntimeSpec) -> None:
-        import torch
         braindecode = _require_braindecode()
         self._device = _resolve_device(runtime.device)
 
@@ -127,9 +128,10 @@ class BrainDecodeAdapter(ModelAdapter):
         for key, class_name in _KNOWN_BRAINDECODE_MODELS.items():
             if key in model_key:
                 try:
-                    n_ch = self._n_channels or 64
-                    n_t = self._n_times or 512
-                    n_cl = self._n_classes or 2
+                    self._require_dimensions_for_builtin(class_name)
+                    n_ch = self._n_channels
+                    n_t = self._n_times
+                    n_cl = self._n_classes
                     cls = getattr(braindecode.models, class_name)
                     self._model = cls(n_chans=n_ch, n_times=n_t, n_outputs=n_cl)
                     log.info("Loaded braindecode model: %s", class_name)
@@ -228,6 +230,47 @@ class BrainDecodeAdapter(ModelAdapter):
             self._class_names = [id2label.get(str(i), f"class_{i}") for i in range(self._n_classes or 0)]
         except Exception as exc:
             log.debug("Could not load config for %s: %s", self._spec.id, exc)
+        self._apply_explicit_contract()
+
+    def _apply_explicit_contract(self) -> None:
+        """Read user-declared dimensions from ModelSpec.extra when provided."""
+        input_cfg = self._spec.extra.get("input") or {}
+        output_cfg = self._spec.extra.get("output") or {}
+        if "n_channels" in input_cfg:
+            self._n_channels = int(input_cfg["n_channels"])
+        if "n_chans" in input_cfg:
+            self._n_channels = int(input_cfg["n_chans"])
+        if "n_times" in input_cfg:
+            self._n_times = int(input_cfg["n_times"])
+        if "window_samples" in input_cfg:
+            self._n_times = int(input_cfg["window_samples"])
+        if "n_classes" in output_cfg:
+            self._n_classes = int(output_cfg["n_classes"])
+        if "n_outputs" in output_cfg:
+            self._n_classes = int(output_cfg["n_outputs"])
+        classes = output_cfg.get("classes")
+        if classes:
+            self._class_names = [str(v) for v in classes]
+            if self._n_classes is None:
+                self._n_classes = len(self._class_names)
+
+    def _require_dimensions_for_builtin(self, class_name: str) -> None:
+        missing = []
+        if self._n_channels is None:
+            missing.append("model.input.n_channels")
+        if self._n_times is None:
+            missing.append("model.input.n_times")
+        if self._n_classes is None:
+            missing.append("model.output.n_classes")
+        if missing:
+            raise ContractValidationError(
+                "BraindecodeModelSpec",
+                [
+                    f"{class_name} requires explicit dimensions; missing {', '.join(missing)}. "
+                    "Provide them in the curated model registry or in the pipeline YAML under "
+                    "model.input and model.output."
+                ],
+            )
 
 
 def _require_braindecode():

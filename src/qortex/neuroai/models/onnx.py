@@ -8,6 +8,7 @@ nodes, giving fully confirmed (not inferred) shape information.
 from __future__ import annotations
 
 import logging
+from importlib.util import find_spec
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +18,6 @@ from qortex.neuroai.contracts import (
     AxisConvention,
     EvidenceStatus,
     InputContract,
-    Modality,
     ModelProfile,
     OutputContract,
     WarningItem,
@@ -75,9 +75,13 @@ class ONNXModelAdapter(ModelAdapter):
             return self._profile
 
         try:
-            import onnxruntime as ort
             import onnx
         except ImportError:
+            raise ImportError(
+                "ONNX inspection requires onnxruntime + onnx. "
+                "Install with: pip install 'qortex[onnx]'"
+            )
+        if find_spec("onnxruntime") is None:
             raise ImportError(
                 "ONNX inspection requires onnxruntime + onnx. "
                 "Install with: pip install 'qortex[onnx]'"
@@ -166,26 +170,79 @@ class ONNXModelAdapter(ModelAdapter):
         feeds = {inp_name: arr}
 
         raw_outputs = self._session.run(None, feeds)
-        out_node = self._output_nodes[0]
-
-        # Classification: assume (batch, n_classes) logits or probabilities
         raw = raw_outputs[0]
-        if raw.ndim >= 2:
-            probs = _softmax(raw[0])
-        else:
-            probs = _softmax(raw)
-
+        decoder = dict(self._spec.extra.get("output_decoder") or {})
         profile = self.inspect()
         out_contract = profile.output_contract
-        classes = out_contract.classes if out_contract else [str(i) for i in range(len(probs))]
+        decoder_type = (decoder.get("type") or self._spec.task or getattr(out_contract, "output_type", "") or "").lower()
 
-        pred_idx = int(np.argmax(probs))
+        if decoder_type in {"classification", "image_classification", "eeg_classification"}:
+            activation = decoder.get("activation", "softmax")
+            logits = raw[0] if raw.ndim >= 2 else raw
+            if activation == "softmax":
+                probs = _softmax(logits)
+            elif activation in {"none", "probabilities", "identity"}:
+                probs = np.asarray(logits, dtype=np.float32)
+            else:
+                raise RuntimeError(f"Unsupported ONNX classification activation: {activation!r}")
+            classes = out_contract.classes if out_contract and out_contract.classes else [
+                str(i) for i in range(len(probs))
+            ]
+            pred_idx = int(np.argmax(probs))
+            return ModelOutput(
+                output_type="classification",
+                raw=raw_outputs,
+                class_index=pred_idx,
+                class_name=classes[pred_idx] if pred_idx < len(classes) else str(pred_idx),
+                probabilities={c: float(probs[i]) for i, c in enumerate(classes[:len(probs)])},
+                metadata={"decoder": decoder or {"type": "classification", "activation": activation}},
+            )
+
+        if decoder_type == "segmentation":
+            mask = raw
+            activation = decoder.get("activation")
+            if activation == "softmax":
+                axis = int(decoder.get("argmax_axis", 1))
+                mask = np.argmax(raw, axis=axis)
+            elif activation == "sigmoid":
+                threshold = float(decoder.get("threshold", 0.5))
+                mask = (1.0 / (1.0 + np.exp(-raw))) >= threshold
+            elif decoder.get("argmax_axis") is not None:
+                mask = np.argmax(raw, axis=int(decoder["argmax_axis"]))
+            return ModelOutput(
+                output_type="segmentation",
+                raw=raw_outputs,
+                mask=mask,
+                metadata={"decoder": decoder or {"type": "segmentation"}},
+            )
+
+        if decoder_type == "regression":
+            value = float(np.asarray(raw).reshape(-1)[0])
+            return ModelOutput(
+                output_type="regression",
+                raw=raw_outputs,
+                regression_value=value,
+                metadata={"decoder": decoder or {"type": "regression"}},
+            )
+
+        if decoder_type in {"embedding", "feature_extraction", "features"}:
+            return ModelOutput(
+                output_type="embedding",
+                raw=raw_outputs,
+                embedding=raw,
+                metadata={"decoder": decoder or {"type": "embedding"}},
+            )
+
         return ModelOutput(
-            output_type=self._spec.task or "classification",
+            output_type="raw",
             raw=raw_outputs,
-            class_index=pred_idx,
-            class_name=classes[pred_idx] if pred_idx < len(classes) else str(pred_idx),
-            probabilities={c: float(probs[i]) for i, c in enumerate(classes[:len(probs)])},
+            metadata={
+                "decoder": decoder or None,
+                "warning": (
+                    "No ONNX output_decoder was declared and task is not classification-like; "
+                    "raw outputs returned without semantic decoding."
+                ),
+            },
         )
 
     def unload(self) -> None:
@@ -241,11 +298,14 @@ class ONNXModelAdapter(ModelAdapter):
         out = outputs[0]
         shape = self._extract_shape(out)
         n_classes = shape[-1] if shape and isinstance(shape[-1], int) else None
+        decoder = dict(self._spec.extra.get("output_decoder") or {})
+        decoder_type = decoder.get("type") or self._spec.task or "raw"
         return OutputContract(
-            output_type=self._spec.task or "classification",
-            n_classes=n_classes,
+            output_type=decoder_type,
+            n_classes=n_classes if str(decoder_type).endswith("classification") else None,
             output_dtype=self._extract_dtype(out),
-            produces_probabilities=True,
+            produces_probabilities=decoder.get("activation") in {"softmax", "sigmoid"}
+            or str(decoder_type).endswith("classification"),
         )
 
     @staticmethod

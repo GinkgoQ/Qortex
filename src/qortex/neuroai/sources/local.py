@@ -46,7 +46,6 @@ _EXT_TO_MODALITY: dict[str, str] = {
     ".parquet":"tabular",
     ".csv":    "tabular",
     ".tsv":    "tabular",
-    ".xdf":    "eeg",
 }
 
 
@@ -81,6 +80,11 @@ class LocalFileAdapter(SourceAdapter):
         self._window_spec = window_spec
         self._channel_names = channel_names
         self._ext = self._detect_ext()
+        if self._ext == ".xdf":
+            raise ValueError(
+                "XDF files must use SourceSpec(type='xdf') or auto-detection. "
+                "LocalFileAdapter does not route XDF through MNE."
+            )
 
     # ── SourceAdapter interface ───────────────────────────────────────────────
 
@@ -189,7 +193,7 @@ class LocalFileAdapter(SourceAdapter):
 
     def _stream_windowed(self) -> Iterator[QortexTimeSeries]:
         ws = self._window_spec
-        raw = self._open_mne_raw(preload=True)
+        raw = self._open_mne_raw(preload=False)
         if self._channel_names:
             raw.pick_channels(self._channel_names)
         sfreq = raw.info["sfreq"]
@@ -210,7 +214,11 @@ class LocalFileAdapter(SourceAdapter):
             tend = min(tstart + win_dur, total_dur)
             if tend - tstart < win_dur * 0.5 and ws.drop_short:
                 break
-            data, _ = raw.get_data(tmin=tstart, tmax=tend, return_times=True)
+            start_sample = max(0, int(round(tstart * sfreq)))
+            stop_sample = min(raw.n_times, int(round(tend * sfreq)))
+            if stop_sample <= start_sample:
+                break
+            data = raw.get_data(start=start_sample, stop=stop_sample)
             data = data.astype(np.float32)
             yield QortexTimeSeries(
                 data=data,
@@ -224,6 +232,8 @@ class LocalFileAdapter(SourceAdapter):
                     "path": str(self._path),
                     "tmin": tstart,
                     "tmax": tend,
+                    "sample_start": start_sample,
+                    "sample_stop": stop_sample,
                 },
             )
             tstart += step
@@ -240,8 +250,6 @@ class LocalFileAdapter(SourceAdapter):
             return mne.io.read_raw_eeglab(path_str, preload=preload, verbose=False)
         elif ext == ".vhdr":
             return mne.io.read_raw_brainvision(path_str, preload=preload, verbose=False)
-        elif ext == ".xdf":
-            return mne.io.read_raw(path_str, preload=preload, verbose=False)
         else:
             return mne.io.read_raw(path_str, preload=preload, verbose=False)
 
@@ -378,7 +386,7 @@ class LocalFileAdapter(SourceAdapter):
         return self._path.suffix.lower()
 
     def _is_signal(self) -> bool:
-        return self._ext in (".edf", ".bdf", ".fif", ".set", ".vhdr", ".xdf")
+        return self._ext in (".edf", ".bdf", ".fif", ".set", ".vhdr")
 
     def _is_volume(self) -> bool:
         return self._ext in (".nii", ".gz")

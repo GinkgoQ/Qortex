@@ -270,7 +270,9 @@ box.to_yolo(img_w=512, img_h=512)   # [cx, cy, w, h] normalized
 
 ## Artifact directory
 
-When `pipe.run(artifact_dir="...")` is called, `ArtifactWriter` writes 9 files:
+When `pipe.run(artifact_dir="...")` is called, file-backed outputs are routed
+under `artifact_dir/outputs/` and `ArtifactWriter` writes a self-contained
+artifact:
 
 ```
 artifacts/run_001/
@@ -282,7 +284,13 @@ artifacts/run_001/
   warnings.json             non-fatal issues during the run
   pipeline.yaml             copy of the pipeline spec
   artifact_contract.json    schema, hash, provenance summary
-  artifact_manifest.json    SHA-256 and file size for every file above
+  artifact_manifest.json    SHA-256 and file size for every file below
+  outputs/
+    predictions.jsonl
+    predictions.parquet
+    predictions.csv
 ```
 
-`artifact_manifest.json` lets any downstream consumer verify the integrity of the artifact without re-running anything.
+`artifact_manifest.json` is recursive: it includes sidecars, provenance files,
+and files under `outputs/`. This lets downstream consumers verify prediction
+files without re-running inference.

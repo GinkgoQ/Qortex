@@ -294,10 +294,21 @@ class CompatibilityEngine:
             # Channel count mismatch after name check
             extra = [ch for ch in source.channel_names if ch not in req_names]
             if extra and preprocess.allows("channel_select"):
+                keep_indices = [
+                    source.channel_names.index(ch)
+                    for ch in req_names
+                    if ch in source.channel_names
+                ]
                 transforms.append(TransformDescriptor(
                     kind=TransformKind.channel_select,
                     required_by="input_contract.required_channels",
-                    params={"keep": req_names},
+                    params={
+                        "mode": "names",
+                        "names": req_names,
+                        "indices": keep_indices,
+                        "source_names": list(source.channel_names),
+                        "missing_policy": "error",
+                    },
                     reversible=True,
                 ))
             return EvidenceStatus.confirmed
@@ -308,7 +319,7 @@ class CompatibilityEngine:
                 transforms.append(TransformDescriptor(
                     kind=TransformKind.channel_select,
                     required_by="input_contract.n_channels",
-                    params={"target_n": req_n},
+                    params={"mode": "first_n", "target_n": req_n},
                     reversible=True,
                 ))
                 warnings.append(WarningItem(

@@ -129,6 +129,8 @@ report = pipe.check()
 - `blockers`: list of hard incompatibilities (wrong modality, incompatible shape, missing dependency)
 - `warnings`: non-fatal issues (unknown channel labels, inferred sampling rate)
 - `unknowns`: fields that could not be determined without loading data
+- `explain()`: structured source-vs-model comparison rows
+- `to_markdown()` / `to_json()`: exportable compatibility evidence
 
 ```python
 print(report.summary())
@@ -177,7 +179,15 @@ run = pipe.run(artifact_dir="artifacts/run_001")
 
 `run()` raises if `report.is_runnable` is False.
 
-`artifact_dir` is optional. When provided, `ArtifactWriter` writes 9 files to that directory (see [Outputs](outputs.md#artifact-directory)).
+`artifact_dir` is optional. When provided, file-backed outputs are written under
+`artifact_dir/outputs/` and `ArtifactWriter` hashes both sidecars and output
+files (see [Outputs](outputs.md#artifact-directory)).
+
+The runtime processes windows in batches up to `runtime.batch_size`. Adapters
+that implement `predict_batch()` can run true batched inference; other adapters
+use the base sequential fallback. Output metadata preserves source/window
+details such as shape, dtype, axes, channel names, sampling frequency, voxel
+metadata, and source provenance when the source adapter provides them.
 
 The returned `PipelineRunReport` contains:
 
@@ -187,6 +197,7 @@ run.n_outputs_written     # int
 run.errors                # list[str]
 run.latency_report        # LatencyReport
 run.artifact_contract     # ArtifactContract | None
+run.outputs               # per-adapter prediction/marker record counts
 ```
 
 ### `benchmark()` — latency profiling

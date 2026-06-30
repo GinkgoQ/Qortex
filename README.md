@@ -310,6 +310,7 @@ for t in pipe.plan_preprocessing().transforms:
 if report.is_runnable:
     run = pipe.run(artifact_dir="artifacts/run_001")
     print(run.latency_report.summary())
+    print(run.outputs)  # prediction and marker record counts per adapter
 
 bench = pipe.benchmark(n_windows=50)
 print(bench.summary())   # p50=12.3ms  p95=18.7ms  p99=23.1ms
@@ -365,7 +366,9 @@ The `overlay` adapter accepts a `source_image` key in the metadata dict (numpy `
 
 ### Artifact directory
 
-When `artifact_dir` is passed to `pipe.run()`, it writes 9 files:
+When `artifact_dir` is passed to `pipe.run()`, file-backed outputs are routed
+under `artifact_dir/outputs/` and the manifest hashes both sidecars and
+prediction files:
 
 ```
 artifacts/run_001/
@@ -377,7 +380,10 @@ artifacts/run_001/
   warnings.json             non-fatal issues during the run
   pipeline.yaml             spec copy
   artifact_contract.json    hash, schema, provenance summary
-  artifact_manifest.json    SHA-256 of every file above
+  artifact_manifest.json    SHA-256 of every file below
+  outputs/
+    predictions.jsonl
+    predictions.csv
 ```
 
 ### Ring buffer
@@ -420,10 +426,12 @@ cd src/qortex_rs && maturin develop --release
 | BIDS Validator wrapper | Useful; does not fabricate results |
 | EEG / MEG / MRI / DWI / PET loaders | Real optional-dependency loaders; need fixture coverage |
 | NeuroAI sources (DICOM, NWB, XDF, LSL, BrainFlow, image) | Implemented; DICOM has PHI redaction + affine; integration tests pending |
-| NeuroAI models (HF, ONNX, Torch, MONAI, Ultralytics) | Implemented; integration tests pending |
+| NeuroAI models (HF, ONNX, Torch, MONAI, Ultralytics, Braindecode) | Implemented; ONNX supports explicit output decoders; Braindecode requires confirmed dimensions |
 | NeuroAI outputs (JSONL, Parquet, CSV, NIfTI, DICOM-SEG, BIDS, COCO, YOLO, overlay, HTTP) | Implemented; overlay renders bounding boxes and masks on source images |
-| NeuroAI compatibility engine | Implemented; checks modality, channels, sampling rate, spatial shape, dtype, voxel spacing, coordinate frame, fMRI TR, and denied-transform blockers |
-| NeuroAI preprocessing planner | Implemented; contract-driven transform planning with explicit allow/deny policy, no hidden modality heuristics |
+| NeuroAI compatibility engine | Implemented; checks modality, channels, sampling rate, spatial shape, dtype, voxel spacing, coordinate frame, fMRI TR, denied-transform blockers, and detailed `explain()` exports |
+| NeuroAI preprocessing planner/executor | Implemented; contract-driven transform planning, strict critical-transform failures, real named-channel selection, no hidden modality heuristics |
+| NeuroAI runtime batching + metadata | Implemented; `batch_size` batches windows and output metadata carries source/window details |
+| NeuroAI artifact integrity | Implemented; artifact runs route file outputs into `artifact_dir/outputs` and recursively hash outputs plus sidecars |
 | NeuroAI trigger system | Implemented; fires structured EventMarkerOutput to all output adapters |
 | NeuroAI ring buffer (Python + Rust) | Implemented; Rust is optional |
 | Dashboard | Experimental entrypoint; not a product |

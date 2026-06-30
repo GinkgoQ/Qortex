@@ -74,7 +74,12 @@ For models that are not in the `transformers` ecosystem (e.g., braindecode model
 model:
   provider: onnx
   id: model.onnx              # local path or HF path like hf://org/repo/model.onnx
-  task: classification
+  task: segmentation
+  output_decoder:
+    type: segmentation        # classification | segmentation | regression | embedding
+    output_name: logits
+    activation: softmax
+    argmax_axis: 1
 ```
 
 `inspect()` reads the ONNX graph without creating an inference session. Input names, output names, and shapes are extracted from `onnx.load_model()`.
@@ -83,7 +88,15 @@ model:
 - `cpu` → `CPUExecutionProvider`
 - `cuda` / `cuda:N` → `CUDAExecutionProvider`
 
-`predict()` runs `session.run(output_names, {input_name: data})`. Input must be `float32` numpy array.
+`predict()` runs `session.run(output_names, {input_name: data})`. Input must be
+`float32` numpy array. Semantic decoding is explicit:
+
+- `classification` applies `softmax` unless `activation: none` / `probabilities` is declared.
+- `segmentation` can apply `softmax + argmax_axis` or `sigmoid + threshold`.
+- `regression` returns a scalar value.
+- `embedding` returns the raw embedding tensor.
+- Unknown decoder/task returns `ModelOutput(output_type="raw")` instead of
+  pretending the output is classification.
 
 ## PyTorch / TorchScript
 
@@ -108,6 +121,12 @@ Input shape is inferred from the TorchScript graph or from the first layer's att
 model:
   provider: braindecode
   id: braindecode/EEGNet      # or ShallowFBCSPNet, DeepFBCSPNet, EEGConformer, etc.
+  input:
+    n_channels: 22
+    n_times: 1000
+  output:
+    n_classes: 4
+    classes: [left_hand, right_hand, feet, tongue]
 ```
 
 Loads `config.json` from HF Hub to get `n_chans`, `n_times`, `n_outputs`, and `id2label`. Known model names map to the corresponding braindecode class:
@@ -120,7 +139,13 @@ Loads `config.json` from HF Hub to get `n_chans`, `n_times`, `n_outputs`, and `i
 | `eegconformer` | `EEGConformer` |
 | `tidnet` | `TIDNet` |
 
-Unknown names fall back to `AutoModel.from_pretrained()`. Input is always `[batch, channels, time]`. Output has softmax applied.
+Built-in Braindecode classes require confirmed dimensions from the curated
+registry, HuggingFace config, or explicit YAML fields under `model.input` and
+`model.output`. Qortex does not instantiate a 64-channel / 512-sample / 2-class
+fallback model, because that would produce scientifically meaningless outputs.
+
+Unknown names fall back to `AutoModel.from_pretrained()`. Input is always
+`[batch, channels, time]`. Output has softmax applied.
 
 ## MONAI bundle
 

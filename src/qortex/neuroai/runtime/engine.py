@@ -12,7 +12,8 @@ allowed but will log a warning.
 from __future__ import annotations
 
 import logging
-from typing import Any, Iterator
+from dataclasses import dataclass, field
+from typing import Any
 
 from qortex.neuroai.benchmark import PipelineProfiler
 from qortex.neuroai.contracts import (
@@ -20,16 +21,25 @@ from qortex.neuroai.contracts import (
     CompatibilityReport,
     PipelineRunReport,
     PreprocessPlan,
-    SourceProfile,
     WarningItem,
 )
 from qortex.neuroai.models._base import ModelAdapter, ModelOutput
 from qortex.neuroai.outputs._base import OutputAdapter
 from qortex.neuroai.preprocess.planner import TransformExecutor
 from qortex.neuroai.sources._base import SourceAdapter
-from qortex.neuroai.spec import PipelineSpec, RuntimeSpec, TriggerSpec
+from qortex.neuroai.spec import PipelineSpec, TriggerSpec
 
 log = logging.getLogger(__name__)
+
+
+@dataclass
+class WindowRecord:
+    """One source window plus auditable metadata carried through runtime."""
+
+    index: int
+    data_item: Any
+    array: Any | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class RuntimeEngine:
@@ -85,90 +95,126 @@ class RuntimeEngine:
         errors: list[str] = []
         warnings: list[WarningItem] = []
         n_ok = 0
+        n_seen = 0
 
         trigger = self._spec.trigger
         _trigger_streak: int = 0
         _trigger_required: int = int(trigger.when.get("stable_for", 1)) if trigger else 1
+        batch_size = max(1, int(getattr(self._spec.runtime, "batch_size", 1) or 1))
 
         try:
             stream = iter(self._source.stream())
-            idx = 0
             while True:
-                # ── Source read — timed around the actual blocking call ──────
-                self._profiler.start_source_read()
-                try:
-                    data_item = next(stream)
-                except StopIteration:
+                batch: list[WindowRecord] = []
+                for _ in range(batch_size):
+                    self._profiler.start_source_read()
+                    try:
+                        data_item = next(stream)
+                    except StopIteration:
+                        self._profiler.end_source_read()
+                        break
+                    self._profiler.end_source_read()
+                    batch.append(
+                        WindowRecord(
+                            index=n_seen,
+                            data_item=data_item,
+                            metadata=_extract_metadata(
+                                data_item,
+                                window_index=n_seen,
+                                source_id=self._source.source_id,
+                                source_profile=getattr(self, "_compat", None),
+                            ),
+                        )
+                    )
+                    n_seen += 1
+
+                if not batch:
                     break
-                self._profiler.end_source_read()
 
                 # ── Preprocessing ───────────────────────────────────────────
                 self._profiler.start_preprocess()
+                preprocessed: list[WindowRecord] = []
                 try:
-                    arr = self._executor.apply(_extract_array(data_item))
+                    for record in batch:
+                        raw_array = _extract_array(record.data_item)
+                        record.metadata["input_shape"] = _shape_of(raw_array)
+                        record.metadata["input_dtype"] = _dtype_of(raw_array)
+                        record.array = self._executor.apply(raw_array)
+                        record.metadata["preprocessed_shape"] = _shape_of(record.array)
+                        record.metadata["preprocessed_dtype"] = _dtype_of(record.array)
+                        preprocessed.append(record)
                 except Exception as exc:
-                    err_msg = f"Preprocess error on window {idx}: {exc}"
+                    err_msg = f"Preprocess error on batch starting at window {batch[0].index}: {exc}"
                     log.warning(err_msg)
                     errors.append(err_msg)
-                    self._profiler.commit_window(dropped=True, error=str(exc))
+                    for _record in batch:
+                        self._profiler.commit_window(dropped=True, error=str(exc))
                     continue
                 self._profiler.end_preprocess()
 
                 # ── Inference ───────────────────────────────────────────────
                 self._profiler.start_inference()
                 try:
-                    output: ModelOutput = self._model.predict(arr)
+                    arrays = [record.array for record in preprocessed]
+                    outputs: list[ModelOutput]
+                    if len(arrays) > 1:
+                        outputs = self._model.predict_batch(arrays)
+                    else:
+                        outputs = [self._model.predict(arrays[0])]
+                    if len(outputs) != len(preprocessed):
+                        raise RuntimeError(
+                            f"predict_batch returned {len(outputs)} output(s) for "
+                            f"{len(preprocessed)} input window(s)"
+                        )
                 except Exception as exc:
-                    err_msg = f"Inference error on window {idx}: {exc}"
+                    err_msg = f"Inference error on batch starting at window {preprocessed[0].index}: {exc}"
                     log.warning(err_msg)
                     errors.append(err_msg)
-                    self._profiler.commit_window(dropped=True, error=str(exc))
+                    for _record in preprocessed:
+                        self._profiler.commit_window(dropped=True, error=str(exc))
                     continue
                 self._profiler.end_inference()
 
-                # ── Postprocess (trigger evaluation) ────────────────────────
-                self._profiler.start_postprocess()
-                trigger_fired = False
-                if trigger is not None:
-                    pred_dict = {
-                        "class": output.class_name,
-                        "probabilities": output.probabilities,
-                    }
-                    if trigger.evaluate(pred_dict):
-                        _trigger_streak += 1
-                    else:
-                        _trigger_streak = 0
-                    if _trigger_streak >= _trigger_required:
-                        trigger_fired = True
-                        log.info("Trigger fired at window %d: %s", idx, trigger.emit)
-                        _trigger_streak = 0
-                self._profiler.end_postprocess()
+                for record, output in zip(preprocessed, outputs):
+                    # ── Postprocess (trigger evaluation) ────────────────────
+                    self._profiler.start_postprocess()
+                    trigger_fired = False
+                    if trigger is not None:
+                        pred_dict = {
+                            "class": output.class_name,
+                            "probabilities": output.probabilities,
+                        }
+                        if trigger.evaluate(pred_dict):
+                            _trigger_streak += 1
+                        else:
+                            _trigger_streak = 0
+                        if _trigger_streak >= _trigger_required:
+                            trigger_fired = True
+                            log.info("Trigger fired at window %d: %s", record.index, trigger.emit)
+                            _trigger_streak = 0
+                    self._profiler.end_postprocess()
 
-                # ── Output write ────────────────────────────────────────────
-                self._profiler.start_output_write()
-                meta = {
-                    "window_index": idx,
-                    "trigger_fired": trigger_fired,
-                    "source": self._source.source_id,
-                }
-                for out_adapter in self._outputs:
-                    try:
-                        out_adapter.write(output, metadata=meta)
-                    except Exception as exc:
-                        err_msg = f"Output write error on window {idx}: {exc}"
-                        log.warning(err_msg)
-                        errors.append(err_msg)
+                    # ── Output write ────────────────────────────────────────
+                    self._profiler.start_output_write()
+                    meta = dict(record.metadata)
+                    meta["trigger_fired"] = trigger_fired
+                    for out_adapter in self._outputs:
+                        try:
+                            out_adapter.write(output, metadata=meta)
+                        except Exception as exc:
+                            err_msg = f"Output write error on window {record.index}: {exc}"
+                            log.warning(err_msg)
+                            errors.append(err_msg)
 
-                # Emit structured EventMarker when trigger fires
-                if trigger_fired and trigger is not None:
-                    _emit_trigger_event(
-                        trigger, idx, output, self._outputs, self._source.source_id
-                    )
-                self._profiler.end_output_write()
+                    # Emit structured EventMarker when trigger fires
+                    if trigger_fired and trigger is not None:
+                        _emit_trigger_event(
+                            trigger, record.index, output, self._outputs, self._source.source_id
+                        )
+                    self._profiler.end_output_write()
 
-                self._profiler.commit_window()
-                n_ok += 1
-                idx += 1
+                    self._profiler.commit_window()
+                    n_ok += 1
 
         except KeyboardInterrupt:
             log.info("Pipeline interrupted by user after %d windows.", n_ok)
@@ -184,7 +230,16 @@ class RuntimeEngine:
             preprocess_plan=self._plan,
             latency_report=latency_report,
             artifact_contract=artifact_contract,
-            outputs=[{"n_written": getattr(o, "n_written", 0)} for o in self._outputs],
+            outputs=[
+                {
+                    "adapter": type(o).__name__,
+                    "n_prediction_records": getattr(o, "n_prediction_records", getattr(o, "n_written", 0)),
+                    "n_marker_records": getattr(o, "n_marker_records", 0),
+                    "n_output_records_total": getattr(o, "n_output_records_total", getattr(o, "n_written", 0)),
+                    "n_written": getattr(o, "n_written", 0),
+                }
+                for o in self._outputs
+            ],
             errors=errors,
             warnings=warnings,
             n_windows_processed=n_ok,
@@ -300,3 +355,66 @@ def _extract_array(data_item: Any):
 
     # Fall through — TransformExecutor._coerce_numpy will raise with a clear message
     return data_item
+
+
+def _extract_metadata(
+    data_item: Any,
+    *,
+    window_index: int,
+    source_id: str,
+    source_profile: Any = None,
+) -> dict[str, Any]:
+    metadata: dict[str, Any] = {
+        "window_index": window_index,
+        "source": source_id,
+        "source_id": source_id,
+    }
+    for attr in (
+        "shape", "axes", "dtype", "units", "channel_names",
+        "sampling_frequency_hz", "timebase", "reference",
+        "voxel_sizes_mm", "affine", "coordinate_frame", "tr_s", "n_volumes",
+        "columns", "n_events",
+    ):
+        value = getattr(data_item, attr, None)
+        if value is not None:
+            metadata[attr] = _json_safe(value)
+    provenance = getattr(data_item, "source_provenance", None)
+    if isinstance(provenance, dict):
+        metadata["source_provenance"] = _json_safe(provenance)
+        for key in (
+            "path", "subject", "session", "task", "run", "suffix",
+            "tmin", "tmax", "onset", "duration", "event_index",
+            "series_uid", "study_uid", "timestamp",
+        ):
+            if key in provenance:
+                metadata[key] = _json_safe(provenance[key])
+    return metadata
+
+
+def _shape_of(value: Any) -> list[int] | None:
+    shape = getattr(value, "shape", None)
+    if shape is None:
+        return None
+    try:
+        return [int(v) for v in shape]
+    except Exception:
+        return [int(v) for v in tuple(shape)]
+
+
+def _dtype_of(value: Any) -> str | None:
+    dtype = getattr(value, "dtype", None)
+    return str(dtype) if dtype is not None else None
+
+
+def _json_safe(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if hasattr(value, "tolist"):
+        return value.tolist()
+    if hasattr(value, "value"):
+        return value.value
+    return str(value)

@@ -494,6 +494,75 @@ class CompatibilityReport(BaseModel if _PYDANTIC else object):
             lines.append(f"  Unknowns: {', '.join(self.unknowns)}")
         return "\n".join(lines)
 
+    def explain(self) -> list[dict[str, Any]]:
+        """Return a structured source-vs-model compatibility explanation."""
+        rows: list[dict[str, Any]] = []
+        for item in self.evidence:
+            row = dict(item)
+            row.setdefault("severity", "info")
+            rows.append(row)
+        for transform in self.required_transforms:
+            kind = transform.kind.value if hasattr(transform.kind, "value") else str(transform.kind)
+            rows.append({
+                "check": transform.required_by,
+                "status": "transform_required",
+                "transform": kind,
+                "params": transform.params,
+                "risk": "irreversible" if not transform.reversible else "reversible",
+                "evidence_status": (
+                    transform.evidence_status.value
+                    if hasattr(transform.evidence_status, "value")
+                    else str(transform.evidence_status)
+                ),
+            })
+        for blocker in self.blockers:
+            rows.append({
+                "check": blocker.code,
+                "status": "blocked",
+                "message": blocker.message,
+                "suggestion": blocker.suggestion,
+                "severity": blocker.severity,
+            })
+        for warning in self.warnings:
+            rows.append({
+                "check": warning.code,
+                "status": "warning",
+                "message": warning.message,
+                "suggestion": warning.suggestion,
+                "severity": warning.severity,
+            })
+        for unknown in self.unknowns:
+            rows.append({
+                "check": str(unknown),
+                "status": "unknown",
+                "severity": "warning",
+            })
+        return rows
+
+    def to_markdown(self) -> str:
+        """Render a detailed compatibility table as Markdown."""
+        lines = [
+            "| Check | Status | Detail |",
+            "|---|---|---|",
+        ]
+        for row in self.explain():
+            check = str(row.get("check", ""))
+            status = str(row.get("status", ""))
+            detail_bits = []
+            for key in ("source", "required", "transform", "risk", "message", "suggestion"):
+                value = row.get(key)
+                if value not in (None, "", []):
+                    detail_bits.append(f"{key}={value}")
+            lines.append(f"| {check} | {status} | {'; '.join(detail_bits)} |")
+        return "\n".join(lines)
+
+    def to_json(self) -> str:
+        """Serialize the report and detailed explanation to JSON."""
+        import json
+        payload = self.model_dump() if hasattr(self, "model_dump") else self.__dict__.copy()
+        payload["explanation"] = self.explain()
+        return json.dumps(_jsonable(payload), indent=2, ensure_ascii=False)
+
     @property
     def is_runnable(self) -> bool:
         st = self.status.value if hasattr(self.status, "value") else self.status
@@ -726,3 +795,20 @@ class QortexStream:
     is_live: bool = True
     buffer_size_s: float = 5.0
     provenance: dict = _dc_field(default_factory=dict)
+
+
+def _jsonable(value: Any) -> Any:
+    """Recursively convert contract objects to JSON-compatible values."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if hasattr(value, "value"):
+        return value.value
+    if isinstance(value, dict):
+        return {str(k): _jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_jsonable(v) for v in value]
+    if hasattr(value, "model_dump"):
+        return _jsonable(value.model_dump())
+    if hasattr(value, "__dict__"):
+        return _jsonable(value.__dict__)
+    return str(value)

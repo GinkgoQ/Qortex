@@ -50,6 +50,7 @@ class JSONLOutputAdapter(OutputAdapter):
         self._pipeline_ref = pipeline_ref
         self._file = None
         self._n_written = 0
+        self._n_marker_records = 0
 
     def open(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -112,6 +113,7 @@ class JSONLOutputAdapter(OutputAdapter):
             record["pipeline"] = self._pipeline_ref
         self._file.write(json.dumps(record, ensure_ascii=False) + "\n")
         self._file.flush()
+        self._n_marker_records += 1
 
     def close(self) -> None:
         if self._file is not None:
@@ -124,3 +126,7 @@ class JSONLOutputAdapter(OutputAdapter):
     @property
     def n_written(self) -> int:
         return self._n_written
+
+    @property
+    def n_marker_records(self) -> int:
+        return self._n_marker_records

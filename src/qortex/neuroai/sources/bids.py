@@ -26,6 +26,7 @@ from qortex.neuroai.contracts import (
 from qortex.neuroai.sources._base import SourceAdapter, QortexData
 from qortex.neuroai.sources.local import LocalFileAdapter
 from qortex.neuroai.spec import SourceSpec, WindowSpec
+from qortex.core.exceptions import SourceAdapterError
 
 log = logging.getLogger(__name__)
 
@@ -69,56 +70,44 @@ class BIDSSourceAdapter(SourceAdapter):
         self._target_modality = spec.modality
         self._target_suffix = spec.suffix
         self._target_subjects = spec.subjects
+        self._max_profile_files = int(spec.extra.get("max_profile_files", 64))
 
     # ── SourceAdapter interface ───────────────────────────────────────────────
 
     def probe(self) -> SourceProfile:
         desc = self._read_dataset_description()
         subjects = self._discover_subjects()
-        modalities = self._discover_modalities(subjects[:5])  # probe first 5
+        modalities = self._discover_modalities(subjects)
         warnings: list[WarningItem] = []
 
-        # Try to get sampling rate from the first signal file's sidecar
-        sfreq: float | None = None
-        ch_names: list[str] = []
-        spatial_shape: tuple[int, ...] | None = None
-        voxel_sizes: tuple[float, ...] | None = None
-        n_volumes: int | None = None
-
-        first_signal = self._first_file(subjects, {".edf", ".bdf", ".fif", ".set"})
-        first_volume = self._first_file(subjects, {".nii", ".nii.gz"})
-
-        if first_signal:
-            sidecar = self._read_sidecar(first_signal)
-            sfreq = sidecar.get("SamplingFrequency")
+        target_files = self._collect_target_files()
+        profile_files = target_files[: self._max_profile_files] if self._max_profile_files > 0 else target_files
+        recording_profiles: list[SourceProfile] = []
+        for file_path in profile_files:
             try:
-                import mne
-                raw = mne.io.read_raw(str(first_signal), preload=False, verbose=False)
-                ch_names = list(raw.info.ch_names)
-                sfreq = sfreq or raw.info.get("sfreq")
+                profile = LocalFileAdapter(
+                    SourceSpec(type="local_file", path=str(file_path)),
+                    window_spec=self._window_spec,
+                    channel_names=self._channel_names,
+                ).probe()
+                profile.source_id = f"bids:{file_path.relative_to(self._root).as_posix()}"
+                profile.source_type = "bids_recording"
+                profile.extra = dict(profile.extra or {})
+                profile.extra.update(_parse_bids_entities(file_path.name))
+                profile.extra["relative_path"] = file_path.relative_to(self._root).as_posix()
+                recording_profiles.append(profile)
             except Exception as exc:
                 warnings.append(WarningItem(
-                    code="SIGNAL_PROBE_FAILED",
-                    message=f"Cannot probe {first_signal.name}: {exc}",
+                    code="BIDS_RECORDING_PROBE_FAILED",
+                    message=f"Cannot probe {file_path.relative_to(self._root)}: {exc}",
                     severity="warning",
                 ))
 
-        if first_volume:
-            try:
-                import nibabel as nib
-                img = nib.load(str(first_volume))
-                spatial_shape = tuple(img.shape[:3])
-                voxel_sizes = tuple(abs(float(v)) for v in img.header.get_zooms()[:3])
-                n_volumes = img.shape[3] if len(img.shape) > 3 else None
-            except Exception as exc:
-                warnings.append(WarningItem(
-                    code="VOLUME_PROBE_FAILED",
-                    message=f"Cannot probe {first_volume.name}: {exc}",
-                    severity="warning",
-                ))
+        consistency = _build_consistency_report(recording_profiles)
+        representative = recording_profiles[0] if recording_profiles else None
 
         primary_modality = self._target_modality or (modalities[0] if modalities else None)
-        abstraction = "timeseries" if first_signal else ("volume" if first_volume else None)
+        abstraction = getattr(representative, "abstraction", None)
 
         return SourceProfile(
             source_id=self.source_id,
@@ -127,26 +116,37 @@ class BIDSSourceAdapter(SourceAdapter):
             modality=primary_modality,
             abstraction=abstraction,
             n_subjects=len(subjects),
-            n_channels=len(ch_names) if ch_names else None,
-            sampling_rate_hz=sfreq,
-            channel_names=ch_names,
+            n_channels=getattr(representative, "n_channels", None),
+            sampling_rate_hz=getattr(representative, "sampling_rate_hz", None),
+            channel_names=list(getattr(representative, "channel_names", []) or []),
             available_suffixes=list(modalities),
-            spatial_shape=spatial_shape,
-            voxel_sizes_mm=voxel_sizes,
-            n_volumes=n_volumes,
-            axis_convention=AxisConvention.channels_time if first_signal else AxisConvention.RAS,
-            evidence_status=EvidenceStatus.confirmed,
+            spatial_shape=getattr(representative, "spatial_shape", None),
+            voxel_sizes_mm=getattr(representative, "voxel_sizes_mm", None),
+            n_volumes=getattr(representative, "n_volumes", None),
+            tr_s=getattr(representative, "tr_s", None),
+            axis_convention=getattr(representative, "axis_convention", None)
+            or AxisConvention.channels_time,
+            evidence_status=(
+                EvidenceStatus.confirmed
+                if recording_profiles and not any(v.get("status") == "variable" for v in consistency.values())
+                else EvidenceStatus.inferred
+            ),
             warnings=warnings,
             extra={
                 "name": desc.get("Name", ""),
                 "bids_version": desc.get("BIDSVersion", ""),
-                "n_sessions": self._count_sessions(subjects[:5]),
+                "n_sessions": self._count_sessions(subjects),
+                "n_recordings_total": len(target_files),
+                "n_recordings_profiled": len(recording_profiles),
+                "recording_profiles": [_profile_summary(p) for p in recording_profiles],
+                "consistency_report": consistency,
             },
         )
 
     def read_batch(self) -> list[QortexData]:
         files = self._collect_target_files()
         results: list[QortexData] = []
+        errors: list[str] = []
         for f in files:
             adapter = LocalFileAdapter(
                 SourceSpec(type="local_file", path=str(f)),
@@ -156,7 +156,15 @@ class BIDSSourceAdapter(SourceAdapter):
             try:
                 results.extend(adapter.read_batch())
             except Exception as exc:
-                log.warning("BIDSSourceAdapter: cannot load %s: %s", f.name, exc)
+                errors.append(f"{f.relative_to(self._root)}: {exc}")
+        if errors and not results:
+            raise SourceAdapterError(
+                "No BIDS recordings could be loaded. " + "; ".join(errors[:5]),
+                source_type="bids",
+                path=str(self._root),
+            )
+        if errors:
+            log.warning("BIDSSourceAdapter: %d recording(s) failed to load", len(errors))
         return results
 
     def stream(self) -> Iterator[QortexData]:
@@ -169,7 +177,11 @@ class BIDSSourceAdapter(SourceAdapter):
             try:
                 yield from adapter.stream()
             except Exception as exc:
-                log.warning("BIDSSourceAdapter: stream error for %s: %s", f.name, exc)
+                raise SourceAdapterError(
+                    f"Stream error for {f.relative_to(self._root)}: {exc}",
+                    source_type="bids",
+                    path=str(f),
+                ) from exc
 
     @property
     def source_id(self) -> str:
@@ -233,15 +245,6 @@ class BIDSSourceAdapter(SourceAdapter):
                                         continue
                                 result.append(f)
         return result
-
-    def _first_file(self, subjects: list[str], exts: set[str]) -> Path | None:
-        for sub in subjects:
-            sub_dir = self._root / sub
-            for p in sorted(sub_dir.rglob("*")):
-                ext = ".nii.gz" if p.name.endswith(".nii.gz") else p.suffix
-                if p.is_file() and ext in exts:
-                    return p
-        return None
 
     def _read_dataset_description(self) -> dict:
         desc_path = self._root / "dataset_description.json"

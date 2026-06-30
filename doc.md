@@ -31,7 +31,7 @@ Before reading a single line: understand the system's **contract boundary** — 
 - `Pipeline.replay()`: re-probes new source, rebuilds plan?
 
 **Tier 5 — Provenance / Serialization** (silent data loss)
-- `ArtifactWriter`: all 9 files written, SHA-256 manifest complete?
+- `ArtifactWriter`: sidecars and routed outputs written, recursive SHA-256 manifest complete?
 - Enum serialization: `.value` not the object itself in JSON output
 - `_to_serialisable()`: handles all types recursively?
 
@@ -337,11 +337,18 @@ Status logic: any blocker → `incompatible`; any transform → `compatible_with
 Takes `compat_report.required_transforms`, sorts by `_TRANSFORM_ORDER`, then adds
 runtime structural transforms:
 - `to_tensor` at the end when absent. It emits numpy for HF/ONNX-style providers and Torch tensors otherwise.
-- `window` when `window_duration_s` is present and no window transform is already required.
 
 It does not insert modality heuristics such as DICOM HU normalization or EEG
 bandpass by itself. Those transforms must come from the model contract and
 `CompatibilityReport`.
+
+Windowing is owned by source adapters, not `TransformExecutor`. A `window`
+transform in a preprocessing plan is treated as unsupported to prevent false
+provenance.
+
+Critical transforms fail hard. Missing `scipy` for `bandpass` / `resample`,
+unsupported channel mapping parameters, invalid shapes, and unknown transform
+kinds raise `TransformError`; they do not silently pass the input through.
 
 `TransformExecutor.apply(data, plan) → data` — applies transforms in order. Each transform is implemented as a pure function operating on numpy arrays or QortexAbstraction objects.
 
@@ -366,7 +373,14 @@ State machine: `_checked: bool`, `_source_profile`, `_model_profile`, `_compat_r
 3. `CompatibilityEngine().check(source, model, preprocess)` → `_compat_report`
 4. `PreprocessPlanner().build_plan(report, source_profile=_source_profile, model_provider=spec.model.provider)` → `_preprocess_plan`
 
-**`run(artifact_dir=None)`**: loads model, creates output adapters, runs `RuntimeEngine`, calls `ArtifactWriter.write()` if `artifact_dir` set.
+**`run(artifact_dir=None)`**: loads model, routes file-backed outputs into
+`artifact_dir/outputs/` when requested, creates output adapters, runs
+`RuntimeEngine`, calls `ArtifactWriter.write()` if `artifact_dir` set.
+
+`RuntimeEngine` batches windows up to `RuntimeSpec.batch_size`, calls
+`predict_batch()` when more than one item is available, and carries source/window
+metadata into output adapter metadata. Output summaries separate prediction
+records, marker records, and total records.
 
 **`replay(source_path, speed=1.0)`**: re-probes new source (re-builds `_source_profile` and `_preprocess_plan`); does not reload model if already loaded.
 
@@ -395,7 +409,7 @@ All stages timed by `PipelineProfiler`. Errors per-window → append to `errors`
 
 ### `artifact.py` — `ArtifactWriter`
 
-Writes 9 files on `write(artifact_dir)`:
+Writes sidecars and recursively hashed outputs on `write(artifact_dir)`:
 ```
 provenance.json           — lineage: spec, source_id, model_id, timestamps, qortex_version
 compatibility_report.json — CompatibilityReport.model_dump()
@@ -405,7 +419,8 @@ latency_report.json       — LatencyReport.model_dump()
 warnings.json             — all warnings + unknowns
 pipeline.yaml             — PipelineSpec.to_yaml()
 artifact_contract.json    — ArtifactContract.model_dump()
-artifact_manifest.json    — {file: {sha256, size}} for all 9 files
+artifact_manifest.json    — {file: {sha256, size}} for sidecars and outputs/*
+outputs/                  — file-backed prediction outputs when Pipeline.run(..., artifact_dir=...)
 ```
 
 `_to_serialisable(obj)`: recursively converts → None/bool/int/float/str/dict/list. Handles `model_dump()`, `__dict__`, `.value` (Enum).
@@ -936,7 +951,7 @@ InputContract.evidence_status           NOT evidence={}
 CompatibilityReport.summary()           returns "CompatibilityReport: COMPATIBLE..."
 PreprocessSpec.allows(kind)             checks deny → allow list → mode
 TriggerSpec.evaluate(dict)              prediction dict, not ModelOutput object
-ArtifactWriter                          9 files including manifest with SHA-256
+ArtifactWriter                          sidecars + outputs/* with recursive SHA-256 manifest
 _SPATIAL_FRAMES                         {"LPS","RAS","LAS","SPATIAL_ZYX","SPATIAL_XYZ"}
 PHI redaction                           DICOM adapter only; confirmed by extra["phi_redacted"]
 plugin security gate                    trust_remote_code=True required before any import

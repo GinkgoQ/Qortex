@@ -20,16 +20,11 @@ import numpy as np
 
 from qortex.neuroai.contracts import (
     CompatibilityReport,
-    EvidenceStatus,
-    InputContract,
-    ModelProfile,
     PreprocessPlan,
     SourceProfile,
     TransformDescriptor,
     TransformKind,
-    WarningItem,
 )
-from qortex.neuroai.spec import PreprocessSpec
 
 log = logging.getLogger(__name__)
 
@@ -124,17 +119,6 @@ class PreprocessPlanner:
                 reversible=True,
             ))
 
-        # Append windowing if requested
-        if window_duration_s is not None and not any(
-            _kind_str(t) == "window" for t in transforms
-        ):
-            transforms.append(TransformDescriptor(
-                kind=TransformKind.window,
-                required_by="pipeline_spec.window",
-                params={"duration_s": window_duration_s},
-                reversible=True,
-            ))
-
         # Sort by canonical order
         transforms.sort(key=lambda t: _TRANSFORM_ORDER.get(_kind_str(t), 99))
 
@@ -166,7 +150,7 @@ class TransformExecutor:
     _CRITICAL_KINDS = frozenset({
         "resample", "resample_spatial", "reorient",
         "normalize", "rescale_intensity", "cast_dtype", "bandpass",
-        "channel_select", "channel_map", "channel_reorder",
+        "channel_select", "channel_map", "channel_reorder", "window",
         "pad_or_crop",
     })
 
@@ -214,49 +198,46 @@ class TransformExecutor:
 
     def _apply_one(self, arr: np.ndarray, kind: str, params: dict) -> np.ndarray:
         if kind == "channel_select":
-            keep_n = params.get("target_n")
-            indices = params.get("indices")
-            if indices is not None and arr.ndim >= 2:
-                arr = arr[indices]
-            elif keep_n is not None and arr.ndim >= 2:
-                arr = arr[:keep_n]
-            return arr
+            return _apply_channel_select(arr, params)
 
         elif kind == "channel_map":
-            # Reorder channels by name mapping: params["mapping"] = {src_name: dst_idx}
-            # or params["order"] = [dst_name, ...] with params["names"] = [src_name, ...]
-            order = params.get("order")
-            if order is not None and arr.ndim >= 2 and len(order) <= arr.shape[0]:
-                arr = arr[order]
-            return arr
+            return _apply_channel_map(arr, params)
 
         elif kind == "channel_reorder":
-            # Reorder channels to a target order: params["order"] = [int, ...]
-            order = params.get("order")
-            if order is not None and arr.ndim >= 2:
-                arr = arr[list(order)]
-            return arr
+            return _apply_channel_reorder(arr, params)
 
         elif kind == "bandpass":
             low_hz = params.get("low_hz")
             high_hz = params.get("high_hz")
             sfreq = params.get("sfreq", 1.0)
-            if arr.ndim >= 2 and (low_hz is not None or high_hz is not None):
-                try:
-                    from scipy.signal import butter, sosfiltfilt
-                    nyq = sfreq / 2.0
-                    low = (low_hz / nyq) if low_hz is not None else None
-                    high = (high_hz / nyq) if high_hz is not None else None
-                    high = min(high, 0.999) if high is not None else None
-                    if low is not None and high is not None:
-                        sos = butter(5, [low, high], btype="bandpass", output="sos")
-                    elif low is not None:
-                        sos = butter(5, low, btype="highpass", output="sos")
-                    else:
-                        sos = butter(5, high, btype="lowpass", output="sos")
-                    arr = sosfiltfilt(sos, arr, axis=-1).astype(arr.dtype)
-                except ImportError:
-                    log.warning("bandpass transform requires scipy — skipping filter")
+            if arr.ndim < 2:
+                raise TransformError(f"bandpass expects at least 2D data, got shape {arr.shape}")
+            if low_hz is None and high_hz is None:
+                raise TransformError("bandpass requires low_hz, high_hz, or both")
+            try:
+                from scipy.signal import butter, sosfiltfilt
+            except ImportError as exc:
+                raise TransformError(
+                    "bandpass requires scipy. Install scipy or remove the bandpass transform."
+                ) from exc
+            nyq = float(sfreq) / 2.0
+            if nyq <= 0:
+                raise TransformError(f"bandpass requires positive sfreq, got {sfreq!r}")
+            low = (float(low_hz) / nyq) if low_hz is not None else None
+            high = (float(high_hz) / nyq) if high_hz is not None else None
+            if low is not None and not 0.0 < low < 1.0:
+                raise TransformError(f"bandpass low_hz={low_hz!r} is outside valid range")
+            if high is not None and not 0.0 < high < 1.0:
+                raise TransformError(f"bandpass high_hz={high_hz!r} is outside valid range")
+            if low is not None and high is not None and low >= high:
+                raise TransformError("bandpass low_hz must be lower than high_hz")
+            if low is not None and high is not None:
+                sos = butter(5, [low, high], btype="bandpass", output="sos")
+            elif low is not None:
+                sos = butter(5, low, btype="highpass", output="sos")
+            else:
+                sos = butter(5, high, btype="lowpass", output="sos")
+            arr = sosfiltfilt(sos, arr, axis=-1).astype(arr.dtype)
             return arr
 
         elif kind == "resample":
@@ -266,19 +247,19 @@ class TransformExecutor:
                 try:
                     from scipy.signal import resample_poly
                     from math import gcd
-                    ratio_num = int(round(to_hz))
-                    ratio_den = int(round(from_hz))
-                    g = gcd(ratio_num, ratio_den)
-                    arr = resample_poly(arr, ratio_num // g, ratio_den // g, axis=-1)
-                except ImportError:
-                    # Fallback: numpy-based linear interpolation
-                    n_old = arr.shape[-1]
-                    n_new = int(n_old * to_hz / from_hz)
-                    arr = np.array([np.interp(
-                        np.linspace(0, 1, n_new),
-                        np.linspace(0, 1, n_old),
-                        arr[i],
-                    ) for i in range(arr.shape[0])])
+                except ImportError as exc:
+                    raise TransformError(
+                        "resample requires scipy.signal.resample_poly. "
+                        "Install scipy or provide source data at the model sampling rate."
+                    ) from exc
+                ratio_num = int(round(to_hz))
+                ratio_den = int(round(from_hz))
+                if ratio_num <= 0 or ratio_den <= 0:
+                    raise TransformError(
+                        f"resample requires positive rates, got from_hz={from_hz}, to_hz={to_hz}"
+                    )
+                g = gcd(ratio_num, ratio_den)
+                arr = resample_poly(arr, ratio_num // g, ratio_den // g, axis=-1)
             return arr
 
         elif kind == "normalize":
@@ -336,14 +317,12 @@ class TransformExecutor:
                 return np.ascontiguousarray(arr).astype(np.float32)
 
         elif kind == "window":
-            dur_s = float(params.get("duration_s", 1.0))
-            # data is (n_ch, n_t); return just the first window
-            if arr.ndim >= 2:
-                # window_size estimated from last dim — caller should supply sfreq
-                return arr
+            raise TransformError(
+                "The window transform is not executed in TransformExecutor. "
+                "Windowing is performed by source adapters and recorded in runtime metadata."
+            )
 
-        log.debug("Unknown transform kind %r — skipping", kind)
-        return arr
+        raise TransformError(f"Unsupported transform kind: {kind!r}")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -372,6 +351,120 @@ def _coerce_numpy(data: Any) -> np.ndarray:
             "Source adapter must yield QortexTimeSeries/QortexVolume with "
             "the `data` field set, or yield raw numpy arrays directly."
         ) from exc
+
+
+def _apply_channel_select(arr: np.ndarray, params: dict) -> np.ndarray:
+    if arr.ndim < 2:
+        raise TransformError(f"channel_select expects at least 2D data, got shape {arr.shape}")
+
+    mode = params.get("mode")
+    indices = params.get("indices")
+    names = params.get("names") or params.get("keep")
+    source_names = params.get("source_names")
+    target_n = params.get("target_n")
+    missing_policy = params.get("missing_policy", "error")
+
+    if mode in (None, "indices") and indices is not None:
+        idx = _validate_indices(indices, arr.shape[0], "channel_select.indices")
+        return arr[idx]
+
+    if mode in (None, "names") and names is not None:
+        if not source_names:
+            if indices is not None:
+                idx = _validate_indices(indices, arr.shape[0], "channel_select.indices")
+                return arr[idx]
+            raise TransformError(
+                "channel_select by names requires source_names or precomputed indices"
+            )
+        missing = [name for name in names if name not in source_names]
+        if missing and missing_policy == "error":
+            raise TransformError(f"channel_select missing required channel(s): {missing}")
+        idx = [source_names.index(name) for name in names if name in source_names]
+        if not idx:
+            raise TransformError("channel_select produced an empty channel set")
+        return arr[idx]
+
+    if mode in (None, "first_n") and target_n is not None:
+        n = int(target_n)
+        if n <= 0:
+            raise TransformError(f"channel_select target_n must be positive, got {target_n!r}")
+        if n > arr.shape[0]:
+            raise TransformError(
+                f"channel_select target_n={n} exceeds available channels={arr.shape[0]}"
+            )
+        return arr[:n]
+
+    raise TransformError(
+        "channel_select requires one of: indices, names/source_names, or target_n"
+    )
+
+
+def _apply_channel_map(arr: np.ndarray, params: dict) -> np.ndarray:
+    if arr.ndim < 2:
+        raise TransformError(f"channel_map expects at least 2D data, got shape {arr.shape}")
+    mapping = params.get("mapping")
+    source_names = params.get("source_names") or params.get("names")
+    target_names = params.get("target_names") or params.get("order")
+
+    if mapping and source_names and target_names:
+        resolved = []
+        for target in target_names:
+            source = mapping.get(target, target)
+            if source not in source_names:
+                raise TransformError(
+                    f"channel_map target {target!r} maps to missing source {source!r}"
+                )
+            resolved.append(source_names.index(source))
+        return arr[resolved]
+
+    order = params.get("indices") or params.get("order")
+    if order is not None and all(isinstance(v, int) for v in order):
+        idx = _validate_indices(order, arr.shape[0], "channel_map.order")
+        return arr[idx]
+
+    missing = params.get("missing_channels")
+    if missing:
+        raise TransformError(
+            "channel_map received missing_channels without an explicit mapping. "
+            f"Missing: {missing}"
+        )
+
+    raise TransformError(
+        "channel_map requires mapping + source_names + target_names, or integer order"
+    )
+
+
+def _apply_channel_reorder(arr: np.ndarray, params: dict) -> np.ndarray:
+    if arr.ndim < 2:
+        raise TransformError(f"channel_reorder expects at least 2D data, got shape {arr.shape}")
+    order = params.get("indices") or params.get("order")
+    if order is None:
+        source_names = params.get("source_names")
+        target_names = params.get("target_names")
+        if source_names and target_names:
+            missing = [name for name in target_names if name not in source_names]
+            if missing:
+                raise TransformError(f"channel_reorder missing channel(s): {missing}")
+            order = [source_names.index(name) for name in target_names]
+    if order is None:
+        raise TransformError("channel_reorder requires order/indices or source_names+target_names")
+    idx = _validate_indices(order, arr.shape[0], "channel_reorder.order")
+    return arr[idx]
+
+
+def _validate_indices(indices: Any, n_channels: int, label: str) -> list[int]:
+    try:
+        idx = [int(i) for i in indices]
+    except Exception as exc:
+        raise TransformError(f"{label} must be a list of integer indices") from exc
+    if not idx:
+        raise TransformError(f"{label} must not be empty")
+    bad = [i for i in idx if i < 0 or i >= n_channels]
+    if bad:
+        raise TransformError(
+            f"{label} contains out-of-range indices {bad}; available channels={n_channels}"
+        )
+    return idx
 
 
 def _pad_or_crop(arr: np.ndarray, target_shape: tuple) -> np.ndarray:

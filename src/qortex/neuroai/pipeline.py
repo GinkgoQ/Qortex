@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import replace
 from pathlib import Path
 
 from qortex.neuroai.benchmark import PipelineProfiler
@@ -224,11 +225,15 @@ class Pipeline:
         log.info("Pipeline.run(): loading model %s…", self._spec.model.id)
         self._model_adapter.load(self._spec.runtime)
 
-        # Open output adapters
         pipeline_ref = self._spec.content_hash()[:12]
+        run_spec = self._spec
+        if artifact_dir is not None:
+            run_spec = _spec_with_artifact_outputs(self._spec, Path(artifact_dir))
+
+        # Open output adapters
         output_adapters = [
             make_output_adapter(out_spec, pipeline_ref=pipeline_ref)
-            for out_spec in self._spec.outputs
+            for out_spec in run_spec.outputs
         ]
         for adapter in output_adapters:
             adapter.open()
@@ -236,7 +241,7 @@ class Pipeline:
         # Execute
         try:
             engine = RuntimeEngine(
-                spec=self._spec,
+                spec=run_spec,
                 source=self._source_adapter,
                 model=self._model_adapter,
                 plan=self._preprocess_plan,
@@ -244,6 +249,8 @@ class Pipeline:
                 compat_report=self._compat_report,
             )
             report = engine.run()
+            report.source_profile = self._source_profile
+            report.model_profile = self._model_profile
         finally:
             for adapter in output_adapters:
                 try:
@@ -252,14 +259,14 @@ class Pipeline:
                     log.warning("Error closing output adapter: %s", exc)
             self._model_adapter.unload()
 
-        _write_artifact_sidecar(self._spec, report)
+        _write_artifact_sidecar(run_spec, report)
 
         if artifact_dir is not None:
             try:
                 from qortex.neuroai.artifact import ArtifactWriter
                 writer = ArtifactWriter(artifact_dir, pipeline_ref=pipeline_ref)
                 writer.write(
-                    spec=self._spec,
+                    spec=run_spec,
                     compat_report=self._compat_report,
                     preprocess_plan=self._preprocess_plan,
                     run_report=report,
@@ -441,6 +448,50 @@ class Pipeline:
 
 def _make_runtime_error(msg: str) -> Exception:
     return RuntimeExecutionError(msg)
+
+
+def _spec_with_artifact_outputs(spec: PipelineSpec, artifact_dir: Path) -> PipelineSpec:
+    """Return a shallow spec copy with file outputs routed into artifact_dir/outputs."""
+    outputs_dir = artifact_dir / "outputs"
+    routed_outputs = []
+    seen_names: dict[str, int] = {}
+    for out in spec.outputs:
+        out_type = (out.type or "").lower().strip()
+        if out_type in {"lsl_marker", "lsl", "websocket", "ws", "http", "http_callback", "webhook"}:
+            routed_outputs.append(out)
+            continue
+        original = Path(out.path) if out.path else Path(_default_output_name(out_type))
+        name = original.name or _default_output_name(out_type)
+        count = seen_names.get(name, 0)
+        seen_names[name] = count + 1
+        if count:
+            stem = Path(name).stem
+            suffix = "".join(Path(name).suffixes)
+            name = f"{stem}_{count}{suffix}" if suffix else f"{name}_{count}"
+        routed_outputs.append(replace(out, path=str(outputs_dir / name)))
+    return replace(spec, outputs=routed_outputs)
+
+
+def _default_output_name(out_type: str) -> str:
+    if out_type in {"parquet"}:
+        return "predictions.parquet"
+    if out_type in {"csv"}:
+        return "predictions.csv"
+    if out_type in {"nifti", "nii", "nifti_mask"}:
+        return "mask.nii.gz"
+    if out_type in {"coco", "coco_json"}:
+        return "predictions_coco.json"
+    if out_type in {"dicom_seg", "dicomseg"}:
+        return "output_seg"
+    if out_type in {"dicom_sr", "dicomsr"}:
+        return "output_sr"
+    if out_type in {"bids", "bids_derivative"}:
+        return "derivatives"
+    if out_type in {"yolo", "yolo_txt"}:
+        return "yolo_labels"
+    if out_type in {"overlay", "image_overlay", "video_overlay"}:
+        return "annotated_frames"
+    return "predictions.jsonl"
 
 
 def _write_artifact_sidecar(spec: PipelineSpec, report: PipelineRunReport) -> None:

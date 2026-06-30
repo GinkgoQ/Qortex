@@ -318,19 +318,21 @@ class ArtifactWriter:
         files: dict[str, dict] = {}
         created_at = datetime.now(timezone.utc).isoformat()
 
-        for p in sorted(self.output_dir.iterdir()):
+        for p in sorted(self.output_dir.rglob("*")):
             if p.is_file() and p.name != "artifact_manifest.json":
                 try:
                     sha = _sha256_file(p)
                     size = p.stat().st_size
-                    files[p.name] = {
+                    rel = p.relative_to(self.output_dir).as_posix()
+                    files[rel] = {
                         "sha256": sha,
                         "size_bytes": size,
                         "created_at": created_at,
                     }
                 except Exception as exc:
-                    log.warning("Could not hash file %s: %s", p.name, exc)
-                    files[p.name] = {"sha256": None, "size_bytes": None, "created_at": created_at}
+                    rel = p.relative_to(self.output_dir).as_posix()
+                    log.warning("Could not hash file %s: %s", rel, exc)
+                    files[rel] = {"sha256": None, "size_bytes": None, "created_at": created_at}
 
         manifest_path = self.output_dir / "artifact_manifest.json"
         manifest_data: dict[str, Any] = {
