@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from typing import Any, Optional
@@ -1449,6 +1450,8 @@ app.add_typer(neuroai_app, name="neuroai")
 def neuroai_check(
     pipeline: Path = typer.Argument(..., help="Path to pipeline YAML"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show full transform list"),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON"),
+    markdown: bool = typer.Option(False, "--markdown", help="Print detailed Markdown table"),
 ) -> None:
     """Check source-model compatibility without loading weights.
 
@@ -1471,9 +1474,14 @@ def neuroai_check(
         typer.echo(f"[ERROR] {exc}", err=True)
         raise typer.Exit(1)
 
-    typer.echo(report.summary())
+    if json_output:
+        typer.echo(report.to_json())
+    elif markdown:
+        typer.echo(report.to_markdown())
+    else:
+        typer.echo(report.summary())
 
-    if verbose and pipe.preprocess_plan:
+    if verbose and pipe.preprocess_plan and not json_output:
         typer.echo("\n" + pipe.preprocess_plan.summary())
 
     status = report.status.value if hasattr(report.status, "value") else str(report.status)
@@ -1487,6 +1495,16 @@ def neuroai_check(
 def neuroai_run(
     pipeline: Path = typer.Argument(..., help="Path to pipeline YAML"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Check only; do not execute"),
+    artifact_dir: Optional[Path] = typer.Option(
+        None,
+        "--artifact-dir",
+        help="Write a complete run artifact and route file outputs under artifact_dir/outputs",
+    ),
+    validate_artifact_output: bool = typer.Option(
+        True,
+        "--validate-artifact/--no-validate-artifact",
+        help="Validate artifact hashes and output records after an artifact run",
+    ),
 ) -> None:
     """Run a NeuroAI pipeline: source → preprocess → model → outputs.
 
@@ -1519,7 +1537,7 @@ def neuroai_run(
 
     typer.echo("Running pipeline…")
     try:
-        run_report = pipe.run()
+        run_report = pipe.run(artifact_dir=artifact_dir)
     except Exception as exc:
         typer.echo(f"[ERROR] run failed: {exc}", err=True)
         raise typer.Exit(1)
@@ -1532,8 +1550,62 @@ def neuroai_run(
         for err in run_report.errors[:10]:
             typer.echo(f"  • {err}")
 
+    if artifact_dir is not None and validate_artifact_output:
+        try:
+            from qortex.neuroai import validate_artifact
+            validation = validate_artifact(artifact_dir)
+            typer.echo("\n" + validation.summary())
+            if validation.status == "FAIL":
+                for issue in validation.issues[:10]:
+                    typer.echo(
+                        f"  [{issue.severity}] {issue.code}: {issue.message}",
+                        err=True,
+                    )
+                raise typer.Exit(1)
+        except typer.Exit:
+            raise
+        except Exception as exc:
+            typer.echo(f"[ERROR] artifact validation failed: {exc}", err=True)
+            raise typer.Exit(1)
+
     exit_code = 0 if run_report.success else 1
     raise typer.Exit(exit_code)
+
+
+@neuroai_app.command("validate-artifact")
+def neuroai_validate_artifact(
+    artifact_dir: Path = typer.Argument(..., help="Artifact directory from Pipeline.run"),
+    strict: bool = typer.Option(False, "--strict", help="Promote structural warnings to errors"),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON"),
+    markdown: bool = typer.Option(False, "--markdown", help="Print Markdown report"),
+) -> None:
+    """Validate a completed NeuroAI run artifact.
+
+    Checks required sidecars, artifact_manifest.json hashes, output record
+    structure, trigger marker records, and runtime/output count consistency.
+    """
+    try:
+        from qortex.neuroai import validate_artifact
+    except ImportError as e:
+        typer.echo(f"NeuroAI runtime requires additional dependencies: {e}", err=True)
+        raise typer.Exit(1)
+
+    report = validate_artifact(artifact_dir, strict=strict)
+    if json_output:
+        typer.echo(report.to_json())
+    elif markdown:
+        typer.echo(report.to_markdown())
+    else:
+        typer.echo(report.summary())
+        for issue in report.issues[:20]:
+            stream = sys.stderr if issue.severity == "error" else sys.stdout
+            typer.echo(
+                f"  [{issue.severity}] {issue.code}: {issue.message}"
+                + (f" ({issue.path})" if issue.path else ""),
+                file=stream,
+            )
+    if report.status == "FAIL":
+        raise typer.Exit(1)
 
 
 @neuroai_app.command("benchmark")
@@ -1719,6 +1791,7 @@ def neuroai_suggest_models(
     modality: str | None = typer.Option(None, "--modality", "-m", help="Modality hint: eeg, mri, ct, image, video"),
     top_k: int = typer.Option(5, "--top-k", "-k", help="Number of models to suggest"),
     provider: str = typer.Option("huggingface", "--provider", "-p", help="Model provider to search"),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON"),
 ) -> None:
     """Suggest compatible models for a given source file and task.
 
@@ -1744,8 +1817,9 @@ def neuroai_suggest_models(
         src_spec = SourceSpec(type="auto", path=source)
         src_adapter = make_source_adapter(src_spec)
         src_profile = src_adapter.probe()
-        typer.echo(f"Source: {src_profile.source_id} | modality={src_profile.modality} | "
-                   f"channels={src_profile.n_channels} | Fs={src_profile.sampling_rate_hz} Hz")
+        if not json_output:
+            typer.echo(f"Source: {src_profile.source_id} | modality={src_profile.modality} | "
+                       f"channels={src_profile.n_channels} | Fs={src_profile.sampling_rate_hz} Hz")
     except Exception as exc:
         typer.echo(f"Could not probe source {source!r}: {exc}", err=True)
         raise typer.Exit(1)
@@ -1761,14 +1835,20 @@ def neuroai_suggest_models(
         modality=detected_modality if detected_modality != "unknown" else None,
     )
 
-    # If modality-filtered list is empty, fall back to task-string matching across all entries.
+    allowed_output_types = _neuroai_task_output_types(task)
+    all_entries = [
+        entry for entry in all_entries
+        if _entry_matches_task(entry.output_contract.output_type, allowed_output_types)
+    ]
+
+    # If modality-filtered list is empty, fall back to typed task matching across
+    # all entries. This still uses explicit OutputContract values, not free-text
+    # notes or model names.
     if not all_entries:
         all_entries = _list_contracts()
-        task_lower = task.lower()
         all_entries = [
             e for e in all_entries
-            if task_lower in (e.output_contract.output_type or "").lower()
-            or task_lower in e.notes.lower()
+            if _entry_matches_task(e.output_contract.output_type, allowed_output_types)
         ]
 
     # 3. Score each registry entry via CompatibilityEngine — no model loading.
@@ -1814,6 +1894,33 @@ def neuroai_suggest_models(
     scored.sort(key=lambda x: (-x[0], x[1].model_id))
     scored = scored[:top_k]
 
+    if json_output:
+        payload = {
+            "source": {
+                "source_id": src_profile.source_id,
+                "modality": str(src_profile.modality),
+                "n_channels": src_profile.n_channels,
+                "sampling_rate_hz": src_profile.sampling_rate_hz,
+            },
+            "task": task,
+            "modality": detected_modality,
+            "suggestions": [
+                {
+                    "score": score,
+                    "model_id": entry.model_id,
+                    "provider": entry.provider,
+                    "compatibility": compat_status,
+                    "evidence": evidence,
+                    "estimated_memory_mb": entry.estimated_memory_mb,
+                    "output_type": entry.output_contract.output_type,
+                    "notes": entry.notes,
+                }
+                for score, entry, compat_status, evidence in scored
+            ],
+        }
+        typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
+        return
+
     typer.echo(
         f"\nTop {len(scored)} model suggestions for task={task!r}, "
         f"modality={detected_modality!r}:\n"
@@ -1836,6 +1943,34 @@ def neuroai_suggest_models(
 
     if not scored:
         typer.echo("No candidate models found in the registry. Try --modality or --provider.")
+
+
+def _neuroai_task_output_types(task: str) -> set[str]:
+    normalized = str(task or "").strip().lower()
+    task_groups: dict[str, set[str]] = {
+        "classification": {
+            "classification",
+            "eeg_classification",
+            "image_classification",
+        },
+        "segmentation": {
+            "segmentation",
+            "medical_segmentation",
+            "volume_segmentation",
+            "semantic_segmentation",
+        },
+        "detection": {"detection", "object_detection"},
+        "regression": {"regression"},
+        "embedding": {"embedding", "feature_extraction"},
+        "transcription": {"audio_transcription", "transcription"},
+    }
+    return task_groups.get(normalized, {normalized})
+
+
+def _entry_matches_task(output_type: str | None, allowed_output_types: set[str]) -> bool:
+    if output_type is None:
+        return False
+    return output_type.strip().lower() in allowed_output_types
 
 
 # ── check ─────────────────────────────────────────────────────────────────────

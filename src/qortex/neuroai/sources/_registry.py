@@ -89,7 +89,8 @@ def make_source_adapter(
                 bids_spec = SourceSpec(
                     type="bids", path=str(path),
                     modality=spec.modality, suffix=spec.suffix,
-                    subjects=spec.subjects,
+                    subjects=spec.subjects, sessions=spec.sessions,
+                    extra=dict(spec.extra or {}),
                 )
                 return BIDSSourceAdapter(bids_spec, window_spec=window_spec,
                                          channel_names=channel_names)

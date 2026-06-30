@@ -155,6 +155,8 @@ class Pipeline:
             self._source_profile,
             self._model_profile,
             self._spec.preprocessing,
+            runtime=self._spec.runtime,
+            window=self._spec.window,
         )
 
         # Build preprocessing plan — pass source_profile so the planner can

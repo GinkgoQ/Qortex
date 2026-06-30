@@ -291,18 +291,24 @@ print(report.summary())
 ```bash
 # Compatibility check — no weights downloaded.
 qortex neuroai check pipeline.yaml
+qortex neuroai check pipeline.yaml --json
+qortex neuroai check pipeline.yaml --markdown
 
-# Run the pipeline.
+# Run the pipeline and write a complete artifact directory.
 qortex neuroai run pipeline.yaml --artifact-dir artifacts/run_001
 
+# Validate hashes, sidecars, output records, markers, and runtime counts.
+qortex neuroai validate-artifact artifacts/run_001
+qortex neuroai validate-artifact artifacts/run_001 --strict --markdown
+
 # Latency benchmark.
-qortex neuroai benchmark pipeline.yaml --n-windows 100
+qortex neuroai benchmark pipeline.yaml --windows 100
 
 # Replay from a file.
 qortex neuroai replay pipeline.yaml --source recording.xdf --speed 2.0
 
-# Probe a source and rank compatible HuggingFace models.
-qortex neuroai suggest-models data.edf --task eeg_classification --limit 10
+# Probe a source and rank compatible models from the curated contract registry.
+qortex neuroai suggest-models data.edf --task classification --top-k 10 --json
 
 # Inspect a source without any model.
 qortex neuroai inspect-source data.edf

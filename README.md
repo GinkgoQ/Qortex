@@ -285,16 +285,18 @@ denied, the compatibility report becomes `incompatible` with a structured
 blocker instead of silently applying the transform.
 
 ```bash
-qortex neuroai check pipeline.yaml        # probe source + model, no weights loaded
-qortex neuroai run pipeline.yaml          # run full pipeline
-qortex neuroai benchmark pipeline.yaml    # latency stats, no output written
-qortex neuroai suggest-models data.edf    # rank compatible HF models for this source
+qortex neuroai check pipeline.yaml --markdown
+qortex neuroai run pipeline.yaml --artifact-dir artifacts/run_001
+qortex neuroai validate-artifact artifacts/run_001
+qortex neuroai benchmark pipeline.yaml --windows 100
+qortex neuroai suggest-models data.edf --task classification --json
 ```
 
 ### Python API
 
 ```python
 from qortex.neuroai import Pipeline
+from qortex.neuroai import validate_artifact
 
 pipe = Pipeline.from_yaml("pipeline.yaml")
 
@@ -311,6 +313,8 @@ if report.is_runnable:
     run = pipe.run(artifact_dir="artifacts/run_001")
     print(run.latency_report.summary())
     print(run.outputs)  # prediction and marker record counts per adapter
+    validation = validate_artifact("artifacts/run_001")
+    print(validation.summary())
 
 bench = pipe.benchmark(n_windows=50)
 print(bench.summary())   # p50=12.3ms  p95=18.7ms  p99=23.1ms
@@ -323,7 +327,7 @@ pipe.replay("recording.xdf", speed=2.0)
 | Type | Class | Notes |
 |---|---|---|
 | Local file (EDF/BDF/FIF) | `LocalFileAdapter` | MNE-based |
-| BIDS dataset | `BIDSSourceAdapter` | Reads via `mne_bids` |
+| BIDS dataset | `BIDSSourceAdapter` | Profiles supported recording files through the local source adapter, records BIDS entities, and reports cross-record header consistency |
 | DICOM folder | `DICOMFolderAdapter` | Groups by SeriesInstanceUID, affine from header |
 | DICOMweb | `DICOMWebAdapter` | QIDO-RS metadata + WADO-RS pixels |
 | NWB | `NWBAdapter` | `ElectricalSeries` via `pynwb` |
@@ -385,6 +389,22 @@ artifacts/run_001/
     predictions.jsonl
     predictions.csv
 ```
+
+Validate the completed run before sharing it or using it as a downstream
+evidence object:
+
+```python
+from qortex.neuroai import validate_artifact
+
+report = validate_artifact("artifacts/run_001", strict=True)
+print(report.summary())
+print(report.to_markdown())
+```
+
+The validator checks required sidecars, `artifact_manifest.json` SHA-256 and
+size entries, JSONL prediction records, trigger marker records, CSV schema, and
+runtime/output-count consistency when a single JSONL prediction stream is
+present.
 
 ### Ring buffer
 

@@ -13,20 +13,16 @@ import logging
 from pathlib import Path
 from typing import Any, Iterator
 
+from qortex.core.exceptions import SourceAdapterError
 from qortex.neuroai.contracts import (
     AxisConvention,
-    ChannelSpec,
     EvidenceStatus,
-    Modality,
-    QortexTimeSeries,
-    QortexVolume,
     SourceProfile,
     WarningItem,
 )
 from qortex.neuroai.sources._base import SourceAdapter, QortexData
 from qortex.neuroai.sources.local import LocalFileAdapter
 from qortex.neuroai.spec import SourceSpec, WindowSpec
-from qortex.core.exceptions import SourceAdapterError
 
 log = logging.getLogger(__name__)
 
@@ -36,7 +32,8 @@ _BIDS_MODALITY_MAP = {
     "fmap": "mri",
 }
 _SIGNAL_EXTS = {".edf", ".bdf", ".fif", ".set", ".vhdr"}
-_VOLUME_EXTS = {".nii", ".gz"}
+_VOLUME_EXTS = {".nii", ".nii.gz"}
+_SUPPORTED_DATA_EXTS = _SIGNAL_EXTS | _VOLUME_EXTS
 
 
 class BIDSSourceAdapter(SourceAdapter):
@@ -218,6 +215,8 @@ class BIDSSourceAdapter(SourceAdapter):
             target_exts = _SIGNAL_EXTS
         elif self._target_modality in ("mri", "fmri", "dwi", "pet", "anat", "func"):
             target_exts = {".nii", ".nii.gz"}
+        else:
+            target_exts = set(_SUPPORTED_DATA_EXTS)
 
         result: list[Path] = []
         for sub in subjects:
@@ -229,21 +228,19 @@ class BIDSSourceAdapter(SourceAdapter):
                     if not folder.is_dir():
                         continue
                     mod = folder.name
-                    if self._target_modality and mod != self._target_modality:
+                    if self._target_modality and not _folder_matches_modality(
+                        mod, self._target_modality
+                    ):
                         continue
                     for f in sorted(folder.iterdir()):
                         if f.is_file():
                             ext = ".nii.gz" if f.name.endswith(".nii.gz") else f.suffix
-                            if not target_exts or ext in target_exts:
-                                if self._target_suffix:
-                                    stem = f.name
-                                    for chk in (".nii.gz", ".nii", ".edf", ".bdf", ".fif"):
-                                        stem = stem.removesuffix(chk)
-                                    parts = stem.rsplit("_", 1)
-                                    suffix = parts[-1] if parts else stem
-                                    if suffix != self._target_suffix:
-                                        continue
-                                result.append(f)
+                            if ext not in target_exts:
+                                continue
+                            entities = _parse_bids_entities(f.name)
+                            if self._target_suffix and entities.get("suffix") != self._target_suffix:
+                                continue
+                            result.append(f)
         return result
 
     def _read_dataset_description(self) -> dict:
@@ -275,3 +272,127 @@ class BIDSSourceAdapter(SourceAdapter):
                 if d.is_dir() and d.name.startswith("ses-"):
                     sessions.add(d.name)
         return len(sessions)
+
+
+def _folder_matches_modality(folder: str, target: str) -> bool:
+    """Return True when a BIDS datatype folder satisfies a requested modality."""
+    folder_norm = folder.strip().lower()
+    target_norm = target.strip().lower()
+    if folder_norm == target_norm:
+        return True
+    return _BIDS_MODALITY_MAP.get(folder_norm) == target_norm
+
+
+def _parse_bids_entities(filename: str) -> dict[str, str]:
+    """Parse BIDS entity fields from a data filename.
+
+    The parser follows the structural BIDS ``key-value_key-value_suffix.ext``
+    convention. It does not infer semantics from free text or route by filename
+    fragments; it only records explicit entity fields and the terminal suffix.
+    """
+    stem = filename
+    for ext in (".nii.gz", ".nii", ".edf", ".bdf", ".fif", ".set", ".vhdr"):
+        if stem.endswith(ext):
+            stem = stem[: -len(ext)]
+            break
+
+    entity_aliases = {
+        "sub": "subject",
+        "ses": "session",
+        "task": "task",
+        "run": "run",
+        "acq": "acquisition",
+        "rec": "recording",
+        "space": "space",
+        "desc": "description",
+    }
+    entities: dict[str, str] = {}
+    suffix: str | None = None
+    for part in stem.split("_"):
+        if "-" in part:
+            key, value = part.split("-", 1)
+            if key and value:
+                entities[entity_aliases.get(key, key)] = value
+        elif part:
+            suffix = part
+    if suffix:
+        entities["suffix"] = suffix
+    return entities
+
+
+def _profile_summary(profile: SourceProfile) -> dict[str, Any]:
+    """Compact, serialisable summary for a profiled BIDS recording."""
+    extra = dict(profile.extra or {})
+    summary: dict[str, Any] = {
+        "source_id": profile.source_id,
+        "source_type": profile.source_type,
+        "path": profile.path,
+        "modality": _json_safe(profile.modality),
+        "abstraction": profile.abstraction,
+        "n_channels": profile.n_channels,
+        "sampling_rate_hz": profile.sampling_rate_hz,
+        "duration_s": profile.duration_s,
+        "spatial_shape": _json_safe(profile.spatial_shape),
+        "voxel_sizes_mm": _json_safe(profile.voxel_sizes_mm),
+        "n_volumes": profile.n_volumes,
+        "tr_s": profile.tr_s,
+        "dtype": profile.dtype,
+        "axis_convention": _json_safe(profile.axis_convention),
+        "evidence_status": _json_safe(profile.evidence_status),
+        "relative_path": extra.get("relative_path"),
+        "entities": {
+            key: value
+            for key, value in extra.items()
+            if key not in {"relative_path"} and isinstance(value, (str, int, float, bool))
+        },
+    }
+    if profile.channel_names:
+        summary["channel_names"] = list(profile.channel_names[:128])
+        summary["n_channel_names_reported"] = len(profile.channel_names)
+    return summary
+
+
+def _build_consistency_report(profiles: list[SourceProfile]) -> dict[str, dict[str, Any]]:
+    """Summarise whether profiled BIDS recordings agree on core header fields."""
+    fields = {
+        "modality": lambda p: p.modality,
+        "abstraction": lambda p: p.abstraction,
+        "n_channels": lambda p: p.n_channels,
+        "sampling_rate_hz": lambda p: p.sampling_rate_hz,
+        "channel_set": lambda p: tuple(p.channel_names or []),
+        "spatial_shape": lambda p: p.spatial_shape,
+        "voxel_sizes_mm": lambda p: p.voxel_sizes_mm,
+        "n_volumes": lambda p: p.n_volumes,
+        "tr_s": lambda p: p.tr_s,
+        "dtype": lambda p: p.dtype,
+        "axis_convention": lambda p: p.axis_convention,
+    }
+    return {
+        name: _summarise_values(getter(p) for p in profiles)
+        for name, getter in fields.items()
+    }
+
+
+def _summarise_values(values: Any) -> dict[str, Any]:
+    present = [_json_safe(v) for v in values if v is not None]
+    if not present:
+        return {"status": "absent", "n_values": 0, "values": []}
+    unique_json = sorted({json.dumps(v, sort_keys=True, ensure_ascii=True) for v in present})
+    unique_values = [json.loads(v) for v in unique_json]
+    return {
+        "status": "constant" if len(unique_values) == 1 else "variable",
+        "n_values": len(unique_values),
+        "values": unique_values[:16],
+    }
+
+
+def _json_safe(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if hasattr(value, "value"):
+        return value.value
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(v) for v in value]
+    return str(value)

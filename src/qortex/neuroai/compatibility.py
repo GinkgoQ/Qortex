@@ -39,7 +39,7 @@ from qortex.neuroai.contracts import (
     TransformKind,
     WarningItem,
 )
-from qortex.neuroai.spec import PreprocessSpec
+from qortex.neuroai.spec import PreprocessSpec, RuntimeSpec, WindowSpec
 
 log = logging.getLogger(__name__)
 
@@ -66,6 +66,9 @@ class CompatibilityEngine:
         source: SourceProfile,
         model: ModelProfile,
         preprocess: PreprocessSpec | None = None,
+        *,
+        runtime: RuntimeSpec | None = None,
+        window: WindowSpec | None = None,
     ) -> CompatibilityReport:
         """Run all compatibility checks.
 
@@ -147,7 +150,13 @@ class CompatibilityEngine:
         self._check_fmri_timebase(source, contract, warnings, unknowns, evidence)
 
         # ── Memory estimate ───────────────────────────────────────────────────
-        mem_mb = self._estimate_memory(source, model)
+        mem_mb = self._estimate_memory(source, model, runtime=runtime, window=window)
+        evidence.append({
+            "check": "memory_estimate",
+            "status": "estimated",
+            "memory_mb": round(mem_mb, 3),
+            "batch_size": getattr(runtime, "batch_size", 1) if runtime else 1,
+        })
         if mem_mb > 8192:
             warnings.append(WarningItem(
                 code="HIGH_MEMORY_ESTIMATE",
@@ -718,19 +727,39 @@ class CompatibilityEngine:
             evidence.append({"check": "fmri_tr", "status": "ok",
                              "source_tr_s": src_tr, "required_tr_s": req_tr})
 
-    def _estimate_memory(self, source: SourceProfile, model: ModelProfile) -> float:
-        """Rough memory estimate in MB."""
+    def _estimate_memory(
+        self,
+        source: SourceProfile,
+        model: ModelProfile,
+        *,
+        runtime: RuntimeSpec | None = None,
+        window: WindowSpec | None = None,
+    ) -> float:
+        """Estimate runtime memory in MB from source/model/runtime contracts."""
         model_mb = model.estimated_memory_mb or 500.0  # default 500 MB if unknown
+        batch_size = max(int(getattr(runtime, "batch_size", 1) or 1), 1)
+        dtype_bytes = _dtype_nbytes(
+            getattr(model.input_contract, "dtype", None)
+            if model.input_contract is not None
+            else source.dtype
+        )
         batch_bytes = 0
         if source.n_channels and source.sampling_rate_hz:
-            win_s = 2.0  # assume 2s window
+            win_s = getattr(window, "duration_s", None)
+            if win_s is None and model.input_contract is not None:
+                win_s = getattr(model.input_contract, "window_duration_s", None)
+            if win_s is None:
+                win_s = min(float(source.duration_s or 2.0), 2.0)
             n_t = int(source.sampling_rate_hz * win_s)
-            batch_bytes = source.n_channels * n_t * 4  # float32
+            batch_bytes = source.n_channels * n_t * dtype_bytes
         elif source.spatial_shape:
             batch_bytes = 1
             for d in source.spatial_shape:
                 batch_bytes *= d
-            batch_bytes *= 4  # float32
+            batch_bytes *= dtype_bytes
+            if source.n_volumes:
+                batch_bytes *= source.n_volumes
+        batch_bytes *= batch_size
         batch_mb = batch_bytes / 1e6
         return model_mb * _MEMORY_MULTIPLIER + batch_mb
 
@@ -743,3 +772,14 @@ def _contract_value(value: Any) -> str:
     if enum_value is not None:
         return str(enum_value)
     return str(value)
+
+
+def _dtype_nbytes(dtype: Any) -> int:
+    value = _contract_value(dtype or "float32").lower()
+    if "64" in value:
+        return 8
+    if "16" in value:
+        return 2
+    if "8" in value:
+        return 1
+    return 4
