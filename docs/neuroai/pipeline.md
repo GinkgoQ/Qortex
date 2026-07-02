@@ -214,6 +214,35 @@ Each `TransformDescriptor` has:
 - `reversible`: whether the transform can be undone
 - `evidence_status`: `EvidenceStatus` for the requirement
 
+### Transform execution semantics
+
+The `TransformExecutor` that `run()` and `benchmark()` use applies each planned
+transform with behaviour chosen for scientific correctness and streaming
+throughput:
+
+- **`pad_or_crop` is centre-aligned.** When the source volume is larger than
+  the model's required spatial shape the crop is taken from the centre, and
+  when it is smaller the padding is distributed symmetrically. A corner-aligned
+  crop would silently discard one side of the anatomy (e.g. the top slices of a
+  brain); centre alignment keeps the field of view centred.
+- **`resample` uses a rational approximation of the true rate ratio.** The
+  ratio `to_hz / from_hz` is converted with `Fraction(...).limit_denominator()`
+  before `scipy.signal.resample_poly`, so fractional acquisition rates such as
+  `512.03 Hz → 256 Hz` are resampled accurately instead of being rounded to the
+  nearest integer Hz first.
+- **`bandpass` filter coefficients are cached.** The Butterworth SOS design
+  depends only on `(low_hz, high_hz, sfreq, order)`, so it is memoised on the
+  executor and designed once per streaming session rather than once per window.
+- **`normalize: exponential_moving_standardize`** is vectorised across channels
+  (numerically identical to the per-sample recurrence) so per-window cost scales
+  with the number of time steps, not channels × time steps.
+- **Critical transforms fail loud.** `resample`, `resample_spatial`, `reorient`,
+  `normalize`, `rescale_intensity`, `cast_dtype`, `bandpass`, `channel_select`,
+  `channel_map`, `channel_reorder`, `pad_or_crop`, and `transpose_axes` raise
+  `TransformError` on failure instead of passing data through unchanged. Only
+  purely structural transforms (`add_batch_dim`, `add_channel_dim`, `to_tensor`)
+  degrade to a logged warning.
+
 ### `run()` — execute the pipeline
 
 ```python

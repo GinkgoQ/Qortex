@@ -146,6 +146,10 @@ class TransformExecutor:
 
     def __init__(self, plan: PreprocessPlan) -> None:
         self._plan = plan
+        # Cache designed IIR filter coefficients across windows.  butter() is
+        # deterministic in its arguments, so for a streaming source the same
+        # bandpass is otherwise re-designed on every single window.
+        self._sos_cache: dict[tuple, Any] = {}
 
     # Transforms that must succeed — silent skip would corrupt inference results.
     _CRITICAL_KINDS = frozenset({
@@ -208,38 +212,16 @@ class TransformExecutor:
             return _apply_channel_reorder(arr, params)
 
         elif kind == "bandpass":
-            low_hz = params.get("low_hz")
-            high_hz = params.get("high_hz")
-            sfreq = params.get("sfreq", 1.0)
             if arr.ndim < 2:
                 raise TransformError(f"bandpass expects at least 2D data, got shape {arr.shape}")
-            if low_hz is None and high_hz is None:
-                raise TransformError("bandpass requires low_hz, high_hz, or both")
             try:
-                from scipy.signal import butter, sosfiltfilt
+                from scipy.signal import sosfiltfilt
             except ImportError as exc:
                 raise TransformError(
                     "bandpass requires scipy. Install scipy or remove the bandpass transform."
                 ) from exc
-            nyq = float(sfreq) / 2.0
-            if nyq <= 0:
-                raise TransformError(f"bandpass requires positive sfreq, got {sfreq!r}")
-            low = (float(low_hz) / nyq) if low_hz is not None else None
-            high = (float(high_hz) / nyq) if high_hz is not None else None
-            if low is not None and not 0.0 < low < 1.0:
-                raise TransformError(f"bandpass low_hz={low_hz!r} is outside valid range")
-            if high is not None and not 0.0 < high < 1.0:
-                raise TransformError(f"bandpass high_hz={high_hz!r} is outside valid range")
-            if low is not None and high is not None and low >= high:
-                raise TransformError("bandpass low_hz must be lower than high_hz")
-            if low is not None and high is not None:
-                sos = butter(5, [low, high], btype="bandpass", output="sos")
-            elif low is not None:
-                sos = butter(5, low, btype="highpass", output="sos")
-            else:
-                sos = butter(5, high, btype="lowpass", output="sos")
-            arr = sosfiltfilt(sos, arr, axis=-1).astype(arr.dtype)
-            return arr
+            sos = self._get_bandpass_sos(params)
+            return sosfiltfilt(sos, arr, axis=-1).astype(arr.dtype)
 
         elif kind == "resample":
             from_hz = float(params.get("from_hz", 1))
@@ -247,20 +229,27 @@ class TransformExecutor:
             if abs(from_hz - to_hz) > 0.01 and arr.ndim >= 2:
                 try:
                     from scipy.signal import resample_poly
-                    from math import gcd
                 except ImportError as exc:
                     raise TransformError(
                         "resample requires scipy.signal.resample_poly. "
                         "Install scipy or provide source data at the model sampling rate."
                     ) from exc
-                ratio_num = int(round(to_hz))
-                ratio_den = int(round(from_hz))
-                if ratio_num <= 0 or ratio_den <= 0:
+                if from_hz <= 0 or to_hz <= 0:
                     raise TransformError(
                         f"resample requires positive rates, got from_hz={from_hz}, to_hz={to_hz}"
                     )
-                g = gcd(ratio_num, ratio_den)
-                arr = resample_poly(arr, ratio_num // g, ratio_den // g, axis=-1)
+                # Use a rational approximation of the true ratio so fractional
+                # sampling rates (e.g. 512.03 Hz → 256 Hz) resample accurately
+                # instead of being rounded to the nearest integer Hz first.
+                from fractions import Fraction
+                frac = Fraction(to_hz / from_hz).limit_denominator(10_000)
+                up, down = frac.numerator, frac.denominator
+                if up <= 0 or down <= 0:
+                    raise TransformError(
+                        f"resample computed an invalid ratio {up}/{down} for "
+                        f"from_hz={from_hz}, to_hz={to_hz}"
+                    )
+                arr = resample_poly(arr, up, down, axis=-1)
             return arr
 
         elif kind == "resample_spatial":
@@ -325,6 +314,49 @@ class TransformExecutor:
 
         raise TransformError(f"Unsupported transform kind: {kind!r}")
 
+    def _get_bandpass_sos(self, params: dict) -> Any:
+        """Design (and cache) a Butterworth SOS filter for a bandpass transform.
+
+        The design depends only on ``(low_hz, high_hz, sfreq, order)`` so the
+        result is memoised on the executor — a streaming source therefore pays
+        the ``butter()`` design cost once, not once per window.
+        """
+        low_hz = params.get("low_hz")
+        high_hz = params.get("high_hz")
+        sfreq = params.get("sfreq", 1.0)
+        order = int(params.get("order", 5))
+        if low_hz is None and high_hz is None:
+            raise TransformError("bandpass requires low_hz, high_hz, or both")
+
+        cache_key = (low_hz, high_hz, sfreq, order)
+        cached = self._sos_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        from scipy.signal import butter
+
+        nyq = float(sfreq) / 2.0
+        if nyq <= 0:
+            raise TransformError(f"bandpass requires positive sfreq, got {sfreq!r}")
+        low = (float(low_hz) / nyq) if low_hz is not None else None
+        high = (float(high_hz) / nyq) if high_hz is not None else None
+        if low is not None and not 0.0 < low < 1.0:
+            raise TransformError(f"bandpass low_hz={low_hz!r} is outside valid range")
+        if high is not None and not 0.0 < high < 1.0:
+            raise TransformError(f"bandpass high_hz={high_hz!r} is outside valid range")
+        if low is not None and high is not None and low >= high:
+            raise TransformError("bandpass low_hz must be lower than high_hz")
+
+        if low is not None and high is not None:
+            sos = butter(order, [low, high], btype="bandpass", output="sos")
+        elif low is not None:
+            sos = butter(order, low, btype="highpass", output="sos")
+        else:
+            sos = butter(order, high, btype="lowpass", output="sos")
+
+        self._sos_cache[cache_key] = sos
+        return sos
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -376,9 +408,10 @@ def _normalize(arr: np.ndarray, params: dict) -> np.ndarray:
     if method == "robust_zscore":
         axis = params.get("axis", -1 if work.ndim >= 2 else None)
         axis = None if axis is None else int(axis)
-        median = np.median(work, axis=axis, keepdims=axis is not None)
-        q75 = np.percentile(work, 75, axis=axis, keepdims=axis is not None)
-        q25 = np.percentile(work, 25, axis=axis, keepdims=axis is not None)
+        keepdims = axis is not None
+        q25, median, q75 = np.percentile(
+            work, [25, 50, 75], axis=axis, keepdims=keepdims
+        )
         iqr = np.asarray(q75 - q25)
         scale = np.where(iqr < eps, 1.0, iqr / 1.349)
         return (work - median) / scale
@@ -471,21 +504,35 @@ def _exponential_moving_standardize(
     init_block_size: int,
     eps: float,
 ) -> np.ndarray:
-    """Braindecode-style online standardization along the time axis."""
-    out = np.empty_like(arr, dtype=np.float32)
-    flat = arr.reshape((-1, arr.shape[-1])).astype(np.float32, copy=False)
-    out_flat = out.reshape((-1, arr.shape[-1]))
-    for row_idx, row in enumerate(flat):
-        n_init = max(1, min(init_block_size, row.shape[0]))
-        mean = float(row[:n_init].mean())
-        var = float(row[:n_init].var())
-        for t, value in enumerate(row):
-            if t >= n_init:
-                mean = (1.0 - factor_new) * mean + factor_new * float(value)
-                diff = float(value) - mean
-                var = (1.0 - factor_new) * var + factor_new * diff * diff
-            out_flat[row_idx, t] = (float(value) - mean) / max(var ** 0.5, eps)
-    return out
+    """Braindecode-style online standardization along the time axis.
+
+    Vectorised across channels: the exponential recurrence is inherently
+    sequential in time but fully independent per row, so we carry the running
+    mean/variance as vectors and iterate over time only.  This is numerically
+    identical to the per-element loop but replaces ``n_rows × n_times`` Python
+    iterations with ``n_times`` vectorised numpy updates.
+    """
+    n_times = arr.shape[-1]
+    flat = arr.reshape((-1, n_times)).astype(np.float32, copy=False)
+    out_flat = np.empty_like(flat)
+
+    n_init = max(1, min(init_block_size, n_times))
+    mean = flat[:, :n_init].mean(axis=1)          # (n_rows,)
+    var = flat[:, :n_init].var(axis=1)            # (n_rows,)
+
+    # Columns inside the init block use the constant block mean/variance.
+    init_std = np.maximum(np.sqrt(var), eps)
+    out_flat[:, :n_init] = (flat[:, :n_init] - mean[:, None]) / init_std[:, None]
+
+    one_minus = 1.0 - factor_new
+    for t in range(n_init, n_times):
+        value = flat[:, t]
+        mean = one_minus * mean + factor_new * value
+        diff = value - mean
+        var = one_minus * var + factor_new * diff * diff
+        out_flat[:, t] = diff / np.maximum(np.sqrt(var), eps)
+
+    return out_flat.reshape(arr.shape)
 
 
 def _apply_channel_select(arr: np.ndarray, params: dict) -> np.ndarray:
@@ -603,11 +650,28 @@ def _validate_indices(indices: Any, n_channels: int, label: str) -> list[int]:
 
 
 def _pad_or_crop(arr: np.ndarray, target_shape: tuple) -> np.ndarray:
-    """Pad or crop an ndarray to exactly ``target_shape``."""
+    """Pad or crop an ndarray to exactly ``target_shape``, centred per axis.
+
+    Centre alignment (rather than corner alignment) is the correct default for
+    volumetric medical data: a corner crop of a brain volume discards one side
+    entirely (e.g. the top of the head), whereas a centred crop keeps the
+    anatomy centred and pads symmetrically.
+    """
+    if len(target_shape) != arr.ndim:
+        raise TransformError(
+            f"pad_or_crop target shape {target_shape} has {len(target_shape)} dims "
+            f"but input has {arr.ndim}"
+        )
     result = np.zeros(target_shape, dtype=arr.dtype)
-    slices_src = tuple(slice(0, min(s, t)) for s, t in zip(arr.shape, target_shape))
-    slices_dst = tuple(slice(0, min(s, t)) for s, t in zip(arr.shape, target_shape))
-    result[slices_dst] = arr[slices_src]
+    slices_src: list[slice] = []
+    slices_dst: list[slice] = []
+    for s, t in zip(arr.shape, target_shape):
+        keep = min(s, t)
+        src_start = (s - keep) // 2   # centre-crop when source is larger
+        dst_start = (t - keep) // 2   # centre-pad when target is larger
+        slices_src.append(slice(src_start, src_start + keep))
+        slices_dst.append(slice(dst_start, dst_start + keep))
+    result[tuple(slices_dst)] = arr[tuple(slices_src)]
     return result
 
 

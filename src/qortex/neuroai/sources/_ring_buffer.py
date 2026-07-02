@@ -64,6 +64,7 @@ class RingBuffer:
         self._buf = np.zeros((n_channels, capacity), dtype=np.float32)
         self._write = 0          # absolute write cursor
         self._n_buffered = 0     # number of unconsumed samples
+        self._overruns = 0       # count of consumer-fell-behind events
 
     # ── Write ─────────────────────────────────────────────────────────────────
 
@@ -81,11 +82,36 @@ class RingBuffer:
             )
         samples = np.asarray(samples, dtype=np.float32)
         n = samples.shape[1]
-        for i in range(n):
-            pos = self._write % self._capacity
-            self._buf[:, pos] = samples[:, i]
-            self._write += 1
+        if n == 0:
+            return
+        if n > self._capacity:
+            # Only the most recent `capacity` samples can be retained.
+            samples = samples[:, -self._capacity :]
+            n = self._capacity
+
+        # Vectorised wraparound write: at most two contiguous slices instead of
+        # one Python-level assignment per sample.
+        start = self._write % self._capacity
+        first = min(n, self._capacity - start)
+        self._buf[:, start : start + first] = samples[:, :first]
+        if first < n:
+            self._buf[:, : n - first] = samples[:, first:]
+
+        self._write += n
         self._n_buffered += n
+
+        # Overrun: unconsumed samples exceeded capacity, so the oldest samples
+        # were just overwritten.  Drop them from the count rather than letting
+        # the read cursor point at corrupted data.
+        if self._n_buffered > self._capacity:
+            self._overruns += 1
+            if self._overruns == 1 or self._overruns % 100 == 0:
+                log.warning(
+                    "RingBuffer overrun (#%d): consumer is not keeping up; "
+                    "oldest samples dropped. Increase capacity or consume faster.",
+                    self._overruns,
+                )
+            self._n_buffered = self._capacity
 
     # ── Read ──────────────────────────────────────────────────────────────────
 
@@ -103,11 +129,20 @@ class RingBuffer:
             return None
 
         # read_pos is the absolute index of the oldest unconsumed sample
-        read_pos = self._write - self._n_buffered
-        indices = [(read_pos + s) % self._capacity for s in range(self._window_size)]
-        win = self._buf[:, indices].copy()
+        read_pos = (self._write - self._n_buffered) % self._capacity
+        end = read_pos + self._window_size
+        if end <= self._capacity:
+            # Contiguous window — slice directly, no fancy indexing.
+            win = self._buf[:, read_pos:end].copy()
+        else:
+            # Wraps the ring boundary — join the two contiguous halves once.
+            first = self._capacity - read_pos
+            win = np.concatenate(
+                (self._buf[:, read_pos:], self._buf[:, : self._window_size - first]),
+                axis=1,
+            )
         self._n_buffered -= self._step_size
-        return win.astype(np.float32)
+        return win
 
     # ── Properties ────────────────────────────────────────────────────────────
 

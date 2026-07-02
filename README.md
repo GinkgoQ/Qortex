@@ -467,6 +467,13 @@ window = buf.pop_window()     # [Ch, 512] or None
 windows = batch_window(data, window_size=512, step_size=256)
 ```
 
+The Python fallback writes and reads with vectorised wraparound-aware slicing
+(no per-sample Python loop), so `push()`/`pop_window()` cost scales with the
+number of channels rather than the number of samples. If the consumer falls
+behind and unconsumed samples would exceed `capacity`, the oldest samples are
+dropped and a rate-limited overrun warning is logged rather than silently
+returning corrupted windows.
+
 Build the Rust extension (optional — Python fallback is always available):
 
 ```bash
