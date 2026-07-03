@@ -43,6 +43,8 @@ ray    = ["ray>=2.20"]
 dask   = ["dask>=2024.5"]
 braindecode = ["braindecode>=0.8", "mne>=1.7"]
 sklearn = ["scikit-learn>=1.5"]
+search = ["rapidfuzz>=3.0", "scikit-learn>=1.5", "scipy>=1.11", "numpy>=1.24"]
+search-embed = ["sentence-transformers>=3.0", "faiss-cpu>=1.8"]
 validation = ["pybids>=0.22"]
 dashboard = ["fastapi>=0.111", "uvicorn>=0.30", "streamlit>=1.36", "plotly>=6.1.1"]
 visual    = ["nibabel>=5.2", "plotly>=6.1.1"]
@@ -93,7 +95,7 @@ datasets = [
   "openpyxl>=3.1",
 ]
 all = [
-  "qortex[eeg,mri,dwi,zarr,hdf5,torch,lightning,hf,ray,dask,braindecode,sklearn,validation,dashboard,visual-all,nwb,lsl,brainflow,onnx,ultralytics,monai,dicom-full,dicomweb,stats,graph,neuroclassic]"
+  "qortex[eeg,mri,dwi,zarr,hdf5,torch,lightning,hf,ray,dask,braindecode,sklearn,validation,dashboard,visual-all,nwb,lsl,brainflow,onnx,ultralytics,monai,dicom-full,dicomweb,stats,graph,neuroclassic,search]"
 ]
 
 [project.scripts]

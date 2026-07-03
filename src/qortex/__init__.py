@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 log = logging.getLogger(__name__)
 
@@ -121,12 +121,20 @@ class Dataset:
         snapshot: str | None = None,
         token: str | None = None,
         data_dir: Path | None = None,
+        manifest: "Manifest | None" = None,
     ) -> None:
         self.dataset_id = dataset_id
         self.snapshot = snapshot
         self._token = token
         self._data_dir = data_dir
-        self._manifest: Manifest | None = None
+        # Optional pre-fetched manifest: every Dataset method that needs one
+        # calls self.manifest(), which only checks its own *instance*
+        # cache — useless when a caller (e.g. the Atlas API, which builds a
+        # fresh Dataset per HTTP request) already holds a manifest from its
+        # own cross-request cache. Seeding it here means previewing a single
+        # 200-byte file doesn't silently re-fetch the whole dataset's file
+        # tree first.
+        self._manifest: Manifest | None = manifest
         self._snap_ref = None
 
     # ── Manifest / introspection ──────────────────────────────────────────
@@ -267,6 +275,7 @@ class Dataset:
         max_size_gb: float | None = None,
         output_dir: Path | None = None,
         dry_run: bool = False,
+        on_progress: Callable[[int, int], None] | None = None,
     ) -> DownloadResult:
         """Download the dataset (or a filtered subset) to local disk.
 
@@ -286,6 +295,11 @@ class Dataset:
             Override the download destination.
         dry_run:
             Plan the download but don't actually transfer any files.
+        on_progress:
+            Optional callback invoked as ``on_progress(files_done, files_total)``
+            each time one file finishes (success or failure) — lets a caller
+            (e.g. a background job runner) report real, live progress instead
+            of only knowing "started" vs. "done".
 
         Returns
         -------
@@ -336,7 +350,7 @@ class Dataset:
             return DownloadResult(plan=plan)
 
         engine = DownloadEngine()
-        return engine.execute(plan)
+        return engine.execute(plan, on_progress=on_progress)
 
     def download_metadata(
         self,
@@ -1100,7 +1114,7 @@ class Dataset:
         axis: int = 2,
         slice_index: int | None = None,
     ) -> Any:
-        """Stream a 2D slice or 3D volume from a remote NIfTI file.
+        """Stream a single 2D slice from a remote NIfTI file.
 
         Parameters
         ----------
@@ -1113,13 +1127,13 @@ class Dataset:
         axis:
             Slicing axis for 2D extraction (0=sagittal, 1=coronal, 2=axial).
         slice_index:
-            Which slice along ``axis`` to extract.  ``None`` = center slice.
+            Which slice along ``axis`` to extract.  ``None`` = center slice
+            along the chosen ``axis``.
 
         Returns
         -------
         np.ndarray
-            2D array (slice) or 3D array (volume when ``slice_index=None``
-            and ``axis`` is not specified).
+            2D array; shape depends on ``axis`` (see ``NiftiStreamer.get_slice``).
 
         Examples
         --------
@@ -1128,7 +1142,6 @@ class Dataset:
         ... )
         >>> sl.shape  # (64, 64)
         """
-        import numpy as np
         from qortex.stream import NiftiStreamer
 
         url = self._resolve_modality_url(
@@ -1138,9 +1151,7 @@ class Dataset:
         hdr = streamer.header()
 
         if slice_index is None:
-            if hdr.is_4d:
-                return streamer.get_volume(t=time_index)
-            return streamer.get_volume(t=0)
+            slice_index = hdr.spatial_shape[axis] // 2
 
         return streamer.get_slice(axis=axis, index=slice_index, t=time_index)
 
@@ -1274,19 +1285,26 @@ class Dataset:
         sub = subject.removeprefix("sub-")
         ses = session.removeprefix("ses-") if session else None
 
+        # Sidecar/companion extensions never carry the primary data payload —
+        # a .json/.tsv file can share a data file's BIDS suffix (e.g. both
+        # "sub-01_T1w.nii.gz" and its "sub-01_T1w.json" sidecar have
+        # suffix == "T1w"), so they must be excluded here or this resolver
+        # can hand a NIfTI/EDF streamer a JSON sidecar's URL by mistake.
+        _NON_DATA_EXTENSIONS = {".json", ".tsv", ".bval", ".bvec"}
+
         manifest = self.manifest()
-        signal_suffixes = {"eeg", "meg", "ieeg", "edf", "bdf"}
         candidates = [
             fr for fr in manifest.files
             if fr.subject == sub
             and (ses is None or fr.session == ses)
             and fr.suffix == modality
             and (run is None or fr.run == run)
+            and fr.extension not in _NON_DATA_EXTENSIONS
         ]
         if not candidates:
             raise FileNotFoundError(
-                f"No file found for sub={sub!r} ses={ses!r} "
-                f"suffix={modality!r} run={run!r}"
+                f"No data file found for sub={sub!r} ses={ses!r} "
+                f"suffix={modality!r} run={run!r} (sidecar-only matches were excluded)"
             )
         url = _pick_url(candidates[0])
         if not url:

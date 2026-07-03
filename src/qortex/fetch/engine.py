@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import time
 from pathlib import Path
+from typing import Callable
 
 from qortex._internal.progress import bytes_bar, msg
 from qortex.client.transport import build_async_client
@@ -39,21 +40,34 @@ class DownloadEngine:
 
     # ── Sync entry point (wraps async) ────────────────────────────────────
 
-    def execute(self, plan: DownloadPlan) -> DownloadResult:
-        """Execute *plan* synchronously.  Compatible with Jupyter notebooks."""
+    def execute(
+        self,
+        plan: DownloadPlan,
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> DownloadResult:
+        """Execute *plan* synchronously.  Compatible with Jupyter notebooks.
+
+        ``on_progress(files_done, files_total)`` — if given, is called once
+        per file as it finishes (success or failure), so a caller can report
+        real live progress rather than only "started" vs. "done".
+        """
         try:
             asyncio.get_running_loop()
             # Already inside an event loop (Jupyter) — schedule as a task
             import concurrent.futures
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(asyncio.run, self._run(plan))
+                future = pool.submit(asyncio.run, self._run(plan, on_progress))
                 return future.result()
         except RuntimeError:
-            return asyncio.run(self._run(plan))
+            return asyncio.run(self._run(plan, on_progress))
 
     # ── Async core ────────────────────────────────────────────────────────
 
-    async def _run(self, plan: DownloadPlan) -> DownloadResult:
+    async def _run(
+        self,
+        plan: DownloadPlan,
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> DownloadResult:
         cfg = self._cfg
         target_dir = plan.target_dir
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -109,6 +123,21 @@ class DownloadEngine:
         sem_get = asyncio.Semaphore(cfg.max_concurrent_downloads)
         sem_head = asyncio.Semaphore(cfg.max_concurrent_heads)
 
+        # Plain (non-atomic) counter is safe here: asyncio runs one coroutine
+        # at a time on this event loop, so there is no interleaving *within*
+        # the increment itself even though many downloads are in flight.
+        files_done = 0
+        total_files = len(downloadable)
+
+        async def _tracked(f):
+            nonlocal files_done
+            try:
+                return await self._download_one(backend, f, target_dir, lock)
+            finally:
+                files_done += 1
+                if on_progress is not None:
+                    on_progress(files_done, total_files)
+
         async with build_async_client(cfg) as client:
             with bytes_bar(total_bytes, desc="Overall") as overall_bar:
                 backend = HTTPBackend(
@@ -119,10 +148,7 @@ class DownloadEngine:
                     overall_progress=overall_bar,
                 )
 
-                tasks = [
-                    self._download_one(backend, f, target_dir, lock)
-                    for f in downloadable
-                ]
+                tasks = [_tracked(f) for f in downloadable]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # ── Collect results ── (only after ALL tasks complete) ────────────

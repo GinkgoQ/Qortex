@@ -63,8 +63,8 @@ _SUPPORTED_MODALITIES = {
 @dataclass
 class ModalityBreakdown:
     modality: str
-    n_files: int
-    total_bytes: int
+    n_files: int = 0
+    total_bytes: int = 0
     n_subjects: set[str] = field(default_factory=set)
     tasks: set[str] = field(default_factory=set)
     extensions: Counter = field(default_factory=Counter)
@@ -378,6 +378,7 @@ class DatasetInspector:
                 log.debug("get_snapshot_summary failed: %s", exc)
 
             snap_ref = SnapshotRef(
+                dataset_id=dataset_id,
                 tag=snap_summary.tag if snap_summary else (tag or "latest"),
                 hexsha=snap_summary.hexsha if snap_summary else None,
             )

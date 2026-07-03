@@ -20,7 +20,7 @@ from qortex.convert.pipeline import ConversionPipeline
 from qortex.convert.splits import SplitSpec
 from qortex.core.entities import DownloadPlan, Manifest, ReadinessFinding, SelectionSpec
 from qortex.indexing import index_local_bids
-from qortex.manifest.graph import ManifestGraph
+from qortex.manifest.graph import ManifestGraph, get_manifest_graph
 from qortex.plan.planner import DownloadPlanner
 
 DecisionStatus = Literal["possible", "uncertain", "not_possible"]
@@ -283,7 +283,7 @@ def minimum_plan(
         allowed = ", ".join(sorted(MINIMUM_GOALS))
         raise ValueError(f"Unknown minimum goal {goal!r}. Use one of: {allowed}")
     target_dir = output_dir or Path.cwd() / manifest.dataset_id
-    graph = ManifestGraph(manifest)
+    graph = get_manifest_graph(manifest)
     recording = _choose_recording(graph, modality=modality, needs_events=goal in {"label-check", "first-batch"})
     if goal in {"metadata", "label-check"}:
         spec = SelectionSpec(metadata_only=True, modalities=[modality] if modality else None)

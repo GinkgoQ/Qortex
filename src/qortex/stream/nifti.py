@@ -84,6 +84,12 @@ class NiftiStreamHeader:
     description: str
     source_url: str
     bytes_fetched: int
+    scl_slope: float = 1.0          # NIfTI intensity calibration: value = raw * scl_slope + scl_inter
+    scl_inter: float = 0.0          # (scl_slope == 0 means "no scaling", per the NIfTI-1/2 spec)
+
+    @property
+    def needs_scaling(self) -> bool:
+        return self.scl_slope not in (0.0, 1.0) or self.scl_inter != 0.0
 
     @property
     def n_volumes(self) -> int | None:
@@ -254,8 +260,10 @@ class NiftiStreamer:
         else:
             vol_data = self._fetch_volume_raw(hdr, t)
 
-        vol = np.frombuffer(vol_data, dtype=hdr.dtype).reshape(hdr.spatial_shape)
+        vol = np.frombuffer(vol_data, dtype=hdr.dtype).reshape(hdr.spatial_shape, order="F")
         slc = np.take(vol, index, axis=axis).copy()
+        if hdr.needs_scaling:
+            slc = slc.astype(np.float32) * hdr.scl_slope + hdr.scl_inter
         if dtype is not None:
             slc = slc.astype(dtype)
         return slc
@@ -288,7 +296,9 @@ class NiftiStreamer:
         else:
             vol_data = self._fetch_volume_raw(hdr, t)
 
-        vol = np.frombuffer(vol_data, dtype=hdr.dtype).reshape(hdr.spatial_shape).copy()
+        vol = np.frombuffer(vol_data, dtype=hdr.dtype).reshape(hdr.spatial_shape, order="F").copy()
+        if hdr.needs_scaling:
+            vol = vol.astype(np.float32) * hdr.scl_slope + hdr.scl_inter
         if dtype is not None:
             vol = vol.astype(dtype)
         return vol
@@ -355,7 +365,9 @@ class NiftiStreamer:
             vol = self.get_volume(t=t)
         else:
             vol_data = self._fetch_volume_raw(hdr, t)
-            vol = np.frombuffer(vol_data, dtype=hdr.dtype).reshape(hdr.spatial_shape).copy()
+            vol = np.frombuffer(vol_data, dtype=hdr.dtype).reshape(hdr.spatial_shape, order="F").copy()
+            if hdr.needs_scaling:
+                vol = vol.astype(np.float32) * hdr.scl_slope + hdr.scl_inter
 
         return [np.take(vol, i, axis=axis) for i in range(n_slices)]
 
@@ -385,9 +397,14 @@ class NiftiStreamer:
         return data
 
     def _remote_range_request(self, start: int, length: int) -> bytes:
-        from qortex.client.remote import RemoteFileGateway
-        with RemoteFileGateway() as gw:
-            return gw.fetch_bytes(self._url, range_bytes=start + length)
+        from qortex.client.remote import get_shared_gateway
+        gw = get_shared_gateway()
+        # A true bytes=start-end range — previously this fetched
+        # bytes=0-{start+length-1} (the whole prefix up to the window) and
+        # relied on the caller to discard everything before `start`, which
+        # for a late volume/slice in a large uncompressed .nii file could
+        # mean downloading hundreds of MB just to keep the last few.
+        return gw.fetch_bytes(self._url, range_start=start, range_bytes=length)
 
     def _fetch_volume_raw(self, hdr: NiftiStreamHeader, t: int) -> bytes:
         """Fetch exactly one 3D volume from an uncompressed .nii file."""
@@ -450,7 +467,7 @@ def _parse_nifti_header(
 
     if is_nifti2 and len(raw) >= _NIFTI2_HDR_SIZE:
         return _parse_nifti2(raw, source_url=source_url, is_gz=is_gz, bytes_fetched=bytes_fetched)
-    elif is_nifti1 or len(raw) >= _NIFTI1_HDR_SIZE:
+    elif is_nifti1 and len(raw) >= _NIFTI1_HDR_SIZE:
         return _parse_nifti1(raw, source_url=source_url, is_gz=is_gz, bytes_fetched=bytes_fetched)
     else:
         raise ValueError(
@@ -486,6 +503,17 @@ def _parse_nifti1(
     vox_offset_f = struct.unpack_from("<f", raw, 108)[0]
     vox_offset = max(int(vox_offset_f), _NIFTI1_HDR_SIZE)
 
+    # scl_slope / scl_inter: intensity calibration applied by nibabel's
+    # get_fdata() but easy to miss in a hand-rolled reader — without this,
+    # streamed intensities are meaningless raw scanner units for any file
+    # that sets non-trivial scaling (common for real scanner exports).
+    scl_slope = struct.unpack_from("<f", raw, 112)[0]
+    scl_inter = struct.unpack_from("<f", raw, 116)[0]
+    if not np.isfinite(scl_slope):
+        scl_slope = 1.0
+    if not np.isfinite(scl_inter):
+        scl_inter = 0.0
+
     # sform / qform affine — build from sform if sform_code > 0
     sform_code = struct.unpack_from("<h", raw, 254)[0]
     affine = _extract_affine_nifti1(raw, prefer_sform=(sform_code > 0), shape=shape)
@@ -505,6 +533,8 @@ def _parse_nifti1(
         description=description,
         source_url=source_url,
         bytes_fetched=bytes_fetched,
+        scl_slope=float(scl_slope),
+        scl_inter=float(scl_inter),
     )
 
 
@@ -530,6 +560,12 @@ def _parse_nifti2(
     vox_offset = int(struct.unpack_from("<q", raw, 168)[0])
     vox_offset = max(vox_offset, _NIFTI2_HDR_SIZE)
 
+    scl_slope, scl_inter = struct.unpack_from("<2d", raw, 176)
+    if not np.isfinite(scl_slope):
+        scl_slope = 1.0
+    if not np.isfinite(scl_inter):
+        scl_inter = 0.0
+
     # NIfTI-2 affine at offset 216 (4×4 float64)
     affine_vals = struct.unpack_from("<16d", raw, 216)
     affine = np.array(affine_vals, dtype=np.float64).reshape(4, 4)
@@ -549,6 +585,8 @@ def _parse_nifti2(
         description=description,
         source_url=source_url,
         bytes_fetched=bytes_fetched,
+        scl_slope=float(scl_slope),
+        scl_inter=float(scl_inter),
     )
 
 

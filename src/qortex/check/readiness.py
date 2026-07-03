@@ -31,7 +31,7 @@ from qortex.core.entities import (
     ReadinessFinding,
     ReadinessReport,
 )
-from qortex.manifest.graph import LABEL_COLUMNS, ManifestGraph
+from qortex.manifest.graph import LABEL_COLUMNS, get_manifest_graph
 
 
 def compute_readiness(
@@ -43,7 +43,7 @@ def compute_readiness(
     label_policy: LabelPolicy | None = None,
 ) -> ReadinessReport:
     """Return an actionable readiness report for a manifest/local dataset."""
-    graph = ManifestGraph(manifest)
+    graph = get_manifest_graph(manifest)
     recordings = graph.recordings()
     findings: list[ReadinessFinding] = []
     n_loadable = 0

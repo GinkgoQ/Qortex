@@ -34,6 +34,15 @@ def search(
     offset: int = typer.Option(0, "--offset"),
     refresh_catalog: bool = typer.Option(False, "--refresh", help="Refresh catalog before searching"),
     deep: bool = typer.Option(False, "--deep", help="During --refresh, also ingest file summaries"),
+    engine: bool = typer.Option(
+        False, "--engine", help="Use the multi-method search engine (BM25 + semantic + RRF fusion + "
+        "evidence-partitioned filtering) instead of the legacy substring-scorer search."
+    ),
+    license_open: bool = typer.Option(False, "--open-license", help="[--engine only] restrict to open licenses"),
+    goal_aware: bool = typer.Option(
+        False, "--deep-rerank", help="[--engine only] also run the DatasetFitness structural re-rank "
+        "over the shortlist (may call the live OpenNeuro API)"
+    ),
 ) -> None:
     """Search the local OpenNeuro catalog."""
     if refresh_catalog:
@@ -41,6 +50,29 @@ def search(
         typer.echo("Refreshing catalog from OpenNeuro …")
         n = do_refresh(progress=False, include_file_summary=deep)
         typer.echo(f"  {n} datasets indexed.")
+
+    if engine:
+        from qortex.search.engine import SearchEngine
+
+        search_engine = SearchEngine()
+        search_engine.refresh_indexes()
+        response = search_engine.search(
+            query,
+            modality=modality,
+            min_subjects=min_subjects,
+            max_size_gb=max_size_gb,
+            license_open=license_open or None,
+            has_events=has_events,
+            deep=goal_aware,
+            limit=limit,
+        )
+        if not response.results:
+            typer.echo("No results found.")
+            if response.negative_space:
+                typer.echo(response.negative_space.render())
+            raise typer.Exit(0)
+        typer.echo(response.render())
+        raise typer.Exit(0)
 
     from qortex.catalog.search import search as do_search
     results = do_search(

@@ -9,7 +9,7 @@ from __future__ import annotations
 from qortex._internal.glob import apply_include_exclude, find_close_matches, is_dotfile
 from qortex.core.entities import FileRecord, Manifest, SelectionReason, SelectionSpec
 from qortex.core.exceptions import SelectionError
-from qortex.manifest.graph import ManifestGraph
+from qortex.manifest.graph import get_manifest_graph
 
 # Top-level BIDS metadata files that must always be included
 ESSENTIAL_FILENAMES = frozenset({
@@ -56,7 +56,7 @@ class Selector:
         reasons: dict[str, list[SelectionReason]] = {}
         all_files = [f for f in manifest.files if not f.is_dir]
         all_paths = [f.path for f in all_files]
-        graph = ManifestGraph(manifest)
+        graph = get_manifest_graph(manifest)
         recordings = graph.recordings()
 
         def add_reason(file: FileRecord, reason: str, source: str = "selector", recording_id: str | None = None) -> None:

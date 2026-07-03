@@ -127,8 +127,16 @@ class CatalogIndex:
 
     # ── Write ─────────────────────────────────────────────────────────────
 
-    def upsert(self, row: dict[str, Any]) -> None:
-        """Insert or update a normalized dataset metadata row."""
+    def upsert(self, row: dict[str, Any], *, commit: bool = True) -> None:
+        """Insert or update a normalized dataset metadata row.
+
+        Each row touches 5 tables (the main row + 4 child-table replaces),
+        and a DuckDB commit forces a checkpoint/fsync — committing after
+        every single row (as ``upsert_many`` used to) made a 25-dataset
+        live search take ~12s instead of under 1s. Pass ``commit=False``
+        when batching many rows and commit once at the end (see
+        ``upsert_many``).
+        """
         dataset_id = _to_text(row.get("dataset_id", "")) or ""
         if not dataset_id:
             return
@@ -187,11 +195,13 @@ class CatalogIndex:
         derived_keywords = sorted(set(keywords) | _derive_keywords(row, modalities, tasks))
         self._replace_values("dataset_keywords", "keyword", dataset_id, derived_keywords)
         self._replace_file_summaries(dataset_id, row.get("file_summaries") or [])
-        _commit(self._con)
+        if commit:
+            _commit(self._con)
 
     def upsert_many(self, rows: list[dict[str, Any]]) -> None:
         for row in rows:
-            self.upsert(row)
+            self.upsert(row, commit=False)
+        _commit(self._con)
 
     def _replace_values(
         self,
@@ -260,7 +270,14 @@ class CatalogIndex:
         tokens = _tokens(query)
         ranked: list[tuple[float, dict[str, Any]]] = []
         for row in rows:
-            profile = self._hydrate_row(row)
+            # Score/sort with the lightweight hydration (JSON-decoded columns
+            # only — everything _score() touches). The old code called
+            # _hydrate_row(), which also issues a separate SQL query per row
+            # for file_summaries, on *every* candidate before the limit/offset
+            # cut — a 293-dataset unfiltered search fired ~293 extra queries
+            # just to throw nearly all of that data away. file_summaries is
+            # now only fetched for the rows actually returned, below.
+            profile = self._hydrate_row_light(row)
             score = _score(profile, tokens)
             if tokens and score <= 0:
                 continue
@@ -277,6 +294,16 @@ class CatalogIndex:
             reverse=True,
         )
         selected = ranked[offset : offset + limit]
+        # One batched query for the whole result page, not one query per row
+        # (a 200-row page was firing 200 separate `dataset_file_summaries`
+        # lookups — ~35ms/query of connection+parse overhead each, ~8s
+        # total on the live API; this is the exact same N+1 shape as the
+        # one already fixed above for the scoring loop, just recurring one
+        # step later, at the final-page hydration instead of the candidate
+        # scoring).
+        summaries = self._file_summaries_batch([profile["dataset_id"] for _, profile in selected])
+        for _, profile in selected:
+            profile["file_summaries"] = summaries.get(profile["dataset_id"], [])
         return [row for _, row in selected]
 
     def _candidate_rows(
@@ -328,6 +355,59 @@ class CatalogIndex:
         cols = _columns(cursor, self._con)
         return [dict(zip(cols, row)) for row in cursor.fetchall()]
 
+    def all_hydrated_rows(self) -> list[dict[str, Any]]:
+        """Return every catalog row, JSON-decoded (no per-row file-summary
+        query — see ``_hydrate_row_light``). Used by ``qortex.search.engine``
+        to (re)build the lexical and semantic search indexes; not intended
+        for paginated display (use ``search``/``search_candidates`` for that)."""
+        cursor = self._con.execute("SELECT * FROM datasets")
+        cols = _columns(cursor, self._con)
+        return [self._hydrate_row_light(dict(zip(cols, row))) for row in cursor.fetchall()]
+
+    def search_candidates(
+        self,
+        *,
+        modality: list[str] | str | None = None,
+        min_subjects: int | None = None,
+        max_size_gb: float | None = None,
+        license_open: bool | None = None,
+    ) -> list[dict[str, Any]]:
+        """Public structural pre-filter for ``qortex.search.engine.SearchEngine``.
+
+        Unlike ``search()``'s single-value SQL equality filter, ``modality``
+        here accepts a *set* of canonical tokens (post ontology-hierarchy
+        expansion, e.g. ``"mri"`` -> ``{anat, func, dwi, fmap, perf}``) and
+        matches any of them — this is what lets a broad query like "MRI
+        datasets" reach func/anat/dwi-tagged rows without the caller having
+        to enumerate BIDS datatypes by hand.
+        """
+        modalities = [modality] if isinstance(modality, str) else list(modality or [])
+        clauses: list[str] = []
+        params: list[Any] = []
+        if modalities:
+            placeholders = ", ".join("?" for _ in modalities)
+            clauses.append(
+                "EXISTS (SELECT 1 FROM dataset_modalities m WHERE m.dataset_id = datasets.dataset_id "
+                f"AND LOWER(m.modality) IN ({placeholders}))"
+            )
+            params.extend(m.lower() for m in modalities)
+        if min_subjects is not None:
+            clauses.append("n_subjects >= ?")
+            params.append(min_subjects)
+        if max_size_gb is not None:
+            clauses.append("total_bytes <= ?")
+            params.append(int(max_size_gb * 1e9))
+        if license_open:
+            from qortex.inspect.selector import _OPEN_LICENSES
+
+            placeholders = ", ".join("?" for _ in _OPEN_LICENSES)
+            clauses.append(f"LOWER(license) IN ({placeholders})")
+            params.extend(sorted(_OPEN_LICENSES))
+        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        cursor = self._con.execute(f"SELECT * FROM datasets {where}", params)
+        cols = _columns(cursor, self._con)
+        return [self._hydrate_row_light(dict(zip(cols, row))) for row in cursor.fetchall()]
+
     def get(self, dataset_id: str) -> dict[str, Any] | None:
         cursor = self._con.execute(
             "SELECT * FROM datasets WHERE dataset_id = ?", [dataset_id]
@@ -357,7 +437,10 @@ class CatalogIndex:
     def close(self) -> None:
         self._con.close()
 
-    def _hydrate_row(self, row: dict[str, Any]) -> dict[str, Any]:
+    def _hydrate_row_light(self, row: dict[str, Any]) -> dict[str, Any]:
+        """Decode JSON columns only — no per-row SQL query. Use for scoring
+        and ranking candidate sets; call ``_file_summaries`` separately for
+        the final page, not for every candidate (see ``search``)."""
         row = dict(row)
         row["authors"] = _json_list(row.get("authors"))
         row["modalities"] = _json_list(row.get("modalities"))
@@ -367,23 +450,41 @@ class CatalogIndex:
         row["raw_description"] = _json_obj(row.get("raw_description"))
         row["has_events"] = _to_bool(row.get("has_events"))
         row["has_derivatives"] = _to_bool(row.get("has_derivatives"))
+        return row
+
+    def _hydrate_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        row = self._hydrate_row_light(row)
         row["file_summaries"] = self._file_summaries(row["dataset_id"])
         return row
 
     def _file_summaries(self, dataset_id: str) -> list[dict[str, Any]]:
+        return self._file_summaries_batch([dataset_id]).get(dataset_id, [])
+
+    def _file_summaries_batch(self, dataset_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+        """One query for many datasets' file summaries, grouped by id.
+
+        Replaces N sequential single-dataset queries with a single
+        ``WHERE dataset_id = ANY(?)`` scan — same result shape as calling
+        ``_file_summaries`` once per id, just without paying per-query
+        connection/parse overhead N times.
+        """
+        out: dict[str, list[dict[str, Any]]] = {did: [] for did in dataset_ids}
+        if not dataset_ids:
+            return out
         cursor = self._con.execute(
             """
-            SELECT category, value, n_files, bytes
+            SELECT dataset_id, category, value, n_files, bytes
             FROM dataset_file_summaries
-            WHERE dataset_id = ?
-            ORDER BY category, n_files DESC, value
+            WHERE dataset_id = ANY(?)
+            ORDER BY dataset_id, category, n_files DESC, value
             """,
-            [dataset_id],
+            [dataset_ids],
         )
-        return [
-            {"category": category, "value": value, "n_files": n_files, "bytes": bytes_}
-            for category, value, n_files, bytes_ in cursor.fetchall()
-        ]
+        for dataset_id, category, value, n_files, bytes_ in cursor.fetchall():
+            out.setdefault(dataset_id, []).append(
+                {"category": category, "value": value, "n_files": n_files, "bytes": bytes_}
+            )
+        return out
 
     def _facet(self, table: str, column: str, *, limit: int) -> list[dict[str, Any]]:
         cursor = self._con.execute(

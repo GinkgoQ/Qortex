@@ -114,8 +114,28 @@ class SidecarResolver:
             datatype=datatype,
         )
 
+        # The sub/ses/task/run-only candidates above miss any other BIDS
+        # entity present in the filename (acq-, dir-, echo-, part-, rec-,
+        # ce-, ...) — extremely common for anatomical scans
+        # ("acq-mprage_T1w.nii.gz"). Derive extra candidates directly from
+        # the data file's own filename so a sidecar carrying the identical
+        # entity set is always found, regardless of which entities it uses.
+        extra_root, extra_sub_root, extra_same_dir = _entity_derived_candidates(
+            data_file, suffix=suffix, sub=sub,
+        )
+        if extra_root:
+            candidates.insert(0, extra_root)
+        if extra_sub_root:
+            candidates.append(extra_sub_root)
+        if extra_same_dir:
+            candidates.append(extra_same_dir)  # most specific: same directory, identical entities
+
         chain: list[FileRecord] = []
+        seen: set[str] = set()
         for path in candidates:
+            if path in seen:
+                continue
+            seen.add(path)
             if path in self._json_index:
                 chain.append(self._json_index[path])
         return chain
@@ -225,6 +245,47 @@ def find_events_files(files: list[FileRecord]) -> dict[str, FileRecord]:
 
 
 # ── Path generation ───────────────────────────────────────────────────────────
+
+def _entity_derived_candidates(
+    data_file: FileRecord, *, suffix: str, sub: str | None,
+) -> tuple[str | None, str | None, str | None]:
+    """Derive sidecar candidates directly from the data file's own filename.
+
+    ``_build_candidate_paths`` only reasons about sub/ses/task/run, so a
+    sidecar carrying any other BIDS entity (``acq-``, ``dir-``, ``echo-``,
+    ``part-``, ``ce-``, ``rec-``, ...) — e.g. ``sub-01_ses-mri_acq-mprage_T1w.json``
+    next to ``sub-01_ses-mri_acq-mprage_T1w.nii.gz`` — is otherwise never found,
+    silently degrading ``sidecar()`` to an empty dict.
+
+    Returns ``(root_candidate, subject_root_candidate, same_dir_candidate)``,
+    each ``None`` when not meaningfully different from the base case.
+    """
+    stem = data_file.filename
+    if data_file.extension and stem.endswith(data_file.extension):
+        stem = stem[: -len(data_file.extension)]
+    suffix_token = f"_{suffix}"
+    entity_string = stem[: -len(suffix_token)] if stem.endswith(suffix_token) else stem
+    tokens = [t for t in entity_string.split("_") if t]
+    if not tokens:
+        return None, None, None
+
+    # Same directory, identical entity set — the common "sidecar right next
+    # to the data file" case, and the most specific candidate of the three.
+    directory = str(PurePosixPath(data_file.path).parent)
+    same_dir_name = f"{entity_string}_{suffix}.json"
+    same_dir = same_dir_name if directory in ("", ".") else f"{directory}/{same_dir_name}"
+
+    non_sub_ses = [t for t in tokens if not (t.startswith("sub-") or t.startswith("ses-"))]
+    root = f"{'_'.join(non_sub_ses)}_{suffix}.json" if non_sub_ses else None
+
+    sub_root = None
+    if sub:
+        sub_tokens = [t for t in tokens if not t.startswith("ses-")]
+        if len(sub_tokens) > 1:  # more than just "sub-XX" alone
+            sub_root = f"sub-{sub}/{'_'.join(sub_tokens)}_{suffix}.json"
+
+    return root, sub_root, same_dir
+
 
 def _build_candidate_paths(
     *,

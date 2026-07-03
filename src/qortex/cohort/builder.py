@@ -536,6 +536,13 @@ class CohortBuilder:
                     "Dataset %s has only %d passing subjects < min %d — excluded",
                     ds_id, entry.n_subjects_selected, self._min_subjects,
                 )
+                # Preserve the real per-subject exclusion reasons computed by
+                # _process_dataset (e.g. "missing_required_modality",
+                # demographic filters) rather than overwriting them with a
+                # single generic "below_min_subjects" — that discarded the
+                # actual cause and made every exclusion look identical.
+                reasons = dict(entry.exclusion_reasons) if entry.exclusion_reasons else {}
+                reasons["below_min_subjects_threshold"] = entry.n_subjects_selected
                 exclusion_entry = CohortDatasetEntry(
                     dataset_id=ds_id,
                     snapshot=entry.snapshot,
@@ -543,7 +550,7 @@ class CohortBuilder:
                     n_subjects_total=entry.n_subjects_total,
                     n_subjects_selected=0,
                     n_subjects_excluded=entry.n_subjects_total,
-                    exclusion_reasons={"below_min_subjects": entry.n_subjects_total},
+                    exclusion_reasons=reasons,
                     modalities=entry.modalities,
                 )
                 dataset_entries.append(exclusion_entry)
@@ -737,9 +744,16 @@ class CohortBuilder:
 
     def _check_modality_requirements(self, manifest: Any, subject_raw: str) -> bool:
         """Return True if subject has all required modality files."""
+        # manifest.summary.subjects (the source of subject_raw in the caller's
+        # loop) yields "sub-XX"-prefixed IDs, but FileRecord.entities.subject
+        # — and therefore Manifest.filter(subjects=...) — matches against the
+        # bare ID ("XX"). Passing the prefixed form through silently matched
+        # zero files for every subject, excluding entire real datasets with
+        # a misleading "missing_required_modality" reason.
+        subject_bare = subject_raw.removeprefix("sub-")
         for req in self._modality_requirements:
             files = manifest.filter(
-                subjects=[subject_raw],
+                subjects=[subject_bare],
                 modalities=[req.modality] if req.modality else None,
                 datatypes=[req.datatype] if req.datatype else None,
                 include_shared=False,

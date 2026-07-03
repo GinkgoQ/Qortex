@@ -325,10 +325,13 @@ class EDFStreamer:
                 fh.seek(start)
                 data = fh.read(length)
         else:
-            from qortex.client.remote import RemoteFileGateway
-            with RemoteFileGateway() as gw:
-                data = gw.fetch_bytes(self._url, range_bytes=start + length)
-                data = data[start:]   # trim prefix if Range wasn't honoured
+            from qortex.client.remote import get_shared_gateway
+            gw = get_shared_gateway()
+            # A true bytes=start-end range — not "fetch the whole prefix up
+            # to here and slice off the part before `start` locally", which
+            # for an epoch read far into a long recording could mean
+            # downloading everything before it just to discard it.
+            data = gw.fetch_bytes(self._url, range_start=start, range_bytes=length)
         self._cache.put(key, data)
         return data
 

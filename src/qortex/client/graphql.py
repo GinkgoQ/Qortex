@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -963,6 +964,37 @@ class OpenNeuroClient:
 
     def __exit__(self, *_) -> None:
         self.close()
+
+
+# ── Shared, connection-pooled client ──────────────────────────────────────────
+#
+# ``OpenNeuroClient`` holds a persistent ``httpx.Client`` (its ``SyncTransport``)
+# and is safe to share across threads — httpx.Client is documented thread-safe,
+# and every GraphQL call goes through the retrying ``SyncTransport.post``. The
+# expensive part of a *cold* call is the TLS handshake to the OpenNeuro API;
+# constructing a fresh client per request (as call sites used to) throws that
+# warm connection away every time. A long-lived server (the Atlas console API,
+# a notebook session, a batch job) should build the client once and reuse it so
+# HTTP keep-alive amortizes the handshake across every subsequent query. This
+# mirrors ``qortex.client.remote.get_shared_gateway`` for byte-range reads.
+_shared_client: "OpenNeuroClient | None" = None
+_shared_client_lock = threading.Lock()
+
+
+def get_shared_client() -> "OpenNeuroClient":
+    """Return the process-wide token-less ``OpenNeuroClient``, creating it once.
+
+    Use for anonymous metadata reads that dominate interactive workloads. When a
+    per-user token is required, construct a dedicated ``OpenNeuroClient(token=...)``
+    instead — the shared instance is deliberately token-less so one user's
+    credentials never leak into another's cached connection.
+    """
+    global _shared_client
+    if _shared_client is None:
+        with _shared_client_lock:
+            if _shared_client is None:
+                _shared_client = OpenNeuroClient()
+    return _shared_client
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

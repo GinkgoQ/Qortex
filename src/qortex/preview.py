@@ -13,6 +13,25 @@ from qortex.core.config import get_config
 from qortex.core.entities import FilePreview, FileRecord, Manifest
 from qortex.core.exceptions import DatasetNotDownloadedError, DownloadError
 
+# A fresh httpx.Client() per preview call means a full new TCP connection
+# and TLS handshake every time — for a UI where a user clicks through many
+# small files in the same dataset (the BIDS explorer's exact use pattern),
+# that's a full handshake repeated per click against the *same* CDN host,
+# instead of reusing one. One process-wide client with keep-alive lets
+# httpx reuse the connection, which is where most of the wall-clock time on
+# a small byte-range read actually goes.
+_shared_client: httpx.Client | None = None
+
+
+def _get_shared_client() -> httpx.Client:
+    global _shared_client
+    if _shared_client is None:
+        _shared_client = httpx.Client(
+            follow_redirects=True,
+            limits=httpx.Limits(max_keepalive_connections=20, max_connections=40, keepalive_expiry=60.0),
+        )
+    return _shared_client
+
 
 def preview_file(
     manifest: Manifest,
@@ -106,27 +125,27 @@ def _read_remote_prefix(
     cfg = get_config()
     timeout = timeout_s or cfg.metadata_timeout
     headers = {"Range": f"bytes=0-{max(0, max_bytes - 1)}"}
-    with httpx.Client(timeout=timeout, follow_redirects=True) as client:
-        with client.stream("GET", file.urls[0], headers=headers) as response:
-            if response.is_error:
-                raise DownloadError(
-                    file.path,
-                    file.urls[0],
-                    f"preview GET returned HTTP {response.status_code}",
-                )
-            chunks: list[bytes] = []
-            total = 0
-            for chunk in response.iter_bytes():
-                if not chunk:
-                    continue
-                remaining = max_bytes - total
-                if remaining <= 0:
-                    break
-                chunks.append(chunk[:remaining])
-                total += min(len(chunk), remaining)
-                if total >= max_bytes:
-                    break
-            return b"".join(chunks), response.headers.get("content-type")
+    client = _get_shared_client()
+    with client.stream("GET", file.urls[0], headers=headers, timeout=timeout) as response:
+        if response.is_error:
+            raise DownloadError(
+                file.path,
+                file.urls[0],
+                f"preview GET returned HTTP {response.status_code}",
+            )
+        chunks: list[bytes] = []
+        total = 0
+        for chunk in response.iter_bytes():
+            if not chunk:
+                continue
+            remaining = max_bytes - total
+            if remaining <= 0:
+                break
+            chunks.append(chunk[:remaining])
+            total += min(len(chunk), remaining)
+            if total >= max_bytes:
+                break
+        return b"".join(chunks), response.headers.get("content-type")
 
 
 def _build_preview(

@@ -207,16 +207,28 @@ class RemoteFileGateway:
         max_bytes: int | None = None,
         use_cache: bool = True,
         range_bytes: int | None = None,
+        range_start: int = 0,
     ) -> bytes:
         """Fetch raw bytes from a URL with optional Range request and cache.
 
         Parameters
         ----------
         range_bytes:
-            If set, issues ``Range: bytes=0-{range_bytes-1}`` and returns only
-            the prefix. Used for NIfTI header extraction.
+            If set, issues a Range request for exactly this many bytes and
+            returns only that window. Used for NIfTI header extraction and
+            (with ``range_start``) arbitrary offset reads.
+        range_start:
+            Byte offset the Range request starts from (default 0 — a prefix
+            fetch, the original behavior). Set this for a real mid-file
+            read (a late NIfTI volume, an EEG epoch far into a recording):
+            without it, the only way to read bytes ``[start, start+length)``
+            was to fetch the *entire* ``[0, start+length)`` prefix and
+            discard everything before ``start`` locally — for a volume near
+            the end of a large file that can mean downloading hundreds of
+            MB just to keep the last few. A true ``bytes=start-end`` Range
+            request fetches only the window actually needed.
         """
-        cache_key = f"{url}|{range_bytes}"
+        cache_key = f"{url}|{range_start}|{range_bytes}"
         if use_cache:
             cached = self._cache.get(cache_key)
             if cached is not None:
@@ -225,7 +237,7 @@ class RemoteFileGateway:
         cap = max_bytes or self._max_bytes
         headers: dict[str, str] = {}
         if range_bytes is not None:
-            headers["Range"] = f"bytes=0-{range_bytes - 1}"
+            headers["Range"] = f"bytes={range_start}-{range_start + range_bytes - 1}"
         elif cap < _DEFAULT_MAX_BYTES:
             headers["Range"] = f"bytes=0-{cap - 1}"
 
@@ -259,6 +271,12 @@ class RemoteFileGateway:
                 )
 
             data = response.content
+            if range_bytes is not None and range_start > 0 and response.status_code == 200:
+                # A proxy or server along the way ignored the Range header
+                # and returned the whole file (200, not 206) — slice out the
+                # requested window locally rather than silently handing back
+                # bytes starting at the wrong offset.
+                data = data[range_start:range_start + range_bytes]
             if range_bytes is None and len(data) > cap:
                 raise FileTooLargeError(url, len(data), cap)
 
@@ -510,6 +528,27 @@ class RemoteFileGateway:
 
     def __exit__(self, *_) -> None:
         self.close()
+
+
+# This class is explicitly documented above as "thread-safe. Create one
+# instance per session and reuse it" — but the streaming call sites
+# (NiftiStreamer/EDFStreamer._fetch_bytes) did `with RemoteFileGateway() as
+# gw:` per byte-range read, which both constructs a brand-new httpx.Client
+# (full TLS handshake) *and* closes it immediately after every single call,
+# making session-level reuse impossible even across two reads on the same
+# streamer. A shared process-wide instance is what the class was already
+# designed for; this just makes callers actually use it that way. Measured
+# effect on a tiny (204-byte) preview read: ~9.4s cold (new connection each
+# time) -> ~0.2s once the connection is kept warm.
+_shared_gateway: "RemoteFileGateway | None" = None
+
+
+def get_shared_gateway() -> "RemoteFileGateway":
+    """Return the process-wide ``RemoteFileGateway``, creating it once."""
+    global _shared_gateway
+    if _shared_gateway is None:
+        _shared_gateway = RemoteFileGateway()
+    return _shared_gateway
 
 
 # ── NIfTI header parsing ──────────────────────────────────────────────────────

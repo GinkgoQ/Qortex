@@ -7,6 +7,7 @@ about logical recordings and companion files, not isolated paths.
 
 from __future__ import annotations
 
+import weakref
 from pathlib import PurePosixPath
 
 from qortex.core.entities import (
@@ -46,6 +47,35 @@ class ManifestGraph:
         self.by_path = {f.path: f for f in self.files}
         self._essentials = [f for f in self.files if f.is_essential]
         self._recordings: list[LogicalRecording] | None = None
+        # Pre-index once so per-primary companion lookups (below) scan only
+        # the files that could possibly match a given role/extension instead
+        # of the full manifest. A (suffix, extension) index alone still
+        # degrades to O(n_subjects) per lookup on a large-cohort dataset —
+        # every subject has their own channels.tsv, all sharing that same
+        # key — so a 2000-subject dataset was still doing ~2000 candidates
+        # x ~2000 primaries (measured: hung past 90s). Since
+        # `_sidecar_applies` requires an exact subject match whenever the
+        # candidate has one set (BIDS inheritance: subject-specific unless
+        # the file is subject-agnostic, e.g. participants.tsv), bucketing by
+        # subject too collapses the candidate pool to "this subject's files"
+        # + "subject-agnostic files" — O(1) typical, not O(n_subjects).
+        self._by_suffix_ext_subj: dict[tuple[str | None, str | None, str | None], list[FileRecord]] = {}
+        self._by_ext_subj: dict[tuple[str | None, str | None], list[FileRecord]] = {}
+        self._json_sidecars_by_subj: dict[str | None, list[FileRecord]] = {}
+        for f in self.files:
+            subj = f.entities.subject
+            self._by_suffix_ext_subj.setdefault((f.suffix, f.extension, subj), []).append(f)
+            self._by_ext_subj.setdefault((f.extension, subj), []).append(f)
+            if f.extension == ".json" and not f.is_essential:
+                self._json_sidecars_by_subj.setdefault(subj, []).append(f)
+
+    def _candidates_for_subject(self, index: dict, key_prefix: tuple, subject: str | None) -> list[FileRecord]:
+        """Subject-specific candidates plus subject-agnostic ones (subject=None),
+        which is the full set `_sidecar_applies`'s subject check could ever accept."""
+        candidates = list(index.get((*key_prefix, subject), []))
+        if subject is not None:
+            candidates += index.get((*key_prefix, None), [])
+        return candidates
 
     def recordings(self) -> list[LogicalRecording]:
         """Return semantic primary-data units with companion files attached."""
@@ -86,11 +116,11 @@ class ManifestGraph:
         This is intentionally structural: it uses BIDS entities, suffixes, and
         sidecar role semantics rather than substring routing.
         """
-        sidecars = [
-            f for f in self.files
-            if f.extension == ".json"
-            and self._json_sidecar_applies(primary, f)
-        ]
+        subj = primary.entities.subject
+        json_candidates = list(self._json_sidecars_by_subj.get(subj, []))
+        if subj is not None:
+            json_candidates += self._json_sidecars_by_subj.get(None, [])
+        sidecars = [f for f in json_candidates if self._json_sidecar_applies(primary, f)]
         events = self._best_role(primary, suffix="events", extension=".tsv")
         channels = self._best_role(primary, suffix="channels", extension=".tsv")
         electrodes = self._best_role(primary, suffix="electrodes", extension=".tsv")
@@ -164,12 +194,8 @@ class ManifestGraph:
         suffix: str,
         extension: str,
     ) -> FileRecord | None:
-        candidates = [
-            f for f in self.files
-            if f.suffix == suffix
-            and f.extension == extension
-            and self._sidecar_applies(primary, f)
-        ]
+        pool = self._candidates_for_subject(self._by_suffix_ext_subj, (suffix, extension), primary.entities.subject)
+        candidates = [f for f in pool if self._sidecar_applies(primary, f)]
         if not candidates:
             return None
         candidates.sort(key=lambda f: _specificity(f), reverse=True)
@@ -178,8 +204,11 @@ class ManifestGraph:
     def _same_stem(self, primary: FileRecord, extension: str) -> FileRecord | None:
         stem = primary.filename.removesuffix(primary.extension)
         parent = str(PurePosixPath(primary.path).parent)
-        for file in self.files:
-            if file.extension == extension and file.filename == f"{stem}{extension}":
+        # bvec/bval always live alongside their DWI primary, in the same
+        # subject's directory — no BIDS-inheritance "subject-agnostic"
+        # case applies here, so this is scoped to just this subject's files.
+        for file in self._by_ext_subj.get((extension, primary.entities.subject), []):
+            if file.filename == f"{stem}{extension}":
                 if str(PurePosixPath(file.path).parent) == parent:
                     return file
         return None
@@ -274,3 +303,30 @@ def _path_can_inherit(primary_path: str, sidecar_path: str) -> bool:
     if sidecar_parent == primary_parent:
         return True
     return sidecar_parent in primary_parent.parents
+
+
+# Several independent call paths (readiness, can_train, download planning)
+# each build a ManifestGraph from the *same* Manifest object and call
+# .recordings() — expensive companion-file resolution across every primary
+# file. ManifestGraph memoizes recordings() on its own instance, but that's
+# useless if every call path builds its own instance: profiling a single
+# can_train() call on a real 1900-recording dataset showed 13 separate
+# ManifestGraph constructions, each repeating the full computation (~3.3s of
+# the ~3.5s total). Manifest is weakly-referenceable but not hashable (so it
+# can't key a WeakKeyDictionary directly); this keys on id() instead, guarded
+# by an identity check plus a weakref finalizer that evicts the entry the
+# moment the Manifest is garbage collected, so a reused id can never return
+# a stale graph for an unrelated manifest.
+_GRAPH_CACHE: dict[int, "ManifestGraph"] = {}
+
+
+def get_manifest_graph(manifest: Manifest) -> "ManifestGraph":
+    """Return a cached ``ManifestGraph`` for *manifest*, building it once."""
+    key = id(manifest)
+    cached = _GRAPH_CACHE.get(key)
+    if cached is not None and cached.manifest is manifest:
+        return cached
+    graph = ManifestGraph(manifest)
+    _GRAPH_CACHE[key] = graph
+    weakref.finalize(manifest, _GRAPH_CACHE.pop, key, None)
+    return graph
