@@ -339,7 +339,7 @@ class Dataset:
             max_size_gb=max_size_gb,
         )
 
-        target = output_dir or self._resolve_data_dir()
+        target = Path(output_dir) if output_dir is not None else self._resolve_data_dir()
         self._data_dir = target
 
         planner = DownloadPlanner()
@@ -392,7 +392,7 @@ class Dataset:
             with_companions=with_companions,
             max_size_gb=max_size_gb,
         )
-        target = output_dir or self._resolve_data_dir()
+        target = Path(output_dir) if output_dir is not None else self._resolve_data_dir()
         self._data_dir = target
         plan = DownloadPlanner().plan(manifest, spec, target)
         if dry_run:

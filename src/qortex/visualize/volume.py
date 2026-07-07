@@ -108,11 +108,16 @@ def _sample_frame_indices(n_t: int, max_frames: int | None) -> list[int]:
 
 
 def _best_axial_index(n_slices: int, read_slice, *, n_candidates: int = 9, margin: float = 0.15) -> int:
-    """Pick the axial index with the highest brain-tissue coverage.
+    """Pick the axial index with the most brain-tissue signal.
 
     Scores a handful of evenly spaced candidates in the central 1-2*margin
-    of the volume by nonzero-voxel fraction, instead of always returning the
-    geometric midpoint. Reads only `n_candidates` slices via `read_slice(idx)`
+    of the volume by mean intensity times nonzero-voxel fraction, instead of
+    always returning the geometric midpoint. Mean intensity alone would be
+    skewed by bright artifacts; nonzero-fraction alone saturates near 1.0
+    almost everywhere once a scan has any noise floor (verified against a
+    real T1w volume, where it peaked near the skull cap rather than
+    mid-brain) — the product of both tracks real tissue content far better
+    than either alone. Reads only `n_candidates` slices via `read_slice(idx)`
     — bounded I/O, so lazy (memory-mapped) NIfTI sources are never fully
     loaded. Ties favor the candidate closest to the geometric centre.
     """
@@ -131,7 +136,9 @@ def _best_axial_index(n_slices: int, read_slice, *, n_candidates: int = 9, margi
         finite = slc[np.isfinite(slc)]
         if finite.size == 0:
             continue
-        score = float(np.count_nonzero(finite) / finite.size)
+        nonzero_frac = float(np.count_nonzero(finite) / finite.size)
+        mean_intensity = float(np.mean(finite))
+        score = mean_intensity * nonzero_frac
         if score > best_score or (score == best_score and abs(idx - center) < abs(best_idx - center)):
             best_score = score
             best_idx = idx

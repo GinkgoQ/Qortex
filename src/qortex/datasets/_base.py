@@ -149,6 +149,9 @@ class EEGBundle:
     labels       : [n_epochs] int array after windowing.
     metadata     : Per-subject/session metadata dict.
     qc_report    : Signal QC report from qortex.neuroclassic (None until .run_qc()).
+    annotation_to_class : Optional {annotation description -> label code}, used by
+                   .to_windows() to label sliding windows by real annotation overlap
+                   (e.g. hypnogram sleep stages) instead of leaving them all unlabeled.
     """
     card: DatasetCard
     subjects: list[int]
@@ -164,6 +167,7 @@ class EEGBundle:
     bids_read_report: "BIDSRawReadReport | None" = None
     metadata: dict[str, Any] = field(default_factory=dict)
     qc_report: Any = None
+    annotation_to_class: "dict[str, int] | None" = None
 
     @property
     def n_channels(self) -> int:
@@ -227,7 +231,34 @@ class EEGBundle:
             data = raw.get_data()  # [n_ch, n_times]
             n_ch, n_t = data.shape
 
-            if event_driven and hasattr(raw, "_annotations") and len(raw.annotations) > 0:
+            # Real (onset, end, label_code) intervals from the dataset's own
+            # annotation-description -> class mapping, when supplied. This is
+            # what makes sliding-window labeling below real instead of a
+            # hardcoded 0, and lets event-driven mode use the caller's
+            # intended class codes instead of MNE's arbitrary auto-numbering.
+            ann_intervals: list[tuple[float, float, int]] = []
+            if self.annotation_to_class and hasattr(raw, "annotations") and len(raw.annotations) > 0:
+                for onset, duration, desc in zip(
+                    raw.annotations.onset, raw.annotations.duration, raw.annotations.description
+                ):
+                    code = self.annotation_to_class.get(desc)
+                    if code is not None:
+                        ann_intervals.append((float(onset), float(onset + duration), code))
+
+            if event_driven and ann_intervals:
+                for onset, _end, label_code in ann_intervals:
+                    onset_sample = int(onset * self.sfreq)
+                    start = int(onset_sample + tmin * self.sfreq)
+                    end = start + win_samples
+                    if start < 0 or end > n_t:
+                        continue
+                    epoch = data[:, start:end].astype(np.float32)
+                    all_epochs.append(epoch)
+                    all_labels.append(label_code)
+            elif event_driven and hasattr(raw, "_annotations") and len(raw.annotations) > 0:
+                # No dataset-specific annotation_to_class supplied — fall back
+                # to MNE's auto-numbered event codes (matches label_map only
+                # when it happens to align with MNE's alphabetical ordering).
                 events, event_id = mne.events_from_annotations(raw, verbose=False)
                 for ev in events:
                     onset_sample = ev[0]
@@ -240,23 +271,23 @@ class EEGBundle:
                         continue
                     epoch = data[:, start:end].astype(np.float32)
                     all_epochs.append(epoch)
-                    # Map raw event code to our label code
-                    # label_map keys are sequential 0,1,2,...
-                    # find which key maps to this event_id value
-                    matched_key = None
-                    for k, v in self.label_map.items():
-                        if v == self.label_map.get(label_code):
-                            matched_key = k
-                            break
                     all_labels.append(label_code)
             else:
-                # Sliding window
+                # Sliding window — label each window by whichever real
+                # annotation interval covers its center sample; 0 only when
+                # no annotation covers it (or none was supplied at all).
                 step = max(1, int(win_samples * (1.0 - overlap)))
                 start = 0
                 while start + win_samples <= n_t:
+                    center_t = (start + win_samples / 2.0) / self.sfreq
+                    label = 0
+                    for a_start, a_end, code in ann_intervals:
+                        if a_start <= center_t < a_end:
+                            label = code
+                            break
                     epoch = data[:, start:start + win_samples].astype(np.float32)
                     all_epochs.append(epoch)
-                    all_labels.append(0)  # unlabeled sliding windows
+                    all_labels.append(label)
                     start += step
 
         if not all_epochs:

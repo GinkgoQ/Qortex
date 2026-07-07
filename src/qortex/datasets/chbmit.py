@@ -6,8 +6,11 @@ Usage::
 
     card = chbmit.describe()
     bundle = chbmit.load_data(cases=["chb01"], seizure_files_only=True)
-    X, y = bundle.to_windows(window_s=5.0, event_driven=False)
-    # y: {0=non_seizure, 1=seizure}
+    windows, labels = chbmit.label_windows_for_file(
+        "chb01_03.edf", n_samples=..., sfreq=bundle.sfreq,
+        window_s=5.0, step_s=1.0, seizure_map=bundle.metadata["seizure_map"],
+    )
+    # labels: 0=non_seizure, 1=seizure
 
 Dataset facts
 -------------

@@ -208,6 +208,7 @@ def load_data(
         local_paths=[p for p in local_paths if p.suffix == ".edf"],
         raws=raws,
         metadata=metadata,
+        annotation_to_class=_ANNOTATION_TO_CLASS,
     )
 
 
