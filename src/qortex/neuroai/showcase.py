@@ -274,7 +274,7 @@ def _save_model_zoo_board(
     from matplotlib import gridspec
     from matplotlib.patches import FancyBboxPatch
 
-    from qortex.visualize._mpl_theme import (
+    from qortex.visualize.design import (
         BORDER, CARD_BG, INK, SUBINK, STATUS,
         apply_theme, figure_title, section_title, style_table,
     )
@@ -796,7 +796,7 @@ def _save_detection_board(
     from matplotlib import gridspec
     from matplotlib.patches import Rectangle
 
-    from qortex.visualize._mpl_theme import INK, SUBINK, apply_theme
+    from qortex.visualize.design import INK, SUBINK, apply_theme
 
     apply_theme()
     fig = plt.figure(figsize=(13.5, 8.8))

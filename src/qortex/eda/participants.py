@@ -225,7 +225,7 @@ def participants_metadata_figure(
             "pip install matplotlib seaborn"
         ) from exc
 
-    from qortex.visualize._mpl_theme import (
+    from qortex.visualize.design import (
         BORDER, CATEGORICAL, INK, SUBINK, STATUS,
         apply_theme, figure_title, metric_card, section_title, style_table,
     )

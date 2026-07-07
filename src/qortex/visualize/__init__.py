@@ -115,6 +115,10 @@ __all__ = [
     "reproducibility_figure", "environment_snapshot", "artifact_hash_table",
     # PSD group comparison
     "psd_band_comparison",
+    # Nilearn bridge
+    "glass_brain_connectome_figure", "stat_map_figure", "glass_brain_stat_figure",
+    # NiiVue
+    "niivue_html",
 ]
 
 # ── Lazy imports — keep module load time minimal ──────────────────────────────
@@ -214,6 +218,14 @@ def __getattr__(name: str):
     if name == "psd_band_comparison":
         from qortex.visualize.psd import psd_band_comparison
         return psd_band_comparison
+
+    if name in {"glass_brain_connectome_figure", "stat_map_figure", "glass_brain_stat_figure"}:
+        from qortex.visualize import nilearn_bridge
+        return getattr(nilearn_bridge, name)
+
+    if name == "niivue_html":
+        from qortex.visualize.niivue_viewer import niivue_html
+        return niivue_html
 
     raise AttributeError(f"module 'qortex.visualize' has no attribute {name!r}")
 

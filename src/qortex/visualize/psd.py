@@ -40,7 +40,7 @@ def psd_band_comparison(
             "pip install matplotlib seaborn"
         ) from exc
 
-    from qortex.visualize._mpl_theme import CATEGORICAL, INK, SUBINK, apply_theme
+    from qortex.visualize.design import CATEGORICAL, INK, SUBINK, apply_theme
     from qortex.visualize.timeseries import _welch_psd
 
     apply_theme()

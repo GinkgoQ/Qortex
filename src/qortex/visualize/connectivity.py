@@ -53,7 +53,7 @@ def connectivity_figure(
             "pip install matplotlib seaborn"
         ) from exc
 
-    from qortex.visualize._mpl_theme import INK, SUBINK, apply_theme, figure_title, section_title
+    from qortex.visualize.design import INK, SUBINK, apply_theme, figure_title, section_title
 
     apply_theme()
 

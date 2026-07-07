@@ -74,6 +74,7 @@ class _SignalBundle:
         events: np.ndarray | None = None,   # (n_events, 3) MNE format
         event_id: dict[str, int] | None = None,
         info_extra: dict | None = None,
+        mne_info: Any | None = None,
     ) -> None:
         self.data = data          # always float32
         self.sfreq = sfreq
@@ -83,6 +84,10 @@ class _SignalBundle:
         self.events = events
         self.event_id = event_id or {}
         self.info_extra = info_extra or {}
+        # Real mne.Info (montage + full sensor geometry), when loaded from an
+        # actual MNE-readable file — enables mne.viz.plot_topomap for a
+        # proper spherical-spline topography instead of the IDW fallback.
+        self.mne_info = mne_info
 
     @property
     def duration_s(self) -> float:
@@ -119,6 +124,7 @@ def _load_raw_mne(path: Path, max_duration_s: float = 60.0) -> _SignalBundle:
             "channel_positions": _mne_channel_positions(raw.info),
             "bads": list(raw.info.get("bads", [])),
         },
+        mne_info=raw.info,
     )
 
 
@@ -594,6 +600,50 @@ class TimeSeriesViewer:
             height=440,
             margin=dict(l=10, r=40, t=55, b=10),
         )
+        return fig
+
+    def topomap_mne(
+        self,
+        t: float = 0.0,
+        *,
+        channels: list[int | str] | None = None,
+        contours: int = 6,
+        title: str = "",
+    ):
+        """Publication-quality sensor topography via ``mne.viz.plot_topomap``.
+
+        Requires the source to have been loaded from a real MNE-readable
+        file (so a full ``mne.Info`` with sensor montage exists) — unlike
+        ``topomap()``, which falls back to an inverse-distance-weighted grid
+        for array-backed data with no sensor geometry. Uses MNE's real
+        spherical-spline interpolation and head/nose/ear outline instead of
+        the IDW approximation.
+        """
+        bundle = self._bundle
+        if bundle.mne_info is None:
+            raise ValueError(
+                "topomap_mne() requires a real mne.Info (load from an EEG/MEG file "
+                "with sensor locations, e.g. .fif/.edf/.set); use topomap() for "
+                "array-backed data without sensor geometry."
+            )
+        mne = _require_mne()
+        import matplotlib.pyplot as plt
+
+        from qortex.visualize.design import apply_theme, figure_title
+
+        apply_theme()
+
+        ch_indices = self._resolve_channels(channels, max_channels=min(bundle.n_channels, 128))
+        sample = int(round(t * bundle.sfreq))
+        sample = max(0, min(sample, bundle.n_samples - 1))
+        ch_names = [bundle.ch_names[i] for i in ch_indices]
+        info = mne.pick_info(bundle.mne_info, mne.pick_channels(bundle.mne_info["ch_names"], ch_names, ordered=True))
+        values = bundle.data[ch_indices, sample].astype(np.float64)
+
+        fig, ax = plt.subplots(figsize=(5.5, 5.5))
+        mne.viz.plot_topomap(values, info, axes=ax, contours=contours, cmap="RdBu_r", show=False)
+        figure_title(fig, title or "Sensor topography (MNE)", subtitle=f"t = {sample / bundle.sfreq:.3f} s")
+        fig.subplots_adjust(top=0.84)
         return fig
 
     def epoched(

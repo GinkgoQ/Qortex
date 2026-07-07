@@ -54,7 +54,7 @@ def dataset_readiness_figure(
             "dataset_readiness_figure() requires matplotlib: pip install matplotlib"
         ) from exc
 
-    from qortex.visualize._mpl_theme import (
+    from qortex.visualize.design import (
         BORDER, CARD_BG, INK, SUBINK, STATUS,
         apply_theme, figure_title, metric_card, section_title, status_badge,
     )

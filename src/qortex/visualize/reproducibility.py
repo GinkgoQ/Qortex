@@ -101,7 +101,7 @@ def reproducibility_figure(
             "reproducibility_figure() requires matplotlib: pip install matplotlib"
         ) from exc
 
-    from qortex.visualize._mpl_theme import (
+    from qortex.visualize.design import (
         INK, SUBINK, apply_theme, figure_title, section_title, style_table,
     )
 
