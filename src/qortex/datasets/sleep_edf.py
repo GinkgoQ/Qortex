@@ -137,15 +137,22 @@ def load_data(
     sfreq: float | None = None
     metadata: dict[str, Any] = {}
 
+    if recording not in ("SC", "ST", "SC_ST"):
+        raise ValueError(f"recording must be 'SC', 'ST', or 'SC_ST', got {recording!r}")
+
     for subject in subjects:
+        files: list[tuple[str, str]] = []
         try:
-            files = fetch_data(
-                subjects=[subject],
-                recording=["SC"] if recording == "SC" else
-                         (["ST"] if recording == "ST" else ["SC", "ST"]),
-                on_missing="warn",
-                verbose=verbose,
-            )
+            # age.fetch_data's `recording` argument selects night numbers (1, 2)
+            # for the Sleep Cassette (SC) study — it is not "SC"/"ST", those are
+            # two separate PhysioNet studies served by two different MNE fetchers.
+            if recording in ("SC", "SC_ST"):
+                files.extend(fetch_data(
+                    subjects=[subject], recording=[1, 2], on_missing="warn", verbose=verbose,
+                ))
+            if recording in ("ST", "SC_ST"):
+                from mne.datasets.sleep_physionet.temazepam import fetch_data as _fetch_temazepam
+                files.extend(_fetch_temazepam(subjects=[subject], verbose=verbose))
         except Exception as exc:
             import warnings
             warnings.warn(f"Could not fetch sleep-EDF subject {subject}: {exc}", RuntimeWarning, stacklevel=2)
