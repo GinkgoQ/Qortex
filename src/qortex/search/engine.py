@@ -30,7 +30,10 @@ from qortex.search.compiler import QueryPlan, compile_query
 from qortex.search.evidence import EvidencePartition, partition_has_events
 from qortex.search.fusion import FusedResult, reciprocal_rank_fusion
 from qortex.search.lexical import LexicalIndex
-from qortex.search.negative_space import NegativeSpaceReport, build_negative_space_report
+from qortex.search.negative_space import (
+    NegativeSpaceReport,
+    build_negative_space_report,
+)
 from qortex.search.ontology import Ontology
 from qortex.search.semantic import SemanticIndex
 

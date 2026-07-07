@@ -4,7 +4,9 @@ Covers:
   - Graph metrics: path_length, betweenness centrality, community_assignments, small-world σ
   - Stats: Cohen's d (SMD), permutation test p-values, mixed num×cat association
   - Signal QC: spectral entropy, autocorrelation lag-1 and decay
+  - Epoch feature matrices: named bandpower/time/complexity features
   - Infoth: SpectralEntropyReport, AutocorrelationReport
+  - State-of-practice EEG features: PLV, Higuchi fractal dimension, CSP
   - Split optimizer: grouped-stratified leakage-safe splits
 
 All tests are deterministic (fixed seeds, synthetic data).
@@ -14,10 +16,13 @@ from __future__ import annotations
 
 import json
 import math
+import sys
+import types
 
 import numpy as np
 import pytest
 
+from qortex.datasets._base import DatasetCard, EEGBundle
 from qortex.neuroclassic import (
     ConnectivityMatrix,
     MethodConfidence,
@@ -29,6 +34,11 @@ from qortex.neuroclassic import (
     compute_statistical_diagnostics,
     assign_leakage_safe_splits,
     SplitConstraints,
+    compute_common_spatial_patterns,
+    compute_epoch_feature_matrix,
+    compute_bandpower_features,
+    compute_higuchi_fractal_dimension,
+    compute_phase_locking_value_connectivity,
 )
 from qortex.neuroclassic.connectivity import (
     _betweenness_centrality_brandes,
@@ -155,6 +165,37 @@ def test_graph_metrics_serializable():
     assert "betweenness_centrality" in j
     assert "community_assignments" in j
     assert "mean_path_length" in j
+
+
+def test_phase_locking_value_detects_locked_phase():
+    sfreq = 256.0
+    t = np.arange(0, 4.0, 1.0 / sfreq)
+    base = np.sin(2 * np.pi * 10 * t)
+    locked = np.sin(2 * np.pi * 10 * t + np.pi / 4)
+    rng = np.random.default_rng(6)
+    unrelated = rng.standard_normal(t.size)
+    data = np.vstack([base, locked, unrelated]).astype(np.float32)
+
+    conn = compute_phase_locking_value_connectivity(
+        data,
+        sampling_hz=sfreq,
+        time_window_s=4.0,
+        channel_names=["base", "locked", "noise"],
+    )
+
+    assert conn.matrix.shape == (3, 3)
+    assert conn.spec.connectivity_metric == "phase_locking_value"
+    assert conn.matrix[0, 1] > 0.95
+    assert conn.matrix[0, 2] < 0.4
+    assert np.allclose(conn.matrix, conn.matrix.T, atol=1e-6)
+
+
+def test_phase_locking_value_validation():
+    data = np.zeros((2, 100), dtype=np.float32)
+    with pytest.raises(ValueError):
+        compute_phase_locking_value_connectivity(data, sampling_hz=0.0)
+    with pytest.raises(ValueError):
+        compute_phase_locking_value_connectivity(data, sampling_hz=100.0, threshold=1.5)
 
 
 def test_brandes_star_graph():
@@ -425,6 +466,357 @@ def test_autocorrelation_result_serializable():
     report = compute_autocorrelation_summary(data, sampling_frequency_hz=256.0)
     result = report.to_result()
     json.dumps(result.to_dict())
+
+
+def test_higuchi_fractal_dimension_noise_exceeds_sine():
+    sfreq = 256.0
+    t = np.arange(0, 8.0, 1.0 / sfreq)
+    sine = np.sin(2 * np.pi * 10 * t)
+    rng = np.random.default_rng(26)
+    noise = rng.standard_normal(t.size)
+    data = np.vstack([sine, noise]).astype(np.float32)
+
+    report = compute_higuchi_fractal_dimension(
+        data,
+        channel_names=["sine", "noise"],
+        sampling_frequency_hz=sfreq,
+        k_max=8,
+    )
+
+    assert report.n_channels == 2
+    assert report.channels[0].hfd is not None
+    assert report.channels[1].hfd is not None
+    assert report.channels[1].hfd > report.channels[0].hfd
+    json.dumps(report.to_result().to_dict())
+
+
+def test_higuchi_fractal_dimension_invalid_inputs():
+    data = np.zeros((2, 100), dtype=np.float32)
+    with pytest.raises(ValueError):
+        compute_higuchi_fractal_dimension(data, k_max=1)
+    with pytest.raises(ValueError):
+        compute_higuchi_fractal_dimension(data, sampling_frequency_hz=0.0)
+
+
+def test_common_spatial_patterns_separates_synthetic_classes():
+    rng = np.random.default_rng(27)
+    n_epochs = 24
+    n_times = 256
+    epochs = 0.05 * rng.standard_normal((n_epochs, 4, n_times))
+    labels = np.array(["left"] * (n_epochs // 2) + ["right"] * (n_epochs // 2))
+    t = np.linspace(0, 1, n_times, endpoint=False)
+    source = np.sin(2 * np.pi * 12 * t)
+    epochs[: n_epochs // 2, 0, :] += 2.0 * source
+    epochs[n_epochs // 2 :, 3, :] += 2.0 * source
+
+    report = compute_common_spatial_patterns(
+        epochs.astype(np.float32),
+        labels,
+        channel_names=["C3", "Cz", "C4", "Pz"],
+        n_components=2,
+    )
+
+    assert report.features.shape == (n_epochs, 2)
+    assert report.filters.shape == (2, 4)
+    assert report.classes == ("left", "right")
+    assert report.transform(epochs[:2].astype(np.float32)).shape == (2, 2)
+    assert abs(report.features[:12, 0].mean() - report.features[12:, 0].mean()) > 0.5
+    json.dumps(report.to_result().to_dict())
+
+
+def test_common_spatial_patterns_validation():
+    epochs = np.zeros((4, 2, 32), dtype=np.float32)
+    with pytest.raises(ValueError):
+        compute_common_spatial_patterns(epochs, ["a", "a", "a", "a"])
+    with pytest.raises(ValueError):
+        compute_common_spatial_patterns(epochs, ["a", "b", "a"])
+
+
+def test_epoch_feature_matrix_named_shape_and_serializable():
+    sfreq = 128.0
+    t = np.arange(0, 2.0, 1.0 / sfreq)
+    epochs = np.stack([
+        np.vstack([
+            np.sin(2 * np.pi * 10 * t),
+            np.sin(2 * np.pi * 20 * t),
+        ]),
+        np.vstack([
+            np.sin(2 * np.pi * 10 * t + 0.2),
+            np.sin(2 * np.pi * 20 * t + 0.4),
+        ]),
+    ]).astype(np.float32)
+
+    report = compute_epoch_feature_matrix(
+        epochs,
+        sampling_frequency_hz=sfreq,
+        channel_names=["C3", "C4"],
+        bands={"alpha": (8.0, 13.0), "beta": (13.0, 30.0)},
+        include_entropy=True,
+        include_higuchi=True,
+    )
+
+    assert report.features.shape[0] == 2
+    assert report.features.shape[1] == len(report.feature_names)
+    assert "C3.bandpower.alpha" in report.feature_names
+    assert "C4.higuchi_fractal_dimension" in report.feature_names
+    assert "spectral_entropy" in report.families
+    json.dumps(report.to_result().to_dict())
+
+
+def test_epoch_feature_matrix_bandpower_tracks_frequency():
+    sfreq = 128.0
+    t = np.arange(0, 4.0, 1.0 / sfreq)
+    epochs = np.stack([
+        np.sin(2 * np.pi * 10 * t),
+        np.sin(2 * np.pi * 22 * t),
+    ]).reshape(2, 1, -1).astype(np.float32)
+
+    report = compute_bandpower_features(
+        epochs,
+        sampling_frequency_hz=sfreq,
+        channel_names=["Cz"],
+        bands={"alpha": (8.0, 13.0), "beta": (18.0, 26.0)},
+        relative=True,
+        log_transform=False,
+    )
+
+    alpha_idx = report.feature_names.index("Cz.bandpower.alpha")
+    beta_idx = report.feature_names.index("Cz.bandpower.beta")
+    assert report.features[0, alpha_idx] > report.features[0, beta_idx]
+    assert report.features[1, beta_idx] > report.features[1, alpha_idx]
+
+
+def test_epoch_feature_matrix_validation():
+    epochs = np.zeros((2, 1, 64), dtype=np.float32)
+    with pytest.raises(ValueError):
+        compute_epoch_feature_matrix(epochs[0], sampling_frequency_hz=128.0)
+    with pytest.raises(ValueError):
+        compute_epoch_feature_matrix(epochs, sampling_frequency_hz=0.0)
+    with pytest.raises(ValueError):
+        compute_epoch_feature_matrix(
+            epochs,
+            sampling_frequency_hz=128.0,
+            bands={"too_high": (60.0, 80.0)},
+        )
+
+
+def test_eeg_bundle_to_feature_matrix_uses_cached_epochs():
+    card = DatasetCard(
+        name="synthetic_eeg",
+        full_name="Synthetic EEG",
+        version="0",
+        source_url="memory://synthetic",
+        license="test",
+        citation="test",
+        modality="eeg",
+        n_subjects=1,
+        description="synthetic",
+        tasks=["feature_test"],
+        tutorial_ids=[],
+        size_gb_approx=0.0,
+        requires_registration=False,
+        access_instructions=None,
+        n_channels=2,
+        sampling_hz=128.0,
+    )
+    bundle = EEGBundle(
+        card=card,
+        subjects=[1],
+        runs=[1],
+        sfreq=128.0,
+        channel_names=["C3", "C4"],
+        label_map={0: "rest"},
+        local_paths=[],
+    )
+    t = np.arange(0, 2.0, 1.0 / bundle.sfreq)
+    bundle.epochs = np.stack([
+        np.vstack([np.sin(2 * np.pi * 10 * t), np.sin(2 * np.pi * 20 * t)]),
+        np.vstack([np.sin(2 * np.pi * 11 * t), np.sin(2 * np.pi * 21 * t)]),
+    ]).astype(np.float32)
+
+    report = bundle.to_feature_matrix(
+        bands={"alpha": (8.0, 13.0), "beta": (18.0, 26.0)},
+        include_time_domain=False,
+    )
+
+    assert report is bundle.feature_report
+    assert report.features.shape[0] == 2
+    assert "C3.bandpower.alpha" in report.feature_names
+
+
+def test_eeg_bundle_to_feature_matrix_requires_epochs():
+    card = DatasetCard(
+        name="empty_eeg",
+        full_name="Empty EEG",
+        version="0",
+        source_url="memory://empty",
+        license="test",
+        citation="test",
+        modality="eeg",
+        n_subjects=1,
+        description="empty",
+        tasks=[],
+        tutorial_ids=[],
+        size_gb_approx=0.0,
+        requires_registration=False,
+        access_instructions=None,
+    )
+    bundle = EEGBundle(
+        card=card,
+        subjects=[1],
+        runs=[1],
+        sfreq=128.0,
+        channel_names=["Cz"],
+        label_map={0: "rest"},
+        local_paths=[],
+    )
+    with pytest.raises(RuntimeError):
+        bundle.to_feature_matrix()
+
+
+def test_eeg_bundle_read_bids_raws_uses_mne_bids(monkeypatch, tmp_path):
+    root = tmp_path / "bids"
+    eeg_dir = root / "sub-01" / "eeg"
+    eeg_dir.mkdir(parents=True)
+    (root / "dataset_description.json").write_text('{"Name": "Synthetic"}')
+    eeg_file = eeg_dir / "sub-01_task-rest_eeg.edf"
+    eeg_file.write_text("synthetic")
+
+    card = DatasetCard(
+        name="bids_eeg",
+        full_name="BIDS EEG",
+        version="0",
+        source_url="memory://bids",
+        license="test",
+        citation="test",
+        modality="eeg",
+        n_subjects=1,
+        description="bids",
+        tasks=[],
+        tutorial_ids=[],
+        size_gb_approx=0.0,
+        requires_registration=False,
+        access_instructions=None,
+    )
+    bundle = EEGBundle(
+        card=card,
+        subjects=[1],
+        runs=[1],
+        sfreq=1.0,
+        channel_names=[],
+        label_map={},
+        local_paths=[eeg_file],
+    )
+
+    calls: dict[str, object] = {}
+
+    class FakeBIDSPath:
+        def __init__(self, path, root=None):
+            self.path = path
+            self.root = root
+
+        def copy(self):
+            return FakeBIDSPath(self.path, root=self.root)
+
+        def update(self, *, root, check=True):
+            self.root = root
+            calls["updated_root"] = root
+
+        def __str__(self):
+            return str(self.path)
+
+    class FakeRaw:
+        ch_names = ["Cz", "Pz"]
+        info = {"sfreq": 256.0}
+
+    def fake_get_bids_path_from_fname(path, check=True, verbose=None):
+        calls["path"] = path
+        calls["check"] = check
+        calls["verbose_get"] = verbose
+        return FakeBIDSPath(path)
+
+    def fake_read_raw_bids(
+        bids_path,
+        *,
+        extra_params=None,
+        return_event_dict=False,
+        on_ch_mismatch="raise",
+        verbose=None,
+    ):
+        calls["bids_path"] = bids_path
+        calls["extra_params"] = dict(extra_params or {})
+        calls["return_event_dict"] = return_event_dict
+        calls["on_ch_mismatch"] = on_ch_mismatch
+        calls["verbose_read"] = verbose
+        raw = FakeRaw()
+        if return_event_dict:
+            return raw, {"rest": 1}
+        return raw
+
+    fake_mne_bids = types.SimpleNamespace(
+        get_bids_path_from_fname=fake_get_bids_path_from_fname,
+        read_raw_bids=fake_read_raw_bids,
+    )
+    monkeypatch.setitem(sys.modules, "mne_bids", fake_mne_bids)
+
+    report = bundle.read_bids_raws(
+        preload=True,
+        return_event_dict=True,
+        on_ch_mismatch="warn",
+        extra_params={"stim_channel": "auto"},
+        verbose=False,
+    )
+
+    assert report is bundle.bids_read_report
+    assert report.root == root.resolve()
+    assert report.n_files == 1
+    assert report.event_ids == [{"rest": 1}]
+    assert bundle.raws[0].ch_names == ["Cz", "Pz"]
+    assert bundle.sfreq == 256.0
+    assert bundle.channel_names == ["Cz", "Pz"]
+    assert calls["path"] == eeg_file.resolve()
+    assert calls["updated_root"] == root.resolve()
+    assert calls["extra_params"] == {"stim_channel": "auto", "preload": True}
+    assert calls["return_event_dict"] is True
+    assert calls["on_ch_mismatch"] == "warn"
+    assert report.to_dict()["n_files"] == 1
+
+
+def test_eeg_bundle_read_bids_raws_validates_root(monkeypatch, tmp_path):
+    eeg_file = tmp_path / "sub-01_task-rest_eeg.edf"
+    eeg_file.write_text("synthetic")
+    card = DatasetCard(
+        name="bad_bids",
+        full_name="Bad BIDS",
+        version="0",
+        source_url="memory://bad",
+        license="test",
+        citation="test",
+        modality="eeg",
+        n_subjects=1,
+        description="bad",
+        tasks=[],
+        tutorial_ids=[],
+        size_gb_approx=0.0,
+        requires_registration=False,
+        access_instructions=None,
+    )
+    bundle = EEGBundle(
+        card=card,
+        subjects=[1],
+        runs=[1],
+        sfreq=1.0,
+        channel_names=[],
+        label_map={},
+        local_paths=[eeg_file],
+    )
+    monkeypatch.setitem(sys.modules, "mne_bids", types.SimpleNamespace())
+
+    with pytest.raises(ValueError, match="BIDS root"):
+        bundle.read_bids_raws()
+
+    with pytest.raises(ValueError, match="on_ch_mismatch"):
+        bundle.read_bids_raws(on_ch_mismatch="ignore")
 
 
 # ── Split optimizer ───────────────────────────────────────────────────────────

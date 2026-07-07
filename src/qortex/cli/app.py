@@ -2469,8 +2469,9 @@ def nc_eeg_psd(
 @neuro_classic_app.command("connectivity")
 def nc_connectivity(
     dataset: Path = typer.Argument(..., help="BIDS dataset root"),
-    method: str = typer.Option("correlation", "--method", help="correlation (more methods TBD)"),
+    method: str = typer.Option("correlation", "--method", help="Connectivity method. Supported: correlation"),
     threshold: Optional[float] = typer.Option(None, "--threshold"),
+    max_files: Optional[int] = typer.Option(None, "--max-files", min=1, help="Maximum EDF files to process"),
     output: Optional[Path] = typer.Option(None, "--output", "-o"),
 ) -> None:
     """Compute connectivity matrix and graph metrics.
@@ -2481,6 +2482,12 @@ def nc_connectivity(
     import json
     from qortex.neuroclassic import compute_pearson_connectivity, compute_graph_metrics
     import numpy as np
+    method_normalized = method.strip().lower()
+    if method_normalized not in {"correlation", "pearson"}:
+        raise typer.BadParameter(
+            f"Unsupported connectivity method '{method}'. Supported: correlation",
+            param_hint="--method",
+        )
     typer.echo(f"Connectivity method '{method}' — scanning {dataset} for EEG files …")
     try:
         import mne
@@ -2489,7 +2496,10 @@ def nc_connectivity(
         raise typer.Exit(1)
 
     results = []
-    for f in sorted(Path(dataset).rglob("*.edf"))[:5]:  # demo: first 5 files
+    edf_files = sorted(Path(dataset).rglob("*.edf"))
+    if max_files is not None:
+        edf_files = edf_files[:max_files]
+    for f in edf_files:
         try:
             raw = mne.io.read_raw_edf(str(f), preload=True, verbose=False)
             data = raw.get_data().astype(np.float32)

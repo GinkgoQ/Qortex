@@ -73,6 +73,21 @@ qortex can-train ds000001 --local-path data/ds000001-meta
 qortex convert ds000001 --output-dir artifacts/ds000001 --format parquet
 ```
 
+Dataset bundles also expose local, analysis-ready EEG workflows:
+
+```python
+from qortex.datasets import eegbci
+
+bundle = eegbci.load_data(subjects=[1, 2], runs=[4, 8, 12], preload=True)
+X, y = bundle.to_windows(window_s=4.0, bandpass=(8.0, 30.0))
+features = bundle.to_feature_matrix()
+
+# When local_paths point inside a BIDS EEG dataset, use MNE-BIDS for sidecars,
+# events.tsv annotations, and channels.tsv bad-channel metadata.
+bids_report = bundle.read_bids_raws(root="data/my-bids-eeg", preload=False)
+print(features.shape, bids_report.n_files)
+```
+
 ## How It Works
 
 **Manifest-first.** `Dataset("ds000001")` makes no network call. The manifest is fetched lazily on first use and cached in memory. Structural decisions — subject count, companion coverage, size estimates, label candidate status — come from the manifest and small sidecar files. No imaging data required.
@@ -106,6 +121,12 @@ print(meta["SamplingFrequency"])
 # NIfTI shape and TR from 352 bytes — not the full 38 MB file.
 info = ds.nifti_info("sub-01/func/sub-01_task-facerecognition_bold.nii.gz")
 print(info)  # 4D fMRI 64×64×33×208  vox=3.00×3.00×4.05mm  TR=2.000s
+
+# A single anatomical slice, streamed via HTTP byte-range — never the whole
+# volume. An axial (axis=2) slice of an uncompressed .nii is fetched in ONE
+# range request (just that slice's bytes); big-endian files decode correctly;
+# scrubbing slices of a .nii.gz decodes the volume once and reuses it.
+slice_ax = ds.stream_slice(subject="01", modality="T1w", axis=2, slice_index=90)
 
 # Class balance, ISI jitter, cross-subject consistency — all events files fetched concurrently.
 landscape = ds.label_landscape()
@@ -193,7 +214,8 @@ Conversion writes a provenance record and `artifact_manifest.json` alongside the
 | Format | Status |
 |---|---|
 | Parquet | Scenario-tested; default path |
-| Zarr / HDF5 / WebDataset / HuggingFace / TFRecord | Basic writers; limited roundtrip coverage |
+| HDF5 / WebDataset / HuggingFace | Real writers with focused roundtrip tests |
+| Zarr / TFRecord | Optional-dependency writers; install `qortex[zarr]` or `qortex[tf]` |
 
 ### Visual QC
 
@@ -493,9 +515,11 @@ cd src/qortex_rs && maturin develop --release
 | Local index reconciliation | Production |
 | EDA + readiness scoring | Useful; score weighting evolving |
 | Parquet conversion | Useful; scenario-tested |
-| Zarr / HDF5 / WebDataset / HuggingFace / TFRecord writers | Basic; roundtrip coverage limited |
+| HDF5 / WebDataset / HuggingFace writers | Implemented with focused roundtrip coverage |
+| Zarr / TFRecord writers | Implemented behind optional dependencies |
 | Torch adapter | Contract-gated; raw `.pt` requires explicit input/output contracts, TorchScript may infer shape but still requires output semantics |
 | Visual QC (manifest audit, fMRI, DWI, overlays, masks) | Useful; scenario-tested |
+| Neuroclassic methods | Implemented; signal/image QC, named epoch feature matrices, workflow-specific EEG band sets, Pearson and PLV connectivity, graph metrics, spectral entropy, autocorrelation, Higuchi fractal dimension, CSP spatial filters, statistical diagnostics, and leakage-safe splits |
 | BIDS Validator wrapper | Useful; does not fabricate results |
 | EEG / MEG / MRI / DWI / PET loaders | Real optional-dependency loaders; need fixture coverage |
 | NeuroAI sources (DICOM, NWB, XDF, LSL, BrainFlow, image) | Implemented; DICOM has PHI redaction + affine; integration tests pending |
@@ -507,7 +531,8 @@ cd src/qortex_rs && maturin develop --release
 | NeuroAI artifact integrity | Implemented; artifact runs route file outputs into `artifact_dir/outputs` and recursively hash outputs plus sidecars |
 | NeuroAI trigger system | Implemented; fires structured EventMarkerOutput to all output adapters |
 | NeuroAI ring buffer (Python + Rust) | Implemented; Rust is optional |
-| Dashboard | Experimental entrypoint; not a product |
+| Atlas console API (`qortex.console.api`) | FastAPI service backing the Qortex Atlas web UI; every route calls real Qortex functions (no fabricated data). Remote NIfTI slice/volume/projection streaming with an axial single-Range fast path, endian-safe decoding, per-URL streamer reuse, and an opt-in per-slice intensity histogram for windowing. Library exceptions map to honest HTTP codes (404 for not-found, 400 for bad input, 502 only for genuine upstream failures) |
+| Streamlit dashboard (`qortex.console.app`) | Experimental entrypoint; import-safe without Streamlit installed, loads Streamlit only when launched via `qortex dashboard` / `streamlit run`; superseded by the Atlas console API |
 
 ## Current Limitations
 

@@ -37,7 +37,7 @@ bundle = eegbci.load_data(subjects=[1])   # download + load (cached)
 
 | Modality | Bundle type | Key method |
 |---|---|---|
-| EEG / PSG | `EEGBundle` | `.to_windows(window_s, bandpass)` → `(X, y)` |
+| EEG / PSG | `EEGBundle` | `.to_windows(window_s, bandpass)` → `(X, y)`; `.to_feature_matrix()` → `EpochFeatureReport`; `.read_bids_raws()` → sidecar-aware MNE-BIDS `Raw` reads |
 | Structural MRI | `MRIBundle` | `.load_images()` → list of arrays |
 | Task fMRI | `FMRIBundle` | `.load_events()` → event tables |
 | Segmentation | `SegmentationBundle` | `.load_pair(i)` → `(image, mask)` |
@@ -56,6 +56,9 @@ qd.load_dataset("sleep_edf", subjects=[0, 1, 2])
 ---
 
 ## Tutorial roadmap
+
+For a feature-by-feature map from Qortex APIs to tutorials and runnable scenario
+projects, see [Tutorial and Project Coverage](coverage.md).
 
 | ID | Title | Dataset | Task | Difficulty |
 |---|---|---|---|---|

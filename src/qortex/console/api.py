@@ -16,7 +16,10 @@ or directly:  uvicorn qortex.console.api:app --port 8420
 from __future__ import annotations
 
 import io
+import json
+import logging
 import re
+import threading
 from pathlib import Path
 from typing import Any, Optional
 
@@ -44,6 +47,8 @@ from qortex.core.exceptions import (
     RateLimitError,
     SnapshotNotFoundError,
 )
+
+log = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Qortex Atlas API",
@@ -81,6 +86,20 @@ async def call(fn, *args, **kwargs):
     except (APIError, NetworkError) as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
     except QortexError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except FileNotFoundError as e:
+        # The Qortex facade raises builtin FileNotFoundError for "this path
+        # isn't in the manifest / this dataset has no events file / no URL for
+        # this file" (see qortex/__init__.py). Those are honest 404s for the
+        # requested resource — not the upstream/gateway failure the generic
+        # handler below reports. Without this, an Events tab on a dataset that
+        # legitimately has no events, or a Preview of a path not in the
+        # snapshot, surfaced a scary "502 ... may not support this operation"
+        # instead of a clean not-found.
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except (ValueError, KeyError) as e:
+        # Unsatisfiable/malformed request parameters (a BIDS entity or axis the
+        # file doesn't have, a bad enum) — a client 400, not a 502.
         raise HTTPException(status_code=400, detail=str(e)) from e
     except HTTPException:
         raise
@@ -195,7 +214,10 @@ async def catalog_search(
     max_size_gb: Optional[float] = Query(None),
     has_events: Optional[bool] = Query(None),
     has_derivatives: Optional[bool] = Query(None),
-    limit: int = Query(20, le=200),
+    # Ceiling raised well past OpenNeuro's full corpus (~1.8k datasets) so the
+    # Datasets browse surface can render the whole local catalog, not an
+    # arbitrary 200-row slice of it. Default stays small for typeahead callers.
+    limit: int = Query(20, le=5000),
 ) -> list[dict[str, Any]]:
     from qortex.catalog.search import search
 
@@ -211,6 +233,31 @@ async def catalog_facets(limit: int = Query(50, le=200)) -> dict[str, Any]:
     from qortex.catalog.search import facets as facets_fn
 
     return await call(facets_fn, limit=limit)
+
+
+@app.get("/catalog/count")
+async def catalog_count() -> dict[str, Any]:
+    """The real number of datasets on OpenNeuro (one cheap GraphQL round-trip),
+    plus how many are already cached locally — so the UI can show an honest
+    'X of N' target before any sweep starts.
+
+    Registered BEFORE ``/catalog/{dataset_id}`` on purpose: FastAPI matches
+    routes in definition order, so the literal path must win over the
+    parameterized one or 'count' gets read as a dataset id."""
+    from qortex.catalog.index import CatalogIndex
+    from qortex.client.graphql import get_shared_client
+    from qortex.core.config import get_config
+
+    def _counts() -> dict[str, Any]:
+        total = get_shared_client().count_datasets()
+        idx = CatalogIndex(get_config().cache_dir / "catalog" / "catalog.duckdb")
+        try:
+            cached = idx.count()
+        finally:
+            idx.close()
+        return {"total": total, "cached": cached}
+
+    return await call(_counts)
 
 
 @app.get("/catalog/{dataset_id}")
@@ -238,11 +285,31 @@ async def catalog_get(dataset_id: str, auto_refresh: bool = Query(True)) -> dict
 
 
 @app.post("/catalog/refresh")
-async def catalog_refresh_endpoint(max_pages: int = Query(10, le=200)) -> dict[str, Any]:
+async def catalog_refresh_endpoint(max_pages: int = Query(40, le=200)) -> dict[str, Any]:
     from qortex.catalog.refresh import refresh
 
     n = await call(refresh, max_pages=max_pages, progress=False)
     return {"datasets_indexed": n}
+
+
+@app.post("/catalog/refresh/start")
+async def catalog_refresh_start(max_pages: int = Query(40, le=200)) -> dict[str, Any]:
+    """Kick off a full catalog sweep as a background job and return immediately.
+
+    Count-first: the total is fetched up front so the client can render a real
+    progress bar, and the sweep fetches pages concurrently (offset cursors) —
+    the whole ~1.8k-dataset refresh lands in well under a minute. Poll
+    ``/jobs/{id}`` for live ``progress`` and the final ``datasets_indexed``."""
+    from qortex.catalog.refresh import refresh
+    from qortex.client.graphql import get_shared_client
+
+    total = await call(lambda: get_shared_client().count_datasets())
+    job = atlas_jobs.submit(
+        "Refresh full catalog from OpenNeuro",
+        refresh, max_pages=max_pages, progress=False, workers=8,
+        report_progress=True,
+    )
+    return {"job_id": job.id, "total": total}
 
 
 @app.post("/catalog/refresh/{dataset_id}")
@@ -301,7 +368,10 @@ async def search_hybrid(
             remote = remote[:limit]
             for row in remote:
                 rid = row.get("dataset_id") or row.get("id")
-                if rid in seen:
+                # Skip rows with no resolvable id rather than emitting a result
+                # with dataset_id=None (which the UI can't open or dedupe) —
+                # matches _fetch_live_supplement's handling below.
+                if not rid or rid in seen:
                     continue
                 row["_source"] = "live"
                 row["dataset_id"] = rid
@@ -340,6 +410,12 @@ async def search_engine(
     has_events: Optional[bool] = Query(None),
     include_unknown_evidence: bool = Query(True, description="Keep unresolved-evidence datasets in results (never silently drop them)"),
     deep: bool = Query(False, description="Also run the DatasetFitness structural re-rank over the shortlist (may call the live OpenNeuro API)"),
+    include_live: bool = Query(
+        False,
+        description="Also fetch live OpenNeuro results not yet in the local catalog — the local "
+        "engine (BM25/semantic/RRF/evidence) never ranks these, they are appended, tagged "
+        "_source='live', so a query is never limited to whatever has already been indexed locally.",
+    ),
     limit: int = Query(20, le=200),
 ) -> dict[str, Any]:
     engine = _get_search_engine()
@@ -356,14 +432,57 @@ async def search_engine(
             deep=deep,
             limit=limit,
         )
+        live_results: list[dict[str, Any]] = []
+        if include_live:
+            live_results = _fetch_live_supplement(response, q=q, modality=modality, limit=limit)
         return {
             "results": to_jsonable(response.results),
+            "live_results": to_jsonable(live_results),
             "plan": to_jsonable(response.plan),
             "negative_space": to_jsonable(response.negative_space),
             "timings_ms": response.timings_ms,
         }
 
     return await call(_run)
+
+
+def _fetch_live_supplement(
+    response: Any, *, q: Optional[str], modality: Optional[str], limit: int
+) -> list[dict[str, Any]]:
+    """Datasets from the live OpenNeuro API not already covered by the local
+    engine's results — explicitly unranked by BM25/semantic/RRF (there is no
+    local structural/lexical/semantic signal for a dataset that was never
+    indexed), so these are appended after, never interleaved into
+    ``fused_score`` order, and the frontend must label them distinctly rather
+    than implying they went through the same ranking."""
+    from qortex.catalog.search import live_search
+
+    local_ids = {r.dataset_id for r in response.results}
+    modality_constraint = response.plan.hard.get("modality")
+    # A modality constraint's `value` is a set; guard against it being empty so
+    # this can never IndexError (which the generic handler would turn into a
+    # confusing 502 for what is really a successful, if unconstrained, search).
+    live_modality = modality or (
+        sorted(modality_constraint.value)[0]
+        if modality_constraint and modality_constraint.value
+        else None
+    )
+    try:
+        remote = live_search(query=q, modality=live_modality, limit=max(30, limit * 3), sync_local=False)
+    except QortexError:
+        return []
+    out: list[dict[str, Any]] = []
+    for row in remote:
+        rid = row.get("dataset_id") or row.get("id")
+        if not rid or rid in local_ids:
+            continue
+        row["dataset_id"] = rid
+        row["_source"] = "live"
+        out.append(row)
+        local_ids.add(rid)
+        if len(out) >= limit:
+            break
+    return out
 
 
 @app.post("/search/engine/refresh")
@@ -639,14 +758,279 @@ async def dataset_nifti_info(
     snapshot: Optional[str] = Query(None),
 ) -> dict[str, Any]:
     """Real NIfTI header, read via a single HTTP range request (~352 bytes) —
-    zero bytes of volume data transferred."""
-    from qortex import Dataset
+    zero bytes of volume data transferred. Uses NiftiStreamer's header parser
+    (the same one /nifti-slice-data uses), not Dataset.nifti_info()'s simpler
+    gateway-level parser — that one never computed an affine at all, which
+    silently made `axis_codes` below impossible to fill in until this switch.
+    Adds `axis_codes` (e.g. ["L","A","S"]) when nibabel is available: which
+    real-world anatomical direction each voxel axis increases toward,
+    computed from this file's own affine matrix via nibabel's standard
+    `aff2axcodes` — a real, derived fact (not a convention-based guess), used
+    for the Viewer Lab's plane edge labels. Omitted entirely (never guessed)
+    if nibabel isn't installed."""
 
     def _run():
-        ds = Dataset(dataset_id, snapshot=snapshot, manifest=_manifest_for(dataset_id, snapshot))
-        return ds.nifti_info(path)
+        streamer, _file_record = _resolve_nifti_streamer(dataset_id, snapshot, path)
+        hdr = streamer.header()
+        result = hdr.to_dict()
+        try:
+            import nibabel as nib
+            import numpy as np
 
-    return to_jsonable(await call(_run))
+            result["axis_codes"] = list(nib.aff2axcodes(np.asarray(hdr.affine)))
+        except Exception:
+            pass
+        return result
+
+    return await call(_run)
+
+
+def _guess_modality(suffix: str) -> str:
+    """BIDS suffix -> the coarse modality bucket qortex.visualize._colors'
+    preset tables are keyed on (mri/fmri/dwi/pet/ct)."""
+    s = (suffix or "").lower()
+    if s in {"bold", "cbv", "sbref"}:
+        return "fmri"
+    if s == "dwi":
+        return "dwi"
+    if s == "pet":
+        return "pet"
+    return "mri"
+
+
+def _presets_for_modality(modality: str, arr: Any) -> list[dict[str, Any]]:
+    """Every named window preset applicable to this modality, each resolved
+    to concrete (vmin, vmax) against *this* array — computed fresh per
+    request (a handful of percentile passes over one already-fetched 2D
+    slice, not the whole volume) so presets reflect this file's real
+    intensity distribution rather than a generic guess."""
+    from qortex.visualize._colors import (
+        CT_PRESETS,
+        FMRI_PRESETS,
+        MR_PRESETS,
+        PET_PRESETS,
+        auto_window,
+    )
+
+    table = {"mri": MR_PRESETS, "dwi": MR_PRESETS, "fmri": FMRI_PRESETS, "pet": PET_PRESETS, "ct": CT_PRESETS}
+    presets = table.get(modality, MR_PRESETS)
+    out = []
+    for name, preset in presets.items():
+        vmin, vmax = auto_window(arr, modality=modality, preset=preset)
+        out.append({"name": name, "vmin": vmin, "vmax": vmax, "colormap": preset.colormap})
+    return out
+
+
+def _resolve_nifti_streamer(dataset_id: str, snapshot: Optional[str], path: str):
+    """Resolve any BIDS-relative NIfTI path in the manifest to a live
+    ``NiftiStreamer`` + its ``FileRecord`` — the same path-based resolution
+    ``/nifti-info`` already uses (``Dataset.nifti_info``), factored out so
+    the slice-data/slice-png routes below can view *any* NIfTI file a user
+    clicks in the file browser, not just the canonical subject/modality
+    lookup ``Dataset.stream_slice`` performs."""
+    from qortex.client.remote import _pick_url
+
+    manifest = _manifest_for(dataset_id, snapshot)
+    target = next((f for f in manifest.files if f.path == path), None)
+    if target is None:
+        raise DatasetNotFoundError(f"Path {path!r} not found in manifest")
+    url = _pick_url(target)
+    if not url:
+        raise DatasetNotFoundError(f"No download URL available for {path!r}")
+    return _streamer_for(url), target
+
+
+# Reuse one NiftiStreamer per file URL across requests. The Viewer fires many
+# small requests against the same file (scrub the Z slider, flip planes, switch
+# presets, step through time) and previously built a *fresh* streamer each time
+# — re-fetching the ~128 KB header and, for a .nii.gz, re-decompressing the whole
+# volume on every single slice. Sharing the instance lets its header cache and
+# decompressed-volume LRU (see NiftiStreamer._volume_array) actually pay off
+# across the request stream, which is where the viewer's latency really lives.
+# TTL-bounded so idle files release their cached volumes.
+_STREAMER_CACHE = TTLCache(ttl=_MANIFEST_CACHE_TTL_S, maxsize=16)
+
+
+def _streamer_for(url: str):
+    from qortex.stream import NiftiStreamer
+
+    return _STREAMER_CACHE.get_or_compute((url,), lambda: NiftiStreamer(url))
+
+
+@app.get("/dataset/{dataset_id}/nifti-slice-data")
+async def dataset_nifti_slice_data(
+    dataset_id: str,
+    path: str = Query(..., description="BIDS-relative path to a .nii/.nii.gz file, from /dataset/{id}/manifest"),
+    axis: int = Query(2, ge=0, le=2, description="0=first spatial axis, 1=second, 2=third (see NiftiStreamer.get_slice)"),
+    slice_index: Optional[int] = Query(None),
+    time_index: int = Query(0, ge=0),
+    histogram: bool = Query(False, description="Also return a real intensity histogram of this slice (counts + bin edges + min/max/mean/std) for the windowing panel — computed from the already-decoded pixels, no extra fetch"),
+    histogram_bins: int = Query(128, ge=8, le=512),
+    snapshot: Optional[str] = Query(None),
+) -> dict[str, Any]:
+    """Raw calibrated intensities for one 2D slice, base64-encoded float32 —
+    for genuine client-side windowing/leveling: drag-to-adjust contrast with
+    zero network round trips per adjustment, the standard PACS interaction
+    pattern. Complements ``/nifti-slice.png`` (which bakes one fixed contrast
+    into a PNG server-side); this hands the client the real numbers plus
+    every applicable clinical preset resolved against this exact slice, so
+    the UI can offer instant preset switching and free dragging without
+    ever re-fetching pixel data — only ``axis``/``slice_index``/``time_index``
+    changes require a new request, exactly like scrubbing to a new frame in
+    any PACS viewer."""
+    import base64
+
+    import numpy as np
+
+    def _run() -> dict[str, Any]:
+        streamer, file_record = _resolve_nifti_streamer(dataset_id, snapshot, path)
+        hdr = streamer.header()
+        idx = slice_index if slice_index is not None else hdr.spatial_shape[axis] // 2
+        # Two genuinely different operations, timed separately: axis=2 on an
+        # uncompressed .nii takes the single-Range-request fast path
+        # (NiftiStreamer._fetch_slice_contiguous); every other case still
+        # fetches the whole volume server-side. Mixing their durations into
+        # one estimate would produce a median that's honest for neither —
+        # the Viewer Lab's per-plane ETA depends on knowing which one applies.
+        is_fast_path = axis == 2 and not path.lower().endswith(".gz")
+        operation = "nifti_slice_axial_fast" if is_fast_path else "nifti_slice_full_volume"
+        with atlas_timing.timed(operation, dataset_id):
+            arr = streamer.get_slice(axis=axis, index=idx, t=time_index, dtype=np.float32)
+        modality = _guess_modality(file_record.suffix)
+        data_b64 = base64.b64encode(np.ascontiguousarray(arr, dtype=np.float32).tobytes()).decode("ascii")
+        from qortex.visualize._colors import auto_window
+
+        auto_vmin, auto_vmax = auto_window(arr, modality=modality, suffix=file_record.suffix or "")
+        return {
+            "path": path,
+            "axis": axis,
+            "slice_index": idx,
+            "time_index": time_index,
+            "shape": list(arr.shape),
+            "dtype": "float32",
+            "data_b64": data_b64,
+            "auto_vmin": auto_vmin,
+            "auto_vmax": auto_vmax,
+            "voxel_size_mm": list(hdr.voxel_sizes_mm),
+            "spatial_shape": list(hdr.spatial_shape),
+            "n_volumes": hdr.n_volumes,
+            "is_4d": hdr.is_4d,
+            "modality": modality,
+            "suffix": file_record.suffix,
+            "presets": _presets_for_modality(modality, arr),
+            "is_fast_path": is_fast_path,
+            "histogram": _intensity_histogram(arr, histogram_bins) if histogram else None,
+        }
+
+    return await call(_run)
+
+
+def _intensity_histogram(arr: Any, bins: int) -> dict[str, Any] | None:
+    """A real intensity histogram of one already-decoded slice — the numbers a
+    PACS windowing panel needs to draw its distribution curve and place the
+    window/level handles, computed from pixels already in hand (no extra fetch).
+
+    Non-finite voxels (NaN/inf, common in statistical and masked maps) are
+    excluded so they never collapse the range; an all-non-finite or constant
+    slice returns ``None`` rather than a degenerate single-bin histogram."""
+    import numpy as np
+
+    flat = np.asarray(arr, dtype=np.float64).ravel()
+    finite = flat[np.isfinite(flat)]
+    if finite.size == 0:
+        return None
+    lo = float(finite.min())
+    hi = float(finite.max())
+    if hi <= lo:
+        return None
+    counts, edges = np.histogram(finite, bins=bins, range=(lo, hi))
+    return {
+        "counts": counts.astype(int).tolist(),
+        "bin_edges": edges.astype(float).tolist(),
+        "min": lo,
+        "max": hi,
+        "mean": float(finite.mean()),
+        "std": float(finite.std()),
+        "n_finite": int(finite.size),
+        "n_nonfinite": int(flat.size - finite.size),
+    }
+
+
+@app.get("/dataset/{dataset_id}/nifti-projection-data")
+async def dataset_nifti_projection_data(
+    dataset_id: str,
+    path: str = Query(..., description="BIDS-relative path to a .nii/.nii.gz file"),
+    axis: int = Query(2, ge=0, le=2),
+    method: str = Query("mip", pattern="^(mip|minip|mean)$", description="mip=max intensity, minip=min intensity, mean=average, projected through the whole volume along this axis"),
+    time_index: int = Query(0, ge=0),
+    snapshot: Optional[str] = Query(None),
+) -> dict[str, Any]:
+    """A real intensity projection through the *entire* volume along one
+    axis — Maximum Intensity Projection (the standard angiography/PET
+    review view), Minimum Intensity Projection, or a mean projection. There
+    is no way to compute this from a single slice; it always requires the
+    full volume server-side, so it is never eligible for the axial fast
+    path a plain slice fetch gets. Returns the exact same (shape, data_b64,
+    presets, …) contract as /nifti-slice-data — same shape-per-axis
+    convention (axis=2 -> (nx,ny), etc.) — so the Viewer Lab renders a
+    projection through its existing slice-rendering pipeline, just fed a
+    max/min/mean array instead of one indexed slice."""
+    import base64
+
+    import numpy as np
+
+    def _run() -> dict[str, Any]:
+        streamer, file_record = _resolve_nifti_streamer(dataset_id, snapshot, path)
+        with atlas_timing.timed("nifti_projection", dataset_id):
+            vol = streamer.get_volume(t=time_index, dtype=np.float32)
+        if method == "mip":
+            proj = vol.max(axis=axis)
+        elif method == "minip":
+            proj = vol.min(axis=axis)
+        else:
+            proj = vol.mean(axis=axis)
+        modality = _guess_modality(file_record.suffix)
+        data_b64 = base64.b64encode(np.ascontiguousarray(proj, dtype=np.float32).tobytes()).decode("ascii")
+        from qortex.visualize._colors import auto_window
+
+        auto_vmin, auto_vmax = auto_window(proj, modality=modality, suffix=file_record.suffix or "")
+        return {
+            "path": path,
+            "axis": axis,
+            "method": method,
+            "time_index": time_index,
+            "shape": list(proj.shape),
+            "dtype": "float32",
+            "data_b64": data_b64,
+            "auto_vmin": auto_vmin,
+            "auto_vmax": auto_vmax,
+            "modality": modality,
+            "suffix": file_record.suffix,
+            "presets": _presets_for_modality(modality, proj),
+        }
+
+    return await call(_run)
+
+
+@app.get("/colormaps")
+async def colormaps() -> dict[str, Any]:
+    """(256, 3) uint8 LUTs for gray/hot/plasma/RdBu_r, base64-encoded (768
+    bytes each) — fetched once and cached client-side so the Viewer Lab's
+    client-side colormap rendering (see ``/nifti-slice-data``) matches
+    exactly what ``qortex.visualize`` would produce server-side, rather than
+    reimplementing (and risking a visual mismatch with) the same colormaps
+    in JavaScript."""
+    import base64
+
+    from qortex.visualize._colors import get_lut
+
+    def _run() -> dict[str, Any]:
+        return {
+            name: base64.b64encode(get_lut(name).tobytes()).decode("ascii")
+            for name in ("gray", "hot", "plasma", "RdBu_r")
+        }
+
+    return await call(_run)
 
 
 @app.get("/dataset/{dataset_id}/nifti-slice.png")
@@ -659,15 +1043,34 @@ async def dataset_nifti_slice_png(
     axis: int = Query(2, ge=0, le=2),
     slice_index: Optional[int] = Query(None),
     time_index: int = Query(0),
+    preset: Optional[str] = Query(None, description="Named window preset (e.g. 't1w', 'bold', 'stat') — see /colormaps"),
+    vmin: Optional[float] = Query(None, description="Explicit window low bound; overrides preset/auto-window"),
+    vmax: Optional[float] = Query(None, description="Explicit window high bound"),
+    colormap: Optional[str] = Query(None, description="gray|hot|plasma|RdBu_r; defaults to the preset's/modality's suggestion"),
     snapshot: Optional[str] = Query(None),
 ):
-    """A real anatomical slice, decoded from bytes fetched via HTTP range
-    requests against the OpenNeuro CDN — the full NIfTI volume is never
-    downloaded. Percentile-windowed and PNG-encoded server-side."""
+    """A real anatomical/functional slice, decoded from bytes fetched via
+    HTTP range requests against the OpenNeuro CDN — the full NIfTI volume is
+    never downloaded. Windowed via ``qortex.visualize._colors`` (the same
+    clinical preset/LUT machinery Qortex's own report renderer uses), not a
+    hardcoded fixed-percentile clip — previously this endpoint always did a
+    1st/99th-percentile grayscale clip regardless of modality, with no
+    client control at all. For interactive client-side windowing (drag to
+    adjust, no round trip per change), use ``/nifti-slice-data`` instead —
+    this endpoint remains for simple/non-interactive uses (thumbnails,
+    static links, embedding in reports), and stays backward compatible: no
+    new params required, existing callers get modality-aware auto-windowing
+    instead of the old fixed clip, which is a strict improvement."""
     import numpy as np
     from PIL import Image
 
     from qortex import Dataset
+    from qortex.visualize._colors import (
+        apply_window,
+        auto_window,
+        colormap_for_modality,
+        get_lut,
+    )
 
     def _run() -> bytes:
         ds = Dataset(dataset_id, snapshot=snapshot, manifest=_manifest_for(dataset_id, snapshot))
@@ -676,11 +1079,15 @@ async def dataset_nifti_slice_png(
             axis=axis, slice_index=slice_index, time_index=time_index,
         )
         arr = np.asarray(arr, dtype=np.float32)
-        lo, hi = np.percentile(arr, [1, 99])
-        if hi <= lo:
-            hi = lo + 1.0
-        arr = np.clip((arr - lo) / (hi - lo), 0, 1) * 255
-        img = Image.fromarray(np.rot90(arr.astype(np.uint8)))
+        detected_modality = _guess_modality(modality)
+        if vmin is not None and vmax is not None:
+            lo, hi = vmin, vmax
+        else:
+            lo, hi = auto_window(arr, modality=detected_modality, suffix=modality, preset=preset)
+        indices = np.clip((apply_window(arr, lo, hi) * 255).astype(np.uint8), 0, 255)
+        lut = get_lut(colormap or colormap_for_modality(detected_modality, modality))
+        rgb = lut[np.rot90(indices)]
+        img = Image.fromarray(rgb, mode="RGB")
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         return buf.getvalue()
@@ -700,34 +1107,56 @@ async def dataset_nifti_slice_png(
 # metadata can't distinguish them. The channel *label* is the only reliable
 # signal, and matching it against the real 10-20/10-10 standard generalizes
 # to any EEG BIDS dataset, not just this one.
+#
+# The optional `-<reference site>` suffix matters just as much as the base
+# pattern: clinical/PSG recordings are routinely stored *referentially*
+# ("Fp1-M2", "C3-A1" — a mastoid or ear reference), which is a real, standard
+# montage convention, not a malformed label. Without matching it, a genuine
+# PSG file (real case found: a sleep-EEG BIDS dataset labeling every scalp
+# channel this way) had every single electrode excluded and dumped in with
+# actual timestamp/counter channels — the exact miscategorization this regex
+# exists to prevent, just from the opposite direction.
 _EEG_ELECTRODE_RE = re.compile(
-    r"^(Fp|AF|FT|FC|TP|CP|PO|F|C|T|P|O|A|M|I)(z|\d{1,2})$", re.IGNORECASE
+    r"^(Fp|AF|FT|FC|TP|CP|PO|F|C|T|P|O|A|M|I)(z|\d{1,2})"
+    r"(-(Fp|AF|FT|FC|TP|CP|PO|F|C|T|P|O|A|M|I)(z|\d{1,2}))?$",
+    re.IGNORECASE,
 )
 
 
 @app.get("/dataset/{dataset_id}/eeg-preview")
 async def dataset_eeg_preview(
     dataset_id: str,
-    subject: str = Query(...),
+    subject: Optional[str] = Query(None, description="Required unless `path` is given directly"),
     session: Optional[str] = Query(None),
     task: Optional[str] = Query(None),
     run: Optional[str] = Query(None),
+    path: Optional[str] = Query(None, description="BIDS-relative path to a specific .edf/.bdf file — overrides subject/session/task/run lookup, for viewing any file a user clicks directly in the file browser"),
     tmin: float = Query(0.0, ge=0),
     tmax: float = Query(4.0, gt=0),
     max_channels: int = Query(8, le=64),
+    channels: Optional[str] = Query(None, description="Comma-separated explicit channel labels — overrides the automatic 10-20/10-10 selection, for a real channel picker"),
     snapshot: Optional[str] = Query(None),
 ) -> dict[str, Any]:
     """Real, physical-unit EEG/MEG samples for a short window, decoded from
     an EDF/BDF file via HTTP byte-range requests — only the bytes for this
     exact time window are ever transferred. Formats without a remote-signal
     reader (.set/.fif/.vhdr) honestly report as unsupported rather than
-    fabricating a waveform."""
+    fabricating a waveform. Always returns ``all_channels`` (full
+    ``channel_info``: unit, physical/digital range, prefilter, transducer)
+    regardless of which subset is actually plotted, so a UI can build a real
+    channel picker instead of only ever seeing whatever the server happened
+    to auto-select."""
     from qortex.stream import EDFStreamer
 
     def _run() -> dict[str, Any]:
         manifest = _manifest_for(dataset_id, snapshot)
-        f = _find_file(manifest, subject=subject, session=session, task=task, run=run,
-                        extensions=(".edf", ".bdf"))
+        if path:
+            f = next((rec for rec in manifest.files if rec.path == path), None)
+        else:
+            if not subject:
+                return {"supported": False, "reason": "Either `path` or `subject` is required."}
+            f = _find_file(manifest, subject=subject, session=session, task=task, run=run,
+                            extensions=(".edf", ".bdf"))
         if f is None:
             return {"supported": False,
                     "reason": "No .edf/.bdf recording found for these entities. "
@@ -739,22 +1168,31 @@ async def dataset_eeg_preview(
         hdr = streamer.header()
         max_t = min(tmax, hdr.duration_s or tmax)
         all_channels = streamer.channel_info()
-        electrodes = [c for c in all_channels if _EEG_ELECTRODE_RE.match(c["label"])]
-        # Fall back to the unfiltered list if nothing matched the 10-20/10-10
-        # pattern — some legitimate systems use other real montages (e.g.
-        # high-density nets with numeric-only labels) and this must never
-        # silently return zero channels for those.
-        selected = electrodes if electrodes else all_channels
-        channels = [c["label"] for c in selected[:max_channels]]
-        epoch = streamer.get_epoch(tmin, max_t, channels=channels)
+
+        if channels:
+            requested = {c.strip() for c in channels.split(",") if c.strip()}
+            selected = [c for c in all_channels if c["label"] in requested]
+            n_excluded = len(all_channels) - len(selected)
+        else:
+            electrodes = [c for c in all_channels if _EEG_ELECTRODE_RE.match(c["label"])]
+            # Fall back to the unfiltered list if nothing matched the 10-20/
+            # 10-10 pattern — some legitimate systems use other real montages
+            # (e.g. high-density nets with numeric-only labels) and this must
+            # never silently return zero channels for those.
+            selected = (electrodes if electrodes else all_channels)[:max_channels]
+            n_excluded = len(all_channels) - len(electrodes) if electrodes else 0
+
+        selected_labels = [c["label"] for c in selected]
+        epoch = streamer.get_epoch(tmin, max_t, channels=selected_labels) if selected_labels else []
         return {
             "supported": True,
             "path": f.path,
             "sfreq": hdr.sampling_rates[0] if hdr.sampling_rates else None,
             "duration_s": hdr.duration_s,
-            "channels": channels,
+            "channels": selected_labels,
+            "all_channels": all_channels,
             "n_channels_total": len(all_channels),
-            "n_channels_excluded": len(all_channels) - len(electrodes) if electrodes else 0,
+            "n_channels_excluded": n_excluded,
             "tmin": tmin, "tmax": max_t,
             "series": [row.tolist() for row in epoch],
         }
@@ -858,6 +1296,111 @@ async def dataset_content_status(
     return to_jsonable(await call(_run))
 
 
+# ── Compatibility source-profile cache ───────────────────────────────────────
+# The expensive part of a compatibility check is building the SourceProfile:
+# a remote signal-budget scan (one JSON sidecar GET per signal file, plus NIfTI
+# header Range reads) that took 40–90+ s on large datasets. Two facts make it
+# cacheable and boundable without losing correctness:
+#
+#  * A snapshot is immutable — the same (dataset, snapshot) can never yield a
+#    different SourceProfile, so disk-cache it forever and share it across
+#    server restarts.
+#  * The engine consumes only per-modality *modes* (n_channels_mode,
+#    sampling_rate_mode). Acquisition parameters are near-homogeneous within a
+#    BIDS dataset, so a bounded sample of sidecars produces the same modes as
+#    an exhaustive sweep. The profile is already reported as
+#    EvidenceStatus.inferred either way — sampling does not weaken the claim.
+#
+# In-memory single-flight sits in front of the disk file so a cold dataset hit
+# by several tabs at once still triggers exactly one scan.
+_COMPAT_SCAN_MAX_SIDECARS = 64
+_COMPAT_CACHE = TTLCache(ttl=3600.0, maxsize=256)
+_COMPAT_DISK_LOCK = threading.Lock()
+
+
+def _compat_disk_path() -> "Path":
+    from qortex.core.config import get_config
+
+    return get_config().cache_dir / "catalog" / "compat_profiles.json"
+
+
+def _compat_disk_load() -> dict[str, Any]:
+    try:
+        with open(_compat_disk_path(), encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _compat_disk_store(key: str, profile: dict[str, Any]) -> None:
+    # Atomic replace under a lock: concurrent scans of different datasets must
+    # not interleave partial writes or clobber each other's entries.
+    with _COMPAT_DISK_LOCK:
+        path = _compat_disk_path()
+        data = _compat_disk_load()
+        data[key] = profile
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".json.tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+            tmp.replace(path)
+        except OSError:
+            log.warning("compat profile cache write failed for %s", key, exc_info=True)
+
+
+def _compat_source_profile(dataset_id: str, snapshot: Optional[str]) -> dict[str, Any]:
+    """Return the SourceProfile field dict for (dataset, resolved snapshot),
+    scanning remotely only on a true cold miss."""
+    from qortex import Dataset
+    from qortex.neuroai.contracts import EvidenceStatus
+
+    manifest = _manifest_for(dataset_id, snapshot)
+    key = f"{dataset_id}@{manifest.snapshot}"
+
+    # Prefer an actual neural-signal modality over incidental BIDS datatypes
+    # (e.g. "behavior", "phenotype") that a raw modalities list may list first
+    # with no meaningful ordering. Decided from the manifest *before* the scan
+    # so the scan can be tailored to the one modality the engine will consume.
+    signal_priority = ["eeg", "meg", "ieeg", "bold", "dwi", "t1w", "t2w"]
+    mods = manifest.summary.modalities
+    modality = next((m for m in signal_priority if m in mods), next(iter(mods), None))
+    # NIfTI header Range reads (for RepetitionTime) dominate the scan — tens of
+    # seconds — but only carry information for MRI-family modalities. When the
+    # engine's chosen modality is electrophysiology (eeg/meg/ieeg), every
+    # parameter it needs is in the JSON sidecars, so the header fetches are pure
+    # dead weight and are skipped. That alone turns a 50–90 s scan into ~6 s.
+    _MRI_FAMILY = {"bold", "dwi", "t1w", "t2w", "fmri", "mri"}
+    needs_nifti = modality in _MRI_FAMILY
+
+    def _build() -> dict[str, Any]:
+        disk = _compat_disk_load()
+        cached = disk.get(key)
+        if isinstance(cached, dict):
+            return cached
+        ds = Dataset(dataset_id, snapshot=snapshot, manifest=manifest)
+        budget = ds.signal_budget(
+            max_sidecars=_COMPAT_SCAN_MAX_SIDECARS,
+            include_nifti_headers=needs_nifti,
+        )
+        mb = budget.modality_budgets.get(modality) if modality else None
+        profile = {
+            "source_id": dataset_id,
+            "source_type": "bids",
+            "modality": modality,
+            "n_channels": getattr(mb, "n_channels_mode", None) if mb else None,
+            "sampling_rate_hz": getattr(mb, "sampling_rate_mode", None) if mb else None,
+            "n_subjects": manifest.summary.n_subjects,
+            "available_suffixes": list(manifest.summary.suffixes or []),
+            "evidence_status": (EvidenceStatus.inferred if mb else EvidenceStatus.unknown).value,
+        }
+        _compat_disk_store(key, profile)
+        return profile
+
+    return _COMPAT_CACHE.get_or_compute(key, _build)
+
+
 @app.get("/dataset/{dataset_id}/compatibility")
 async def dataset_compatibility(
     dataset_id: str,
@@ -866,32 +1409,14 @@ async def dataset_compatibility(
 ) -> dict[str, Any]:
     """Build a real ``SourceProfile`` from remotely-gathered signal-budget
     evidence (no download) and run it through the unmodified
-    ``CompatibilityEngine`` against one or all catalog model contracts."""
-    from qortex import Dataset
+    ``CompatibilityEngine`` against one or all catalog model contracts.
+    The profile is cached per immutable (dataset, snapshot) — see
+    ``_compat_source_profile`` — so only the first request pays the scan."""
     from qortex.neuroai.compatibility import CompatibilityEngine
-    from qortex.neuroai.contracts import EvidenceStatus, SourceProfile
+    from qortex.neuroai.contracts import SourceProfile
 
     def _run() -> dict[str, Any]:
-        ds = Dataset(dataset_id, snapshot=snapshot, manifest=_manifest_for(dataset_id, snapshot))
-        manifest = ds.manifest()
-        budget = ds.signal_budget()
-        # Prefer an actual neural-signal modality over incidental BIDS
-        # datatypes (e.g. "behavior", "phenotype") that a raw modalities list
-        # may list first with no meaningful ordering.
-        signal_priority = ["eeg", "meg", "ieeg", "bold", "dwi", "t1w", "t2w"]
-        mods = manifest.summary.modalities
-        modality = next((m for m in signal_priority if m in mods), next(iter(mods), None))
-        mb = budget.modality_budgets.get(modality) if modality else None
-        source = SourceProfile(
-            source_id=dataset_id,
-            source_type="bids",
-            modality=modality,
-            n_channels=getattr(mb, "n_channels_mode", None) if mb else None,
-            sampling_rate_hz=getattr(mb, "sampling_rate_mode", None) if mb else None,
-            n_subjects=manifest.summary.n_subjects,
-            available_suffixes=manifest.summary.suffixes,
-            evidence_status=EvidenceStatus.inferred if mb else EvidenceStatus.unknown,
-        )
+        source = SourceProfile(**_compat_source_profile(dataset_id, snapshot))
         engine = CompatibilityEngine()
         model_ids = [model_id] if model_id else list(atlas_models.MODEL_CATALOG.keys())
         reports = []

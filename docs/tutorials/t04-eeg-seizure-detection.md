@@ -116,31 +116,16 @@ print(f"Class ratio     : 1 : {(n_total-n_seizure)//max(n_seizure,1)}")
 ## Step 4 — Feature extraction
 
 ```python
-from scipy.signal import welch
+from qortex.neuroclassic import SEIZURE_EEG_BANDS
 
-BANDS = {
-    "delta": (0.5, 4),
-    "theta": (4, 8),
-    "alpha": (8, 13),
-    "beta":  (13, 30),
-    "gamma": (30, 80),
-    "hfo":   (80, 120),   # high-frequency oscillations
-}
+feature_report = bundle.to_feature_matrix(
+    bands=SEIZURE_EEG_BANDS,
+    include_time_domain=True,
+    include_entropy=True,
+    include_higuchi=True,
+)
 
-def extract_seizure_features(X, sfreq=256.0):
-    features = []
-    for epoch in X:
-        row = []
-        for ch in epoch:
-            f, psd = welch(ch, sfreq, nperseg=min(512, len(ch)))
-            for lo, hi in BANDS.values():
-                mask = (f >= lo) & (f <= hi)
-                row.append(float(psd[mask].mean()) if mask.any() else 0.0)
-            row.extend([float(ch.mean()), float(ch.std()), float(np.abs(ch).max())])
-        features.append(row)
-    return np.array(features, dtype=np.float32)
-
-X_feats = extract_seizure_features(X, sfreq=bundle.sfreq)
+X_feats = feature_report.features
 print(f"Feature matrix: {X_feats.shape}")
 ```
 

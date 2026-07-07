@@ -99,7 +99,8 @@ class FNIRSLoader:
                     extension=file.extension,
                 )
                 kw = {k: v for k, v in kwargs.items() if k != "preload"}
-                raw = mne_bids.read_raw_bids(bids_path, preload=preload, **kw)
+                kw["preload"] = preload
+                raw = mne_bids.read_raw_bids(bids_path, extra_params=kw)
                 log.debug("MNE-BIDS fNIRS read succeeded: %s", local_path)
             except Exception as exc:
                 log.debug("MNE-BIDS fNIRS failed (%s), falling back", exc)

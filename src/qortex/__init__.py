@@ -1780,6 +1780,7 @@ class Dataset:
         *,
         concurrency: int = 24,
         include_nifti_headers: bool = True,
+        max_sidecars: int | None = None,
     ):
         """Estimate total signal hours and achievable windows without downloading.
 
@@ -1794,6 +1795,13 @@ class Dataset:
             Parallel CDN connections.
         include_nifti_headers:
             Whether to fetch NIfTI headers for fMRI files missing TR info.
+        max_sidecars:
+            Cap the number of signal files whose sidecars are fetched (passed
+            through to :meth:`SignalBudgetEstimator.estimate`). Acquisition
+            parameters are near-homogeneous within a BIDS dataset, so a
+            bounded sample yields the same per-modality modes as an
+            exhaustive scan at a fraction of the round trips. ``None`` keeps
+            the exhaustive behavior.
 
         Returns
         -------
@@ -1819,6 +1827,7 @@ class Dataset:
             manifest,
             concurrency=concurrency,
             include_nifti_headers=include_nifti_headers,
+            max_sidecars=max_sidecars,
         )
 
     # ── Visual QC ────────────────────────────────────────────────────────

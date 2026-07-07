@@ -334,7 +334,9 @@ qortex artifact-visualize ARTIFACT_DIR [--split {train,val,test}]
 
 ### dashboard
 
-Launch the Qortex Streamlit dashboard.
+Launch the Qortex Streamlit dashboard. This command requires the `dashboard`
+extra; importing `qortex.console.app` does not require Streamlit until the app
+is launched.
 
 ```bash
 qortex dashboard [--host HOST] [--port PORT]
@@ -555,7 +557,8 @@ Compute connectivity matrix and graph metrics on EEG files.
 
 ```bash
 qortex neuro-classic connectivity DATASET_DIR [--method correlation]
-                                  [--threshold F] [--output FILE]
+                                  [--threshold F] [--max-files N]
+                                  [--output FILE]
 ```
 
 ### neuro-classic cohort-anomalies

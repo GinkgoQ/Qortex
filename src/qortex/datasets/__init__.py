@@ -43,6 +43,7 @@ msd_brain   MSD Brain Tumour segmentation (T08)
 from __future__ import annotations
 
 from qortex.datasets._base import (
+    BIDSRawReadReport,
     DatasetCard,
     DatasetRegistry,
     EEGBundle,
@@ -137,6 +138,7 @@ def summary() -> str:
 
 __all__ = [
     # Bundle types
+    "BIDSRawReadReport",
     "DatasetCard",
     "DatasetRegistry",
     "EEGBundle",

@@ -31,6 +31,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import replace
+from itertools import islice
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +48,8 @@ from qortex.neuroai.contracts import (
     SourceProfile,
 )
 from qortex.neuroai.models._registry import make_model_adapter
+from qortex.neuroai.models._base import ModelOutput
+from qortex.neuroai.outputs._base import OutputAdapter
 from qortex.neuroai.outputs._registry import make_output_adapter
 from qortex.neuroai.preprocess.planner import PreprocessPlanner
 from qortex.neuroai.runtime.engine import RuntimeEngine
@@ -318,42 +321,27 @@ class Pipeline:
                 f"Cannot benchmark — pipeline is not runnable: {compat.status.value}"
             )
 
-        # Dummy null output — no real I/O
-        class NullOutput:
-            n_written = 0
-            def open(self): pass
-            def write(self, *a, **kw): self.n_written += 1
-            def close(self): pass
-
         log.info("Benchmark: loading model %s…", self._spec.model.id)
         self._model_adapter.load(self._spec.runtime)
 
         profiler = PipelineProfiler(budget_ms=self._spec.runtime.latency_budget_ms)
+        output_adapter = BenchmarkOutputAdapter()
+        output_adapter.open()
         try:
             engine = RuntimeEngine(
                 spec=self._spec,
                 source=self._source_adapter,
                 model=self._model_adapter,
                 plan=self._preprocess_plan,
-                outputs=[NullOutput()],
+                outputs=[output_adapter],
                 compat_report=self._compat_report,
                 profiler=profiler,
+                source_iterator=lambda: islice(self._source_adapter.stream(), n_windows),
             )
-            # Limit to n_windows
-            from itertools import islice
-
-            original_stream = self._source_adapter.stream
-
-            def _limited_stream():
-                yield from islice(original_stream(), n_windows)
-
-            self._source_adapter.stream = _limited_stream
-            try:
-                engine.run()
-            finally:
-                self._source_adapter.stream = original_stream
+            engine.run()
 
         finally:
+            output_adapter.close()
             self._model_adapter.unload()
 
         return profiler.report()
@@ -388,6 +376,8 @@ class Pipeline:
         PipelineRunReport
         """
         from qortex.neuroai.spec import SourceSpec
+        if speed <= 0:
+            raise ValueError("Replay speed must be greater than 0.")
 
         replay_spec = SourceSpec(
             type="local_file",
@@ -414,7 +404,48 @@ class Pipeline:
             source=replay_spec,
             outputs=replay_outputs,
         ))
-        report = replay_pipeline.run()
+        replay_pipeline.check()
+        log.info("Pipeline.replay(): replaying %s at %.3gx speed", source_path, speed)
+
+        compat = replay_pipeline._compat_report
+        if compat and not compat.is_runnable:
+            raise _make_runtime_error(
+                f"Replay pipeline is not runnable: status={compat.status.value}. "
+                f"Blockers: {[b.message for b in compat.blockers]}"
+            )
+
+        replay_pipeline._model_adapter.load(replay_pipeline._spec.runtime)
+        pipeline_ref = replay_pipeline._spec.content_hash()[:12]
+        output_adapters = [
+            make_output_adapter(out_spec, pipeline_ref=pipeline_ref)
+            for out_spec in replay_pipeline._spec.outputs
+        ]
+        for adapter in output_adapters:
+            adapter.open()
+
+        try:
+            engine = RuntimeEngine(
+                spec=replay_pipeline._spec,
+                source=replay_pipeline._source_adapter,
+                model=replay_pipeline._model_adapter,
+                plan=replay_pipeline._preprocess_plan,
+                outputs=output_adapters,
+                compat_report=replay_pipeline._compat_report,
+                source_iterator=lambda: replay_pipeline._source_adapter.replay(speed=speed),
+            )
+            report = engine.run()
+            report.source_profile = replay_pipeline._source_profile
+            report.model_profile = replay_pipeline._model_profile
+            _attach_output_contract_to_artifact(report, replay_pipeline._model_profile)
+        finally:
+            for adapter in output_adapters:
+                try:
+                    adapter.close()
+                except Exception as exc:
+                    log.warning("Error closing replay output adapter: %s", exc)
+            replay_pipeline._model_adapter.unload()
+
+        _write_artifact_sidecar(replay_pipeline._spec, report)
 
         return report
 
@@ -442,6 +473,29 @@ class Pipeline:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+class BenchmarkOutputAdapter(OutputAdapter):
+    """In-memory output sink used by ``Pipeline.benchmark()``.
+
+    The adapter exercises the same runtime output-writing path as file and
+    streaming adapters while deliberately avoiding external I/O.
+    """
+
+    def __init__(self) -> None:
+        self._n_written = 0
+        self._is_open = False
+
+    def open(self) -> None:
+        self._is_open = True
+
+    def write(self, output: ModelOutput, metadata: dict[str, Any] | None = None) -> None:
+        if not self._is_open:
+            raise RuntimeExecutionError("Benchmark output adapter is not open")
+        self._n_written += 1
+
+    def close(self) -> None:
+        self._is_open = False
+
 
 def _make_runtime_error(msg: str) -> Exception:
     return RuntimeExecutionError(msg)

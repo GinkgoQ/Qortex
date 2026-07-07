@@ -541,8 +541,20 @@ class OpenNeuroClient:
         query: str,
         variables: dict[str, Any] | None = None,
         timeout: float | None = None,
+        *,
+        partial_ok: bool = False,
     ) -> dict[str, Any]:
-        """Execute a GQL query and return the ``data`` dict."""
+        """Execute a GQL query and return the ``data`` dict.
+
+        ``partial_ok``: per the GraphQL spec a response may carry BOTH ``data``
+        and ``errors`` — a nullable field that failed (e.g. one dataset with a
+        broken ``latestSnapshot``) nulls only that field while every sibling in
+        the same response stays valid. For collection queries (the catalog
+        sweep over all ~1.8k datasets) a handful of such field errors must NOT
+        discard the whole page; when ``partial_ok`` is set we return the
+        ``data`` that did resolve and let the caller skip the null nodes.
+        Single-entity lookups keep the strict default: any error is fatal.
+        """
         cookies: dict[str, str] = {}
         if self._token:
             cookies["accessToken"] = self._token
@@ -563,7 +575,10 @@ class OpenNeuroClient:
             ) from exc
 
         if "errors" in body:
-            self._raise_gql_error(body["errors"], variables or {})
+            # Partial success (data present + field errors) is fatal only for
+            # strict single-entity callers; a collection sweep tolerates it.
+            if not (partial_ok and body.get("data") is not None):
+                self._raise_gql_error(body["errors"], variables or {})
 
         data = body.get("data")
         if data is None:
@@ -727,6 +742,19 @@ class OpenNeuroClient:
         # Sort newest first (tags are typically semver-like)
         result.sort(key=lambda s: s.created or "", reverse=True)
         return result
+
+    def count_datasets(self) -> int:
+        """Total number of datasets on OpenNeuro — one cheap round-trip.
+
+        The GraphQL connection reports its full size via ``pageInfo.count``
+        without paging the edges, so the catalog sweep can learn the target
+        up front (show progress against a real denominator, and pre-compute
+        every page's offset cursor for concurrent fetching)."""
+        data = self._query(
+            "query { datasets(first: 1) { pageInfo { count } } }",
+            timeout=self._cfg.metadata_timeout,
+        )
+        return int(((data.get("datasets") or {}).get("pageInfo") or {}).get("count") or 0)
 
     def get_snapshot(self, dataset_id: str, tag: str) -> SnapshotRef:
         """Return a specific snapshot ref (validates that the tag exists)."""

@@ -89,32 +89,15 @@ for u, c in zip(unique, counts):
 ## Step 4 — Feature extraction
 
 ```python
-from scipy.signal import welch
+from qortex.neuroclassic import SLEEP_EEG_BANDS
 
-BANDS = {
-    "delta": (0.5, 4.0),
-    "theta": (4.0, 8.0),
-    "alpha": (8.0, 13.0),
-    "sigma": (12.0, 16.0),   # sleep spindles
-    "beta":  (16.0, 30.0),
-}
+feature_report = bundle.to_feature_matrix(
+    bands=SLEEP_EEG_BANDS,
+    include_time_domain=True,
+    include_entropy=True,
+)
 
-def extract_sleep_features(X, sfreq=100.0):
-    """Bandpower + statistical features per epoch."""
-    features = []
-    for epoch in X:
-        row = []
-        for ch in epoch:
-            f, psd = welch(ch, sfreq, nperseg=min(512, len(ch)))
-            for lo, hi in BANDS.values():
-                mask = (f >= lo) & (f <= hi)
-                row.append(float(psd[mask].mean()) if mask.any() else 0.0)
-            # Time-domain features
-            row.extend([float(ch.mean()), float(ch.std()), float(np.abs(ch).max())])
-        features.append(row)
-    return np.array(features, dtype=np.float32)
-
-X_feats = extract_sleep_features(X, sfreq=bundle.sfreq)
+X_feats = feature_report.features
 print(f"Feature matrix: {X_feats.shape}")
 ```
 

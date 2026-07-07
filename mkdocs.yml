@@ -112,6 +112,7 @@ nav:
 
   - Tutorials:
       - tutorials/index.md
+      - Coverage: tutorials/coverage.md
       - "T01 · EEG Motor Imagery": tutorials/t01-eeg-motor-imagery.md
       - "T02 · EEG Connectivity": tutorials/t02-eeg-connectivity.md
       - "T03 · Sleep Staging": tutorials/t03-eeg-sleep-staging.md

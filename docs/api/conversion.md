@@ -128,7 +128,7 @@ Every output-format writer implements this protocol.
 |---|---|---|
 | `"parquet"` | *(none)* | Default. Columnar, fast random access. |
 | `"zarr"` | `qortex[zarr]` | Chunked array store, good for large volumes. |
-| `"hdf5"` | `qortex[hdf5]` | Single-file archive. |
-| `"webdataset"` | *(none)* | Tar shards, optimised for streaming. |
-| `"huggingface"` | `qortex[hf]` | HuggingFace `datasets` format. |
+| `"hdf5"` | `qortex[hdf5]` | Single-file archive with `signals` and structured `metadata` datasets. |
+| `"webdataset"` | *(none)* | Tar shards containing `{key}.npy` signal arrays and `{key}.json` metadata. |
+| `"huggingface"` | `qortex[hf]` | HuggingFace `datasets` format with `signal` plus sample metadata columns. |
 | `"tfrecord"` | `qortex[tf]` | TensorFlow record format. |

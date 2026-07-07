@@ -192,6 +192,11 @@ def downloaded_events_file(root: Path) -> Path:
     raise RuntimeError(f"No downloaded events.tsv under {root}")
 
 
+def downloaded_event_file(root: Path) -> Path:
+    """Backward-compatible singular alias for ``downloaded_events_file``."""
+    return downloaded_events_file(root)
+
+
 # ── Split helpers ─────────────────────────────────────────────────────────────
 
 def split_subject_rows(train, val, test) -> list[dict[str, Any]]:

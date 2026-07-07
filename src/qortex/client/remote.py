@@ -39,6 +39,7 @@ import asyncio
 import gzip
 import io
 import logging
+import re
 import struct
 import threading
 import time
@@ -47,7 +48,7 @@ from typing import Any
 
 import httpx
 
-from qortex.client.transport import SSL_CONTEXT, USER_AGENT, RETRYABLE_EXCEPTIONS
+from qortex.client.transport import RETRYABLE_EXCEPTIONS, SSL_CONTEXT, USER_AGENT
 from qortex.core.config import QortexConfig, get_config
 from qortex.core.entities import FileRecord, Manifest
 from qortex.core.exceptions import QortexError
@@ -164,6 +165,42 @@ class _TTLCache:
             self._cache.clear()
 
 
+# ── S3 error diagnosis ────────────────────────────────────────────────────────
+
+_S3_ERROR_CODE_RE = re.compile(r"<Code>([^<]+)</Code>")
+
+# S3 error codes that mean "this exact object/version does not exist" — as
+# opposed to a transient/network failure. Confirmed by direct investigation
+# (see qortex/client/remote.py history): a fresh, uncached manifest fetch for
+# an affected dataset returned the *identical* URL/versionId that 404s — this
+# is not a Qortex-side staleness bug, it is OpenNeuro's own GraphQL metadata
+# disagreeing with what actually exists in the S3 bucket for that file. In
+# the observed case, other files in the same dataset also had URLs pointing
+# to a *different subject's* file entirely — a real upstream data-integrity
+# problem, seen specifically on a dataset using non-standard characters ("+")
+# in a BIDS acq- entity value, which appears to have confused OpenNeuro's own
+# file-to-S3-key mapping for that upload. Retrying or invalidating any local
+# cache cannot fix this; only re-uploading/fixing the dataset on OpenNeuro's
+# side can.
+_S3_MISSING_OBJECT_CODES = frozenset({"NoSuchVersion", "NoSuchKey"})
+
+
+def _describe_fetch_error(status_code: int, body: str) -> str:
+    """Turn a raw HTTP/S3 error body into an honest, actionable message."""
+    code_match = _S3_ERROR_CODE_RE.search(body or "")
+    code = code_match.group(1) if code_match else None
+    if code in _S3_MISSING_OBJECT_CODES:
+        return (
+            f"OpenNeuro's own file metadata for this file does not match what actually "
+            f"exists in storage (S3 {code}). This is an upstream data-integrity issue "
+            f"with this specific dataset/file on OpenNeuro, not a network or caching "
+            f"problem — re-fetching the manifest returns the identical broken reference. "
+            f"It has been observed on datasets that use non-standard characters in BIDS "
+            f"filenames. Try a different subject/run, or report it to OpenNeuro."
+        )
+    return f"HTTP {status_code}: " + (body[:200] if body else "")
+
+
 # ── Gateway ───────────────────────────────────────────────────────────────────
 
 class RemoteFileGateway:
@@ -264,11 +301,7 @@ class RemoteFileGateway:
                 continue
 
             if response.status_code not in (200, 206):
-                raise RemotePreviewError(
-                    url,
-                    f"HTTP {response.status_code}: "
-                    + (response.text[:200] if response.text else ""),
-                )
+                raise RemotePreviewError(url, _describe_fetch_error(response.status_code, response.text))
 
             data = response.content
             if range_bytes is not None and range_start > 0 and response.status_code == 200:
@@ -492,7 +525,7 @@ class RemoteFileGateway:
             return pl.read_csv(io.BytesIO(cached), separator="\t", infer_schema_length=10_000)
         response = await client.get(url)
         if response.status_code not in (200, 206):
-            raise RemotePreviewError(url, f"HTTP {response.status_code}")
+            raise RemotePreviewError(url, _describe_fetch_error(response.status_code, response.text))
         data = response.content
         if len(data) > max_bytes:
             raise FileTooLargeError(url, len(data), max_bytes)
@@ -508,7 +541,7 @@ class RemoteFileGateway:
             return json.loads(cached)
         response = await client.get(url)
         if response.status_code not in (200, 206):
-            raise RemotePreviewError(url, f"HTTP {response.status_code}")
+            raise RemotePreviewError(url, _describe_fetch_error(response.status_code, response.text))
         data = response.content
         if len(data) > max_bytes:
             raise FileTooLargeError(url, len(data), max_bytes)

@@ -156,9 +156,10 @@ class Ontology:
     def __init__(self) -> None:
         self._task_cluster_of: dict[str, int] = {}
         self._cluster_members: dict[int, set[str]] = {}
+        self._last_vocab_key: frozenset[str] | None = None
 
     @classmethod
-    def default(cls) -> "Ontology":
+    def default(cls) -> Ontology:
         return cls()
 
     def canonical_modalities(self, term: str) -> set[str]:
@@ -167,16 +168,33 @@ class Ontology:
     def mine_from_rows(self, rows: list[dict[str, Any]]) -> None:
         """Rebuild task-synonym clusters from this catalog's actual ``tasks``
         vocabulary (not ``keywords`` — those are auto-derived, noisy free
-        tokens, not curated labels; see ``catalog/index.py:_derive_keywords``)."""
+        tokens, not curated labels; see ``catalog/index.py:_derive_keywords``).
+
+        Skips re-clustering when the task vocabulary is unchanged from the
+        last call. This mirrors ``SemanticIndex``'s content-hash cache and
+        exists for the same reason: measured against the real local catalog,
+        ``mine_synonym_clusters`` (an O(n^2) fuzzy-distance clustering) was
+        the single most expensive step in ``SearchEngine.refresh_indexes()``
+        — ~214ms of a ~350ms warm rebuild — and it was being paid on *every*
+        refresh even when nothing about the corpus's tasks had changed
+        (e.g. an operator hitting ``POST /search/engine/refresh`` after a
+        catalog update that only touched a handful of datasets). At larger
+        corpus sizes this cost only grows, since clustering is quadratic in
+        vocabulary size.
+        """
         vocab: set[str] = set()
         for row in rows:
             vocab.update(t for t in (row.get("tasks") or []) if t)
+        vocab_key = frozenset(vocab)
+        if vocab_key == self._last_vocab_key:
+            return
         clusters = mine_synonym_clusters(sorted(vocab))
         self._task_cluster_of = clusters
         members: dict[int, set[str]] = {}
         for term, cluster_id in clusters.items():
             members.setdefault(cluster_id, set()).add(term)
         self._cluster_members = members
+        self._last_vocab_key = vocab_key
 
     def task_synonyms(self, term: str) -> set[str]:
         """Other corpus task-label strings judged to be the same paradigm as

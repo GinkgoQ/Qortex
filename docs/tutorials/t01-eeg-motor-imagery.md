@@ -128,25 +128,16 @@ test_ids  = {k for k, v in result.assignments.items() if v == "test"}
 ## Step 6 — Feature extraction (bandpower)
 
 ```python
-from scipy.signal import welch
+feature_report = bundle.to_feature_matrix(
+    bands={"delta": (1, 4), "theta": (4, 8), "alpha": (8, 13), "beta": (13, 30)},
+    include_relative_bandpower=True,
+    include_log_bandpower=True,
+    include_time_domain=False,
+)
 
-def bandpower(epoch, sfreq, band):
-    """Mean PSD in band [low, high] Hz for one epoch [n_ch, n_times]."""
-    f, psd = welch(epoch, sfreq, nperseg=min(256, epoch.shape[1]))
-    mask = (f >= band[0]) & (f <= band[1])
-    return psd[:, mask].mean(axis=1)  # [n_ch]
-
-bands = {"delta": (1, 4), "theta": (4, 8), "alpha": (8, 13), "beta": (13, 30)}
-
-def extract_features(X, sfreq=160.0):
-    feats = []
-    for epoch in X:
-        row = np.concatenate([bandpower(epoch, sfreq, b) for b in bands.values()])
-        feats.append(row)
-    return np.array(feats, dtype=np.float32)
-
-X_feats = extract_features(X)
-print(f"Feature matrix: {X_feats.shape}")  # (n_epochs, 64*4)
+X_feats = feature_report.features
+print(f"Feature matrix: {X_feats.shape}")
+print(feature_report.feature_names[:8])
 ```
 
 ---
@@ -179,14 +170,31 @@ print(classification_report(y_te, y_pred, target_names=target_names))
 
 ---
 
-## Step 8 — Next steps
+## Step 8 — CSP spatial features
 
-- Replace bandpower with **Common Spatial Patterns (CSP)** from MNE or scikit-learn:
-  ```python
-  from mne.decoding import CSP
-  csp = CSP(n_components=8, reg=None, log=True)
-  X_csp = csp.fit_transform(X[tr_idx], y[tr_idx])
-  ```
+Common Spatial Patterns (CSP) is a standard motor-imagery spatial-filtering
+baseline. Fit CSP only on training epochs, then transform validation/test
+epochs with the fitted report to avoid leakage.
+
+```python
+from qortex.neuroclassic import compute_common_spatial_patterns
+
+csp = compute_common_spatial_patterns(
+    X[tr_idx],
+    y[tr_idx],
+    channel_names=bundle.channel_names,
+    n_components=8,
+    scope="eegbci_motor_imagery_train",
+)
+
+X_tr_csp = csp.features
+X_te_csp = csp.transform(X[te_idx])
+```
+
+---
+
+## Step 9 — Next steps
+
 - Scale up to all 109 subjects with more runs.
 - Try **Braindecode EEGNet** (requires `pip install 'qortex[braindecode]'`):
   ```python

@@ -49,25 +49,37 @@ print(f"X: {X.shape}, y: {y.shape}")
 
 ---
 
-## Step 3 — Compute Pearson connectivity matrix
+## Step 3 — Compute Pearson and PLV connectivity matrices
 
 ```python
-from qortex.neuroclassic import compute_pearson_connectivity, ConnectivitySpec
-
-spec = ConnectivitySpec(
-    method="pearson",
-    threshold_type="absolute",
-    threshold_value=0.3,
+from qortex.neuroclassic import (
+    compute_pearson_connectivity,
+    compute_phase_locking_value_connectivity,
 )
 
 # Average connectivity across all training epochs
 X_mean = X.mean(axis=0)                     # [64, 640]
+ch_names = bundle.channel_names
 conn = compute_pearson_connectivity(
-    X_mean[np.newaxis, :, :],               # [1, 64, 640]
-    spec=spec,
+    X_mean,
+    channel_names=ch_names,
+    sampling_hz=bundle.sfreq,
+    time_window_s=4.0,
+    frequency_band=(8.0, 13.0),
+    threshold=0.3,
 )
 print(f"Connectivity matrix: {conn.matrix.shape}")  # (64, 64)
-print(f"Density: {conn.density:.3f}")
+print(conn.spec.summary())
+
+plv_conn = compute_phase_locking_value_connectivity(
+    X_mean,
+    channel_names=ch_names,
+    sampling_hz=bundle.sfreq,
+    time_window_s=4.0,
+    frequency_band=(8.0, 13.0),
+    threshold=0.5,
+)
+print(plv_conn.spec.summary())
 ```
 
 ---
@@ -92,11 +104,15 @@ print(f"Betweenness (top 5)    : {sorted(graph_report.betweenness_centrality, re
 ## Step 5 — Build per-epoch feature vectors
 
 ```python
-def epoch_graph_features(epoch, spec, ch_names):
+def epoch_graph_features(epoch, ch_names, sfreq):
     """Return graph metric feature vector for one epoch."""
     conn = compute_pearson_connectivity(
-        epoch[np.newaxis, :, :],
-        spec=spec,
+        epoch,
+        channel_names=ch_names,
+        sampling_hz=sfreq,
+        time_window_s=4.0,
+        frequency_band=(8.0, 13.0),
+        threshold=0.3,
     )
     gr = compute_graph_metrics(conn)
     bc = gr.betweenness_centrality or [0.0] * len(ch_names)
@@ -106,14 +122,13 @@ def epoch_graph_features(epoch, spec, ch_names):
         gr.mean_path_length or 0.0,
         gr.small_world_sigma or 0.0,
         gr.modularity or 0.0,
-        conn.density,
+        gr.density,
         float(max(set(comm), key=comm.count)),   # dominant community
         float(max(bc)),                           # hub centrality
     ]
     return np.array(feats, dtype=np.float32)
 
-ch_names = bundle.channel_names
-X_graph = np.array([epoch_graph_features(ep, spec, ch_names) for ep in X])
+X_graph = np.array([epoch_graph_features(ep, ch_names, bundle.sfreq) for ep in X])
 print(f"Graph feature matrix: {X_graph.shape}")
 ```
 
@@ -149,17 +164,23 @@ print(f"CV macro-F1: {scores.mean():.3f} ± {scores.std():.3f}")
 
 ```python
 # Compare connectivity density between conditions
-from qortex.neuroclassic import compute_pearson_connectivity, ConnectivitySpec
-
 density_by_condition = {}
 for label, name in bundle.label_map.items():
     mask = y == label
     if mask.sum() == 0:
         continue
     X_cond = X[mask].mean(axis=0)
-    c = compute_pearson_connectivity(X_cond[np.newaxis], spec=spec)
-    density_by_condition[name] = c.density
-    print(f"{name}: density={c.density:.3f}")
+    c = compute_pearson_connectivity(
+        X_cond,
+        channel_names=ch_names,
+        sampling_hz=bundle.sfreq,
+        time_window_s=4.0,
+        frequency_band=(8.0, 13.0),
+        threshold=0.3,
+    )
+    g = compute_graph_metrics(c)
+    density_by_condition[name] = g.density
+    print(f"{name}: density={g.density:.3f}")
 ```
 
 ---
@@ -178,6 +199,6 @@ for label, name in bundle.label_map.items():
 |---|---|
 | Channel sets match | All files have 64 channels (enforced in `eegbci.load_data`) |
 | Band explicitly set | 8–13 Hz alpha passed to `to_windows()` |
-| Threshold explicit | Absolute 0.3 passed to `ConnectivitySpec` |
+| Threshold explicit | Absolute 0.3 passed to `compute_pearson_connectivity()` |
 | Graph construction logged | `GraphMetricReport` carries all computed values |
 | Condition labels | Run 1 = eyes_open, run 2 = eyes_closed (set in `label_map`) |

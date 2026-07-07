@@ -27,6 +27,7 @@ class WebDatasetWriter:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         shard_idx = 0
+        shards_written = 0
         buffer: list[SampleRecord] = []
         total = 0
 
@@ -35,11 +36,13 @@ class WebDatasetWriter:
             if len(buffer) >= shard_size:
                 self._write_shard(buffer, output_dir, shard_idx, np)
                 shard_idx += 1
+                shards_written += 1
                 total += len(buffer)
                 buffer = []
 
         if buffer:
             self._write_shard(buffer, output_dir, shard_idx, np)
+            shards_written += 1
             total += len(buffer)
 
         if metadata:
@@ -47,7 +50,7 @@ class WebDatasetWriter:
                 json.dumps(metadata, default=str, indent=2)
             )
         (output_dir / "_index.json").write_text(
-            json.dumps({"n_shards": shard_idx + 1, "n_samples": total})
+            json.dumps({"n_shards": shards_written, "n_samples": total})
         )
         return output_dir
 

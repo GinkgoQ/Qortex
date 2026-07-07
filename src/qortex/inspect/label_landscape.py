@@ -56,10 +56,21 @@ class TrialTypeStats:
     def n_subjects_with_this_class(self) -> int:
         return len(self.subject_counts)
 
+    @property
+    def count(self) -> int:
+        """Backward-compatible alias for ``total_count``."""
+        return self.total_count
+
+    @property
+    def n_subjects(self) -> int:
+        """Backward-compatible alias for ``n_subjects_with_this_class``."""
+        return self.n_subjects_with_this_class
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "trial_type": self.trial_type,
             "total_count": self.total_count,
+            "count": self.count,
             "n_subjects": self.n_subjects_with_this_class,
             "mean_duration_s": round(self.mean_duration_s, 3) if self.mean_duration_s is not None else None,
             "std_duration_s": round(self.std_duration_s, 3) if self.std_duration_s is not None else None,
@@ -110,6 +121,16 @@ class ISIStats:
     @property
     def is_fixed_rate(self) -> bool:
         return self.jitter_cv < 0.05
+
+    @property
+    def mean_s(self) -> float:
+        """Backward-compatible alias for ``mean_isi_s``."""
+        return self.mean_isi_s
+
+    @property
+    def std_s(self) -> float:
+        """Backward-compatible alias for ``std_isi_s``."""
+        return self.std_isi_s
 
 
 @dataclass

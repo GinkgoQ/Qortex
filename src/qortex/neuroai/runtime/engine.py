@@ -15,7 +15,7 @@ import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable, Iterator
 
 from qortex.neuroai.benchmark import PipelineProfiler
 from qortex.neuroai.contracts import (
@@ -76,6 +76,10 @@ class RuntimeEngine:
         The CompatibilityReport from the check phase.
     profiler:
         Optional latency profiler (created internally if None).
+    source_iterator:
+        Optional factory for the source iterator.  Defaults to
+        ``source.stream``.  Replay and benchmark paths use this to preserve
+        source adapter state without monkeypatching methods.
     """
 
     def __init__(
@@ -87,6 +91,7 @@ class RuntimeEngine:
         outputs: list[OutputAdapter],
         compat_report: CompatibilityReport | None = None,
         profiler: PipelineProfiler | None = None,
+        source_iterator: Callable[[], Iterator[Any]] | None = None,
     ) -> None:
         self._spec = spec
         self._source = source
@@ -98,6 +103,7 @@ class RuntimeEngine:
             budget_ms=spec.runtime.latency_budget_ms
         )
         self._executor = TransformExecutor(plan)
+        self._source_iterator = source_iterator or source.stream
 
     def run(self) -> PipelineRunReport:
         """Execute the full pipeline and return a run report.
@@ -126,7 +132,7 @@ class RuntimeEngine:
         last_item_at = started_at
 
         with ThreadPoolExecutor(max_workers=num_workers) if num_workers > 0 else _NullExecutor() as pool:
-            stream = iter(self._source.stream())
+            stream = iter(self._source_iterator())
             while True:
                 now = time.monotonic()
                 if max_windows is not None and n_seen >= int(max_windows):

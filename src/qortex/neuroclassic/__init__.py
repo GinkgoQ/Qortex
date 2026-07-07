@@ -59,6 +59,7 @@ from qortex.neuroclassic.connectivity import (
     ConnectivitySpec,
     GraphMetricReport,
     compute_graph_metrics,
+    compute_phase_locking_value_connectivity,
     compute_pearson_connectivity,
 )
 
@@ -71,13 +72,30 @@ from qortex.neuroclassic.stats import (
     compute_statistical_diagnostics,
 )
 
+from qortex.neuroclassic.features import (
+    DEFAULT_EEG_BANDS,
+    SEIZURE_EEG_BANDS,
+    SLEEP_EEG_BANDS,
+    EpochFeatureReport,
+    compute_bandpower_features,
+    compute_epoch_feature_matrix,
+)
+
 from qortex.neuroclassic.infoth import (
     AutocorrelationReport,
     ChannelAutocorrelation,
+    ChannelHiguchiFractalDimension,
     ChannelSpectralEntropy,
+    HiguchiFractalDimensionReport,
     SpectralEntropyReport,
     compute_autocorrelation_summary,
+    compute_higuchi_fractal_dimension,
     compute_spectral_entropy,
+)
+
+from qortex.neuroclassic.spatial import (
+    CSPReport,
+    compute_common_spatial_patterns,
 )
 
 from qortex.neuroclassic.split_optimizer import (
@@ -108,6 +126,7 @@ __all__ = [
     "ConnectivitySpec",
     "GraphMetricReport",
     "compute_graph_metrics",
+    "compute_phase_locking_value_connectivity",
     "compute_pearson_connectivity",
     # Statistics
     "ConfoundAssociation",
@@ -116,13 +135,26 @@ __all__ = [
     "VariableSummary",
     "build_cohort_metric_report",
     "compute_statistical_diagnostics",
+    # Feature extraction
+    "DEFAULT_EEG_BANDS",
+    "SEIZURE_EEG_BANDS",
+    "SLEEP_EEG_BANDS",
+    "EpochFeatureReport",
+    "compute_bandpower_features",
+    "compute_epoch_feature_matrix",
     # Information theory
     "AutocorrelationReport",
     "ChannelAutocorrelation",
+    "ChannelHiguchiFractalDimension",
     "ChannelSpectralEntropy",
+    "HiguchiFractalDimensionReport",
     "SpectralEntropyReport",
     "compute_autocorrelation_summary",
+    "compute_higuchi_fractal_dimension",
     "compute_spectral_entropy",
+    # Spatial filters
+    "CSPReport",
+    "compute_common_spatial_patterns",
     # Split optimisation
     "SplitAssignmentResult",
     "SplitConstraints",

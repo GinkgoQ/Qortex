@@ -205,7 +205,8 @@ def read_raw_with_bids_fallback(
             )
             extra = dict(extra_kwargs)
             extra.pop("preload", None)
-            raw = mne_bids.read_raw_bids(bids_path, preload=preload, **extra)
+            extra["preload"] = preload
+            raw = mne_bids.read_raw_bids(bids_path, extra_params=extra)
             log.debug("MNE-BIDS read succeeded: %s", local_path)
         except ImportError:
             log.debug("mne-bids not installed, using plain MNE for: %s", local_path)

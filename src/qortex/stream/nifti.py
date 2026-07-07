@@ -30,7 +30,9 @@ from __future__ import annotations
 import io
 import logging
 import struct
+import threading
 import zlib
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -129,6 +131,7 @@ class NiftiStreamHeader:
         return {
             "ndim": self.ndim,
             "shape": list(self.shape),
+            "spatial_shape": list(self.spatial_shape),
             "voxel_sizes_mm": list(self.voxel_sizes_mm),
             "tr_s": self.tr_s,
             "dtype": str(self.dtype),
@@ -136,6 +139,16 @@ class NiftiStreamHeader:
             "is_gz": self.is_gz,
             "is_nifti2": self.is_nifti2,
             "description": self.description,
+            # Previously computed internally (as properties/fields) but never
+            # surfaced here — a console API consumer had no way to know a file
+            # was 4D, needed scl_slope/scl_inter calibration, or to place a
+            # voxel in scanner/world space, without a second, separate call.
+            "is_4d": self.is_4d,
+            "n_volumes": self.n_volumes,
+            "scl_slope": self.scl_slope,
+            "scl_inter": self.scl_inter,
+            "needs_scaling": self.needs_scaling,
+            "affine": self.affine.tolist(),
         }
 
     def __str__(self) -> str:
@@ -184,6 +197,17 @@ class NiftiStreamer:
         self._token = token
         self._cache = make_cache(backend=cache_backend, cache_dir=cache_dir)
         self._header: NiftiStreamHeader | None = None
+        # Decompressed-volume LRU (native dtype, unscaled, F-ordered). A .nii.gz
+        # cannot be randomly seeked, so extracting any single slice means
+        # decompressing the whole volume from byte 0 — scrubbing the Z slider
+        # over one compressed volume previously paid that full decode on *every*
+        # slice (O(Z × decode)). Caching the last couple of decoded volumes
+        # collapses that to one decode per volume; scaling and slicing are then
+        # cheap views on top. Kept small (2) so a 4D scrub doesn't retain the
+        # whole series in RAM.
+        self._volume_lru: "OrderedDict[int, np.ndarray]" = OrderedDict()
+        self._volume_lru_max = 2
+        self._lock = threading.Lock()
 
     # ── Public API ────────────────────────────────────────────────────────
 
@@ -250,18 +274,30 @@ class NiftiStreamer:
             raise IndexError(
                 f"Slice index {index} out of range [0, {shape[axis]}) for axis {axis}"
             )
-        if hdr.is_4d and t >= (hdr.n_volumes or 1):
-            raise IndexError(f"Volume index {t} out of range [0, {hdr.n_volumes})")
+        _validate_time_index(hdr, t)
 
-        # For .nii.gz: stream-decompress up to the needed point
-        # For .nii: issue an exact Range request
+        # For .nii.gz: stream-decompress up to the needed point (whole volume;
+        # gzip can't be randomly seeked into, so single-slice extraction isn't
+        # possible without decompressing from the start regardless).
+        # For uncompressed .nii, axis=2 (axial) slices are contiguous in the
+        # file's Fortran-ordered storage — fetch exactly that slice's bytes,
+        # not the whole volume (see _fetch_slice_contiguous). axis=0/1 are not
+        # contiguous (interleaved with a stride spanning most of the volume
+        # regardless of which index is requested), so those still fall back
+        # to a whole-volume fetch; this was previously true for *every* axis,
+        # including axis=2, which made "one slice" cost as much bandwidth as
+        # a full download for the single most commonly viewed plane.
         if self._is_gz:
-            vol_data = self._stream_volume_gz(hdr, t)
+            vol = self._volume_array(hdr, t)
+            slc = np.take(vol, index, axis=axis).copy()
         else:
-            vol_data = self._fetch_volume_raw(hdr, t)
-
-        vol = np.frombuffer(vol_data, dtype=hdr.dtype).reshape(hdr.spatial_shape, order="F")
-        slc = np.take(vol, index, axis=axis).copy()
+            fast = self._fetch_slice_contiguous(hdr, axis, index, t)
+            if fast is not None:
+                nx, ny = hdr.spatial_shape[0], hdr.spatial_shape[1]
+                slc = np.frombuffer(fast, dtype=hdr.dtype).reshape((nx, ny), order="F")
+            else:
+                vol = self._volume_array(hdr, t)
+                slc = np.take(vol, index, axis=axis).copy()
         if hdr.needs_scaling:
             slc = slc.astype(np.float32) * hdr.scl_slope + hdr.scl_inter
         if dtype is not None:
@@ -289,16 +325,16 @@ class NiftiStreamer:
             Apply nibabel ``as_closest_canonical`` reorientation (requires nibabel).
         """
         hdr = self.header()
-        if hdr.is_4d and t >= (hdr.n_volumes or 1):
-            raise IndexError(f"Volume index {t} out of range [0, {hdr.n_volumes})")
-        if self._is_gz:
-            vol_data = self._stream_volume_gz(hdr, t)
-        else:
-            vol_data = self._fetch_volume_raw(hdr, t)
-
-        vol = np.frombuffer(vol_data, dtype=hdr.dtype).reshape(hdr.spatial_shape, order="F").copy()
+        _validate_time_index(hdr, t)
+        vol = self._volume_array(hdr, t)
         if hdr.needs_scaling:
             vol = vol.astype(np.float32) * hdr.scl_slope + hdr.scl_inter
+        elif dtype is None:
+            # Return a writable copy — the cached array is read-only (shared
+            # across callers). np.array always copies (unlike ascontiguousarray,
+            # which can hand back the read-only input when it's already
+            # contiguous), matching the previous .copy() contract.
+            vol = np.array(vol)
         if dtype is not None:
             vol = vol.astype(dtype)
         return vol
@@ -361,14 +397,9 @@ class NiftiStreamer:
         """
         hdr = self.header()
         n_slices = hdr.spatial_shape[axis]
-        if self._is_gz:
-            vol = self.get_volume(t=t)
-        else:
-            vol_data = self._fetch_volume_raw(hdr, t)
-            vol = np.frombuffer(vol_data, dtype=hdr.dtype).reshape(hdr.spatial_shape, order="F").copy()
-            if hdr.needs_scaling:
-                vol = vol.astype(np.float32) * hdr.scl_slope + hdr.scl_inter
-
+        # One decode for the whole volume (cached, scaled, writable), then cheap
+        # views per slice — the same path for compressed and uncompressed files.
+        vol = self.get_volume(t=t)
         return [np.take(vol, i, axis=axis) for i in range(n_slices)]
 
     def stream_stats(self) -> dict[str, Any]:
@@ -411,6 +442,69 @@ class NiftiStreamer:
         offset = hdr.vox_offset + t * hdr.volume_bytes
         return self._fetch_bytes(offset, hdr.volume_bytes, label=f"vol-t{t}")
 
+    def _volume_array(self, hdr: NiftiStreamHeader, t: int) -> np.ndarray:
+        """Return the decoded, native-dtype-preserving, *unscaled* 3D volume for
+        time index ``t`` as a read-only F-ordered array, memoized in a small LRU.
+
+        This is the single decode point for whole-volume access. For a
+        compressed file it turns repeated slice/volume requests (Z-slider
+        scrubbing, MIP, time scrubbing over the cached window) into one decode
+        instead of one per request. The array is deliberately read-only so a
+        caller can never corrupt the shared cache entry — ``get_slice`` copies
+        the extracted plane, ``get_volume`` copies/scales into a fresh array.
+        """
+        with self._lock:
+            hit = self._volume_lru.get(t)
+            if hit is not None:
+                self._volume_lru.move_to_end(t)
+                return hit
+
+        if self._is_gz:
+            vol_data = self._stream_volume_gz(hdr, t)
+        else:
+            vol_data = self._fetch_volume_raw(hdr, t)
+        # np.frombuffer over immutable bytes yields a read-only array; the
+        # reshape preserves that, which is exactly the sharing guarantee we want.
+        vol = np.frombuffer(vol_data, dtype=hdr.dtype).reshape(hdr.spatial_shape, order="F")
+
+        with self._lock:
+            self._volume_lru[t] = vol
+            self._volume_lru.move_to_end(t)
+            while len(self._volume_lru) > self._volume_lru_max:
+                self._volume_lru.popitem(last=False)
+        return vol
+
+    def _fetch_slice_contiguous(
+        self, hdr: NiftiStreamHeader, axis: int, index: int, t: int
+    ) -> bytes | None:
+        """Fetch just the bytes for one 2D slice with a single Range request,
+        when the file's storage order makes that slice contiguous. Returns
+        ``None`` when it isn't (caller falls back to a whole-volume fetch).
+
+        NIfTI voxel data is stored in Fortran (column-major) order: element
+        ``(x, y, z)`` sits at byte offset
+        ``vox_offset + (x + y*nx + z*nx*ny) * itemsize``. Fixing the *last*
+        spatial axis (``axis=2``, axial) makes every ``(x, y)`` element for
+        that ``z`` contiguous — exactly ``nx*ny*itemsize`` bytes starting at
+        ``vox_offset + z*nx*ny*itemsize`` (plus the volume offset for 4D
+        files). Fixing axis 0 or 1 does not: the needed elements are
+        interleaved with a stride of ``nx*itemsize`` or ``nx*ny*itemsize``
+        respectively, spanning a byte range close to the size of the whole
+        volume regardless of which index is requested — a "single range
+        request" for those axes would fetch nearly as much as just fetching
+        the volume, so there's no real optimization available there without
+        issuing many small requests (one per row), which trades bandwidth for
+        request-count/latency and isn't a clear win in general.
+        """
+        if axis != 2:
+            return None
+        nx, ny = hdr.spatial_shape[0], hdr.spatial_shape[1]
+        itemsize = hdr.itemsize
+        slice_bytes = nx * ny * itemsize
+        volume_offset = hdr.vox_offset + t * hdr.volume_bytes
+        slice_offset = volume_offset + index * slice_bytes
+        return self._fetch_bytes(slice_offset, slice_bytes, label=f"slice-ax2-t{t}-i{index}")
+
     def _stream_volume_gz(self, hdr: NiftiStreamHeader, t: int) -> bytes:
         """Stream-decompress a .nii.gz file to extract one 3D volume.
 
@@ -448,6 +542,50 @@ class NiftiStreamer:
 
 # ── NIfTI header parsing ──────────────────────────────────────────────────────
 
+def _validate_time_index(hdr: NiftiStreamHeader, t: int) -> None:
+    """Validate a requested 3D volume index for 3D and 4D NIfTI inputs."""
+    if t < 0:
+        upper = hdr.n_volumes if hdr.is_4d else 1
+        raise IndexError(f"Volume index {t} out of range [0, {upper})")
+    if hdr.is_4d:
+        n_volumes = hdr.n_volumes or 0
+        if t >= n_volumes:
+            raise IndexError(f"Volume index {t} out of range [0, {n_volumes})")
+    elif t != 0:
+        raise IndexError(f"Volume index {t} out of range [0, 1)")
+
+
+def _detect_byte_order(raw: bytes, *, is_nifti2: bool) -> str:
+    """Return the struct/numpy byte-order prefix (``"<"`` or ``">"``) for this
+    header.
+
+    NIfTI does not carry an explicit endianness flag; the canonical detection
+    (the one nibabel uses) reads ``sizeof_hdr`` — a known constant, 348 for
+    NIfTI-1, 540 for NIfTI-2 — as a native int32/int64 at offset 0 and checks
+    which byte order reproduces that constant. Big-endian NIfTI files are rare
+    but valid and real (older FSL/AFNI exports, some PPC-era scanner output);
+    before this, every multi-byte field (dims, dtype, vox_offset, scl, affine)
+    *and* the voxel data itself was read as little-endian unconditionally,
+    silently yielding byte-swapped garbage (e.g. a 4×5×6 volume parsed as
+    1024×1280×1536) rather than an honest error.
+    """
+    expected = _NIFTI2_HDR_SIZE if is_nifti2 else _NIFTI1_HDR_SIZE
+    if is_nifti2:
+        # NIfTI-2 stores sizeof_hdr as an int32 at offset 0.
+        (le,) = struct.unpack_from("<i", raw, 0)
+        (be,) = struct.unpack_from(">i", raw, 0)
+    else:
+        (le,) = struct.unpack_from("<i", raw, 0)
+        (be,) = struct.unpack_from(">i", raw, 0)
+    if le == expected:
+        return "<"
+    if be == expected:
+        return ">"
+    # sizeof_hdr didn't match either order (some minimal writers leave it 0);
+    # fall back to little-endian, the overwhelmingly common on-disk order.
+    return "<"
+
+
 def _parse_nifti_header(
     raw: bytes,
     *,
@@ -466,9 +604,11 @@ def _parse_nifti_header(
     is_nifti1 = raw[344:348] in (_NIFTI1_MAGIC, _NIFTI_PAIR_MAGIC) or raw[344:347] == b"n+1"
 
     if is_nifti2 and len(raw) >= _NIFTI2_HDR_SIZE:
-        return _parse_nifti2(raw, source_url=source_url, is_gz=is_gz, bytes_fetched=bytes_fetched)
+        endian = _detect_byte_order(raw, is_nifti2=True)
+        return _parse_nifti2(raw, source_url=source_url, is_gz=is_gz, bytes_fetched=bytes_fetched, endian=endian)
     elif is_nifti1 and len(raw) >= _NIFTI1_HDR_SIZE:
-        return _parse_nifti1(raw, source_url=source_url, is_gz=is_gz, bytes_fetched=bytes_fetched)
+        endian = _detect_byte_order(raw, is_nifti2=False)
+        return _parse_nifti1(raw, source_url=source_url, is_gz=is_gz, bytes_fetched=bytes_fetched, endian=endian)
     else:
         raise ValueError(
             f"Buffer at {source_url!r} does not appear to be a valid NIfTI file "
@@ -481,42 +621,44 @@ def _parse_nifti1(
     source_url: str,
     is_gz: bool,
     bytes_fetched: int,
+    endian: str = "<",
 ) -> NiftiStreamHeader:
-    """Parse a NIfTI-1 348-byte header.  Little-endian assumed (most files)."""
+    """Parse a NIfTI-1 348-byte header. ``endian`` (``"<"``/``">"``) is
+    detected from ``sizeof_hdr`` by the caller — see ``_detect_byte_order``."""
     # dim[0] = number of dimensions
-    ndim = struct.unpack_from("<h", raw, 40)[0]
+    ndim = struct.unpack_from(f"{endian}h", raw, 40)[0]
     # dim[1..7] = sizes
-    dims = struct.unpack_from("<8h", raw, 40)
+    dims = struct.unpack_from(f"{endian}8h", raw, 40)
     ndim = max(min(int(dims[0]), 7), 1)
     shape = tuple(int(d) for d in dims[1: ndim + 1])
 
     # pixdim[1..7] = voxel sizes
-    pixdims = struct.unpack_from("<8f", raw, 76)
+    pixdims = struct.unpack_from(f"{endian}8f", raw, 76)
     voxel_sizes_mm = tuple(float(pixdims[i + 1]) for i in range(min(ndim, 3)))
     tr_s = float(pixdims[4]) if ndim == 4 else None
 
     # datatype
-    datatype = struct.unpack_from("<h", raw, 70)[0]
+    datatype = struct.unpack_from(f"{endian}h", raw, 70)[0]
     dtype_np = _NIFTI_DTYPE_MAP.get(datatype, np.float32)
 
     # vox_offset (where data starts in the file)
-    vox_offset_f = struct.unpack_from("<f", raw, 108)[0]
+    vox_offset_f = struct.unpack_from(f"{endian}f", raw, 108)[0]
     vox_offset = max(int(vox_offset_f), _NIFTI1_HDR_SIZE)
 
     # scl_slope / scl_inter: intensity calibration applied by nibabel's
     # get_fdata() but easy to miss in a hand-rolled reader — without this,
     # streamed intensities are meaningless raw scanner units for any file
     # that sets non-trivial scaling (common for real scanner exports).
-    scl_slope = struct.unpack_from("<f", raw, 112)[0]
-    scl_inter = struct.unpack_from("<f", raw, 116)[0]
+    scl_slope = struct.unpack_from(f"{endian}f", raw, 112)[0]
+    scl_inter = struct.unpack_from(f"{endian}f", raw, 116)[0]
     if not np.isfinite(scl_slope):
         scl_slope = 1.0
     if not np.isfinite(scl_inter):
         scl_inter = 0.0
 
     # sform / qform affine — build from sform if sform_code > 0
-    sform_code = struct.unpack_from("<h", raw, 254)[0]
-    affine = _extract_affine_nifti1(raw, prefer_sform=(sform_code > 0), shape=shape)
+    sform_code = struct.unpack_from(f"{endian}h", raw, 254)[0]
+    affine = _extract_affine_nifti1(raw, prefer_sform=(sform_code > 0), shape=shape, endian=endian)
 
     description = raw[148:228].split(b"\x00")[0].decode("latin-1", errors="replace").strip()
 
@@ -526,7 +668,9 @@ def _parse_nifti1(
         voxel_sizes_mm=voxel_sizes_mm,
         affine=affine,
         tr_s=tr_s if (tr_s and tr_s > 0) else None,
-        dtype=np.dtype(dtype_np),
+        # Carry the on-disk byte order onto the voxel dtype so np.frombuffer
+        # decodes the data array correctly for big-endian files too.
+        dtype=np.dtype(dtype_np).newbyteorder(endian),
         vox_offset=vox_offset,
         is_gz=is_gz,
         is_nifti2=False,
@@ -543,31 +687,32 @@ def _parse_nifti2(
     source_url: str,
     is_gz: bool,
     bytes_fetched: int,
+    endian: str = "<",
 ) -> NiftiStreamHeader:
-    """Parse a NIfTI-2 540-byte header."""
-    datatype = struct.unpack_from("<h", raw, 12)[0]
+    """Parse a NIfTI-2 540-byte header. ``endian`` is detected by the caller."""
+    datatype = struct.unpack_from(f"{endian}h", raw, 12)[0]
     dtype_np = _NIFTI_DTYPE_MAP.get(datatype, np.float32)
 
-    ndim = struct.unpack_from("<q", raw, 16)[0]
+    ndim = struct.unpack_from(f"{endian}q", raw, 16)[0]
     ndim = max(min(int(ndim), 7), 1)
-    dims = struct.unpack_from("<8q", raw, 16)
+    dims = struct.unpack_from(f"{endian}8q", raw, 16)
     shape = tuple(int(d) for d in dims[1: ndim + 1])
 
-    pixdims = struct.unpack_from("<8d", raw, 104)
+    pixdims = struct.unpack_from(f"{endian}8d", raw, 104)
     voxel_sizes_mm = tuple(float(pixdims[i + 1]) for i in range(min(ndim, 3)))
     tr_s = float(pixdims[4]) if ndim == 4 else None
 
-    vox_offset = int(struct.unpack_from("<q", raw, 168)[0])
+    vox_offset = int(struct.unpack_from(f"{endian}q", raw, 168)[0])
     vox_offset = max(vox_offset, _NIFTI2_HDR_SIZE)
 
-    scl_slope, scl_inter = struct.unpack_from("<2d", raw, 176)
+    scl_slope, scl_inter = struct.unpack_from(f"{endian}2d", raw, 176)
     if not np.isfinite(scl_slope):
         scl_slope = 1.0
     if not np.isfinite(scl_inter):
         scl_inter = 0.0
 
     # NIfTI-2 affine at offset 216 (4×4 float64)
-    affine_vals = struct.unpack_from("<16d", raw, 216)
+    affine_vals = struct.unpack_from(f"{endian}16d", raw, 216)
     affine = np.array(affine_vals, dtype=np.float64).reshape(4, 4)
 
     description = raw[24:104].split(b"\x00")[0].decode("latin-1", errors="replace").strip()
@@ -578,7 +723,7 @@ def _parse_nifti2(
         voxel_sizes_mm=voxel_sizes_mm,
         affine=affine,
         tr_s=tr_s if (tr_s and tr_s > 0) else None,
-        dtype=np.dtype(dtype_np),
+        dtype=np.dtype(dtype_np).newbyteorder(endian),
         vox_offset=vox_offset,
         is_gz=is_gz,
         is_nifti2=True,
@@ -594,6 +739,7 @@ def _extract_affine_nifti1(
     raw: bytes,
     prefer_sform: bool,
     shape: tuple[int, ...],
+    endian: str = "<",
 ) -> np.ndarray:
     """Extract a 4×4 affine from NIfTI-1 sform or qform parameters."""
     affine = np.eye(4, dtype=np.float64)
@@ -602,14 +748,14 @@ def _extract_affine_nifti1(
             # sform row vectors at offsets 280, 296, 312
             row = []
             for off in (280, 296, 312):
-                row.append(struct.unpack_from("<4f", raw, off))
+                row.append(struct.unpack_from(f"{endian}4f", raw, off))
             for i, r in enumerate(row):
                 affine[i, :] = r
         else:
             # qform quaternion parameters
-            qb, qc, qd = struct.unpack_from("<3f", raw, 256)
-            qx, qy, qz = struct.unpack_from("<3f", raw, 268)
-            pixdim = struct.unpack_from("<8f", raw, 76)
+            qb, qc, qd = struct.unpack_from(f"{endian}3f", raw, 256)
+            qx, qy, qz = struct.unpack_from(f"{endian}3f", raw, 268)
+            pixdim = struct.unpack_from(f"{endian}8f", raw, 76)
             qfac = 1.0 if pixdim[0] >= 0 else -1.0
             qa = max(0.0, 1.0 - (qb**2 + qc**2 + qd**2)) ** 0.5
             b, c, d, a = qb, qc, qd, qa

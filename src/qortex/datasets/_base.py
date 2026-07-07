@@ -24,6 +24,16 @@ from pathlib import Path
 from typing import Any
 
 
+# ── Small path helpers ───────────────────────────────────────────────────────
+
+def _infer_bids_root(path: Path) -> Path | None:
+    """Find the nearest BIDS dataset root for a local file path."""
+    for parent in path.parents:
+        if (parent / "dataset_description.json").is_file():
+            return parent
+    return None
+
+
 # ── Dataset card ─────────────────────────────────────────────────────────────
 
 @dataclass(frozen=True)
@@ -94,6 +104,31 @@ class DatasetCard:
         }
 
 
+# ── BIDS/MNE bridge reports ──────────────────────────────────────────────────
+
+@dataclass
+class BIDSRawReadReport:
+    """Result from reading EEG bundle files through MNE-BIDS."""
+    root: Path
+    bids_paths: list[Any]
+    raws: list[Any]
+    event_ids: list[dict[str, int]] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+    @property
+    def n_files(self) -> int:
+        return len(self.raws)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "root": str(self.root),
+            "n_files": self.n_files,
+            "bids_paths": [str(path) for path in self.bids_paths],
+            "event_ids": self.event_ids,
+            "warnings": list(self.warnings),
+        }
+
+
 # ── EEG bundle ───────────────────────────────────────────────────────────────
 
 @dataclass
@@ -125,6 +160,8 @@ class EEGBundle:
     raws: list[Any] = field(default_factory=list)
     epochs: "Any | None" = None          # np.ndarray after .to_windows()
     labels: "Any | None" = None          # np.ndarray after .to_windows()
+    feature_report: "Any | None" = None  # EpochFeatureReport after .to_feature_matrix()
+    bids_read_report: "BIDSRawReadReport | None" = None
     metadata: dict[str, Any] = field(default_factory=dict)
     qc_report: Any = None
 
@@ -232,6 +269,158 @@ class EEGBundle:
         self.epochs = X
         self.labels = y
         return X, y
+
+    def to_feature_matrix(
+        self,
+        *,
+        epochs: "Any | None" = None,
+        bands: dict[str, tuple[float, float]] | None = None,
+        include_relative_bandpower: bool = True,
+        include_log_bandpower: bool = True,
+        include_time_domain: bool = True,
+        include_entropy: bool = False,
+        include_higuchi: bool = False,
+        hfd_k_max: int = 8,
+        scope: str | None = None,
+    ) -> Any:
+        """Compute a named epoch-feature matrix from this bundle.
+
+        If ``epochs`` is omitted, the method uses epochs already produced by
+        :meth:`to_windows`.  This keeps dataset workflows concise while still
+        returning the full ``EpochFeatureReport`` contract with feature names,
+        band definitions, warnings, and provenance.
+        """
+        from qortex.neuroclassic import compute_epoch_feature_matrix
+
+        source_epochs = self.epochs if epochs is None else epochs
+        if source_epochs is None:
+            raise RuntimeError(
+                "No epochs available. Call to_windows() first or pass epochs= explicitly."
+            )
+        report = compute_epoch_feature_matrix(
+            source_epochs,
+            sampling_frequency_hz=self.sfreq,
+            channel_names=self.channel_names,
+            bands=bands,
+            include_relative_bandpower=include_relative_bandpower,
+            include_log_bandpower=include_log_bandpower,
+            include_time_domain=include_time_domain,
+            include_entropy=include_entropy,
+            include_higuchi=include_higuchi,
+            hfd_k_max=hfd_k_max,
+            scope=scope or self.card.name,
+        )
+        self.feature_report = report
+        return report
+
+    def read_bids_raws(
+        self,
+        root: str | Path | None = None,
+        *,
+        preload: bool = False,
+        return_event_dict: bool = False,
+        on_ch_mismatch: str = "raise",
+        extra_params: dict[str, Any] | None = None,
+        check: bool = True,
+        update_bundle: bool = True,
+        verbose: Any | None = None,
+    ) -> BIDSRawReadReport:
+        """Read local EEG files via MNE-BIDS and preserve BIDS sidecars.
+
+        This method is for bundles whose ``local_paths`` point inside a BIDS
+        dataset.  It delegates entity parsing, ``events.tsv`` annotations,
+        ``channels.tsv`` bad-channel handling, and sidecar inheritance to
+        MNE-BIDS while returning a Qortex report object that can be cached on
+        the bundle.
+        """
+        if not self.local_paths:
+            raise RuntimeError("No local files are available in this EEG bundle.")
+
+        valid_mismatch_modes = {"raise", "warn", "reorder", "rename"}
+        if on_ch_mismatch not in valid_mismatch_modes:
+            allowed = ", ".join(sorted(valid_mismatch_modes))
+            raise ValueError(f"on_ch_mismatch must be one of: {allowed}")
+
+        try:
+            import mne_bids
+        except ImportError:
+            raise ImportError(
+                "read_bids_raws() requires MNE-BIDS. Install with: pip install 'qortex[eeg]'"
+            ) from None
+
+        root_path = Path(root).expanduser().resolve() if root is not None else None
+        if root_path is None:
+            inferred_roots = {
+                inferred.resolve()
+                for path in self.local_paths
+                if (inferred := _infer_bids_root(Path(path).expanduser().resolve())) is not None
+            }
+            if len(inferred_roots) != 1:
+                raise ValueError(
+                    "Could not infer a single BIDS root from local_paths. "
+                    "Pass root= explicitly for this bundle."
+                )
+            root_path = inferred_roots.pop()
+
+        if not root_path.exists() or not root_path.is_dir():
+            raise FileNotFoundError(f"BIDS root does not exist or is not a directory: {root_path}")
+
+        read_params = dict(extra_params or {})
+        read_params["preload"] = preload
+        raws: list[Any] = []
+        bids_paths: list[Any] = []
+        event_ids: list[dict[str, int]] = []
+
+        for local_path in self.local_paths:
+            file_path = Path(local_path).expanduser().resolve()
+            if not file_path.exists():
+                raise FileNotFoundError(f"EEG file does not exist: {file_path}")
+            try:
+                file_path.relative_to(root_path)
+            except ValueError:
+                raise ValueError(
+                    f"EEG file is not inside BIDS root {root_path}: {file_path}"
+                ) from None
+
+            bids_path = mne_bids.get_bids_path_from_fname(
+                file_path,
+                check=check,
+                verbose=verbose,
+            )
+            if getattr(bids_path, "root", None) != root_path:
+                updated_bids_path = bids_path.copy()
+                updated_bids_path.update(root=root_path, check=check)
+                bids_path = updated_bids_path
+
+            result = mne_bids.read_raw_bids(
+                bids_path,
+                extra_params=read_params,
+                return_event_dict=return_event_dict,
+                on_ch_mismatch=on_ch_mismatch,
+                verbose=verbose,
+            )
+            if return_event_dict:
+                raw, event_id = result
+                event_ids.append(dict(event_id))
+            else:
+                raw = result
+            raws.append(raw)
+            bids_paths.append(bids_path)
+
+        report = BIDSRawReadReport(
+            root=root_path,
+            bids_paths=bids_paths,
+            raws=raws,
+            event_ids=event_ids,
+        )
+        if update_bundle:
+            self.raws = raws
+            if raws:
+                first_raw = raws[0]
+                self.sfreq = float(first_raw.info["sfreq"])
+                self.channel_names = list(first_raw.ch_names)
+            self.bids_read_report = report
+        return report
 
     def run_qc(self, max_files: int = 5) -> Any:
         """Run signal QC on the first max_files files.

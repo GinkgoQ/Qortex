@@ -20,7 +20,6 @@ from qortex.search.fusion import reciprocal_rank_fusion
 from qortex.search.negative_space import build_negative_space_report
 from qortex.search.ontology import Ontology, canonical_modalities, mine_synonym_clusters
 
-
 # ── Query compiler ──────────────────────────────────────────────────────────
 
 class TestQueryCompiler:

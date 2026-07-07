@@ -10,6 +10,7 @@ Graph algorithms used:
   - Brandes (2001) BFS-based algorithm for unnormalized betweenness centrality.
   - Greedy modularity maximisation (Newman-Girvan Q) for community detection.
   - Watts-Strogatz null model (Erdős–Rényi approximation) for small-world σ.
+  - Phase-locking value (PLV) for phase-synchrony connectivity.
 
 Install extras:
     pip install 'qortex[neuroclassic]'
@@ -310,6 +311,106 @@ def compute_pearson_connectivity(
     )
     return ConnectivityMatrix(
         matrix=corr,
+        node_labels=channel_names,
+        spec=spec,
+        computed_at=datetime.datetime.utcnow().isoformat(),
+    )
+
+
+def compute_phase_locking_value_connectivity(
+    data: np.ndarray,
+    *,
+    channel_names: list[str] | None = None,
+    time_window_s: float = 2.0,
+    sampling_hz: float = 256.0,
+    frequency_band: tuple[float, float] | None = None,
+    threshold: float | None = None,
+    scope: str = "unknown",
+) -> ConnectivityMatrix:
+    """Compute phase-locking value (PLV) connectivity.
+
+    PLV is the absolute mean phase difference between analytic signals:
+    ``PLV_ij = |mean(exp(1j * (phase_i - phase_j)))|``.  Values are in
+    ``[0, 1]`` where 1 means perfectly phase-locked over the selected window.
+
+    Parameters are intentionally parallel to :func:`compute_pearson_connectivity`
+    so callers can swap amplitude-correlation and phase-synchrony estimates
+    without changing their graph-metric pipeline.
+    """
+    if data.ndim != 2:
+        raise ValueError(f"data must be [n_channels, n_times]; got {data.shape}")
+    if sampling_hz <= 0:
+        raise ValueError(f"sampling_hz must be > 0; got {sampling_hz}")
+    n_ch, n_t = data.shape
+    if channel_names is None:
+        channel_names = [f"ch_{i}" for i in range(n_ch)]
+    if len(channel_names) != n_ch:
+        raise ValueError(f"channel_names length {len(channel_names)} != n_channels {n_ch}")
+    if n_t < 2:
+        raise ValueError("PLV requires at least two time samples")
+
+    preprocessing = ["analytic signal phase via Hilbert transform"]
+    working_data = data.astype(np.float64, copy=True)
+
+    if frequency_band is not None:
+        lo, hi = frequency_band
+        if not (0 < lo < hi < sampling_hz / 2):
+            raise ValueError(
+                "frequency_band must satisfy 0 < low < high < Nyquist; "
+                f"got {frequency_band} at sampling_hz={sampling_hz}"
+            )
+        try:
+            from scipy.signal import butter, filtfilt
+            b, a = butter(4, [lo / (sampling_hz / 2), hi / (sampling_hz / 2)], btype="band")
+            for i in range(n_ch):
+                if np.isfinite(working_data[i]).all():
+                    working_data[i] = filtfilt(b, a, working_data[i])
+            preprocessing.append(f"bandpass filtered {lo}-{hi} Hz (Butterworth order 4)")
+        except ImportError:
+            preprocessing.append(
+                "frequency_band requested but scipy is unavailable; PLV used unfiltered data"
+            )
+
+    win_samples = min(max(int(time_window_s * sampling_hz), 2), n_t)
+    segment = working_data[:, :win_samples]
+    valid_mask = np.isfinite(segment).all(axis=1)
+    phases = np.zeros_like(segment, dtype=np.float64)
+    if valid_mask.any():
+        phases[valid_mask] = np.angle(_analytic_signal(segment[valid_mask], axis=1))
+
+    plv = np.zeros((n_ch, n_ch), dtype=np.float64)
+    for i in range(n_ch):
+        if not valid_mask[i]:
+            continue
+        plv[i, i] = 1.0
+        for j in range(i + 1, n_ch):
+            if not valid_mask[j]:
+                continue
+            value = float(np.abs(np.mean(np.exp(1j * (phases[i] - phases[j])))))
+            plv[i, j] = plv[j, i] = value
+
+    threshold_rule = None
+    if threshold is not None:
+        if not (0.0 <= threshold <= 1.0):
+            raise ValueError(f"threshold must be in [0, 1] for PLV; got {threshold}")
+        plv = np.where(plv >= threshold, plv, 0.0)
+        threshold_rule = f"PLV >= {threshold}"
+
+    import datetime
+    spec = ConnectivitySpec(
+        input_signal_type="EEG",
+        node_definition="EEG_channel",
+        parcellation_or_channel_set=channel_names,
+        time_window_s=time_window_s,
+        preprocessing_assumptions=preprocessing,
+        connectivity_metric="phase_locking_value",
+        frequency_band=frequency_band,
+        thresholding_rule=threshold_rule,
+        matrix_symmetry="symmetric",
+        edge_weight_meaning="phase_locking_value",
+    )
+    return ConnectivityMatrix(
+        matrix=plv,
         node_labels=channel_names,
         spec=spec,
         computed_at=datetime.datetime.utcnow().isoformat(),
@@ -667,3 +768,31 @@ def _small_world_sigma(
         return None
 
     return round(gamma / lam, 4)
+
+
+def _analytic_signal(data: np.ndarray, *, axis: int = -1) -> np.ndarray:
+    """Return the analytic signal using scipy when available, otherwise FFT.
+
+    The fallback mirrors the standard Hilbert-transform construction used by
+    scipy.signal.hilbert: double positive-frequency bins, retain DC and Nyquist
+    bins, and zero negative frequencies.
+    """
+    try:
+        from scipy.signal import hilbert
+        return hilbert(data, axis=axis)
+    except ImportError:
+        pass
+
+    x = np.asarray(data)
+    n = x.shape[axis]
+    spectrum = np.fft.fft(x, axis=axis)
+    h = np.zeros(n, dtype=np.float64)
+    if n % 2 == 0:
+        h[0] = h[n // 2] = 1.0
+        h[1:n // 2] = 2.0
+    else:
+        h[0] = 1.0
+        h[1:(n + 1) // 2] = 2.0
+    shape = [1] * x.ndim
+    shape[axis] = n
+    return np.fft.ifft(spectrum * h.reshape(shape), axis=axis)

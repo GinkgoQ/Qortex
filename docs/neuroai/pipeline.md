@@ -311,10 +311,12 @@ print(bench.summary())
 ```
 
 `benchmark()` loads weights, runs `n_windows` windows through source →
-preprocess → inference, and records per-stage timing. No output adapters are
-opened — nothing is written to disk or LSL. For `batch_size > 1`, Qortex stores
-real batch timings and reports derived per-window latency separately, instead
-of assigning the whole batch latency to the first window.
+preprocess → inference → the standard output-write stage, and records per-stage
+timing. It uses an in-memory output sink, so the same runtime output lifecycle
+is exercised without writing files, LSL markers, or network callbacks. For
+`batch_size > 1`, Qortex stores real batch timings and reports derived
+per-window latency separately, instead of assigning the whole batch latency to
+the first window.
 
 `LatencyReport` fields:
 
@@ -341,7 +343,9 @@ pipe.replay("recording.xdf", speed=2.0, output_dir=Path("replay_out/"))
 `replay()` constructs a temporary pipeline with `source_path` as the source,
 then re-runs compatibility and preprocessing planning against that replay
 source. The original pipeline state is not mutated. `output_dir` redirects file
-outputs.
+outputs. Runtime iteration calls the source adapter's `replay(speed=...)`
+method, so adapters with time-aware replay control playback pacing directly;
+nonpositive speeds are rejected before the model is loaded.
 
 ## Trigger system
 

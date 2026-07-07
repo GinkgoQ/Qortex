@@ -13,9 +13,16 @@ from __future__ import annotations
 
 from qortex.search.compiler import Constraint, QueryPlan, compile_query
 from qortex.search.engine import SearchEngine, SearchResponse, SearchResult
-from qortex.search.evidence import EvidencePartition, partition_has_derivatives, partition_has_events
+from qortex.search.evidence import (
+    EvidencePartition,
+    partition_has_derivatives,
+    partition_has_events,
+)
 from qortex.search.fusion import FusedResult, reciprocal_rank_fusion
-from qortex.search.negative_space import NegativeSpaceReport, build_negative_space_report
+from qortex.search.negative_space import (
+    NegativeSpaceReport,
+    build_negative_space_report,
+)
 from qortex.search.ontology import Ontology, canonical_modalities, mine_synonym_clusters
 
 __all__ = [

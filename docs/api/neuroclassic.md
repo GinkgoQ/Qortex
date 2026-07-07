@@ -106,6 +106,10 @@ Every method returns a `NeuroClassicResult` (single file) or `NeuroClassicReport
     options:
       show_source: false
 
+::: qortex.neuroclassic.compute_phase_locking_value_connectivity
+    options:
+      show_source: false
+
 ::: qortex.neuroclassic.compute_graph_metrics
     options:
       show_source: false
@@ -170,6 +174,38 @@ Every method returns a `NeuroClassicResult` (single file) or `NeuroClassicReport
 
 ---
 
+## Feature extraction
+
+::: qortex.neuroclassic.compute_epoch_feature_matrix
+    options:
+      show_source: false
+
+::: qortex.neuroclassic.compute_bandpower_features
+    options:
+      show_source: false
+
+::: qortex.neuroclassic.EpochFeatureReport
+    options:
+      show_source: false
+      members:
+        - shape
+        - to_result
+        - to_dict
+
+::: qortex.neuroclassic.DEFAULT_EEG_BANDS
+    options:
+      show_source: false
+
+::: qortex.neuroclassic.SLEEP_EEG_BANDS
+    options:
+      show_source: false
+
+::: qortex.neuroclassic.SEIZURE_EEG_BANDS
+    options:
+      show_source: false
+
+---
+
 ## Information theory
 
 ::: qortex.neuroclassic.compute_spectral_entropy
@@ -177,6 +213,10 @@ Every method returns a `NeuroClassicResult` (single file) or `NeuroClassicReport
       show_source: false
 
 ::: qortex.neuroclassic.compute_autocorrelation_summary
+    options:
+      show_source: false
+
+::: qortex.neuroclassic.compute_higuchi_fractal_dimension
     options:
       show_source: false
 
@@ -204,6 +244,37 @@ Every method returns a `NeuroClassicResult` (single file) or `NeuroClassicReport
     options:
       show_source: false
       members:
+        - to_dict
+
+::: qortex.neuroclassic.HiguchiFractalDimensionReport
+    options:
+      show_source: false
+      members:
+        - to_result
+        - to_dict
+
+::: qortex.neuroclassic.ChannelHiguchiFractalDimension
+    options:
+      show_source: false
+      members:
+        - to_dict
+
+---
+
+## Spatial filters
+
+::: qortex.neuroclassic.compute_common_spatial_patterns
+    options:
+      show_source: false
+
+::: qortex.neuroclassic.CSPReport
+    options:
+      show_source: false
+      members:
+        - n_components
+        - n_epochs
+        - transform
+        - to_result
         - to_dict
 
 ---

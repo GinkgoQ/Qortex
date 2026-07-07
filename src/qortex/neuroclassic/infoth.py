@@ -22,6 +22,10 @@ AutocorrelationReport
       max_acf    — maximum ACF value (excluding lag 0)
       is_white_noise — True if lag-1 ACF ≈ 0 (|lag1| < 1/sqrt(n))
 
+HiguchiFractalDimensionReport
+    Per-channel Higuchi fractal dimension (HFD), a nonlinear signal-complexity
+    descriptor widely used for EEG/MEG.  Reports numerical complexity only.
+
 Requires numpy.  scipy optional (for Welch PSD; falls back to FFT-based estimate).
 
 Install extras:
@@ -73,6 +77,20 @@ _SPEC_ACF = NeuroClassicSpec(
         "Reported half-life uses 0.5 as the ACF threshold — this is a temporal redundancy diagnostic, not a Lyapunov stability estimate.",
     ],
     invalid_input_states=["Constant channel (variance = 0)", "< 10 samples"],
+)
+
+_SPEC_HFD = NeuroClassicSpec(
+    method_name="higuchi_fractal_dimension",
+    modality="eeg",
+    target_workflow="visualize,convert,train",
+    required_evidence=["data_array"],
+    optional_evidence=["channel_names", "sampling_frequency"],
+    assumptions=[
+        "Data is [n_channels, n_times] layout.",
+        "Higuchi fractal dimension is a nonlinear complexity descriptor, not a diagnostic measure.",
+        "k_max controls the largest time scale considered and should be chosen relative to sampling frequency and window length.",
+    ],
+    invalid_input_states=["Constant channel", "< 2 * k_max samples", "k_max < 2"],
 )
 
 
@@ -240,6 +258,88 @@ class AutocorrelationReport:
             "mean_lag1": self.mean_lag1,
             "mean_decay_ms": self.mean_decay_ms,
             "n_high_autocorr": self.n_high_autocorr,
+            "channels": [c.to_dict() for c in self.channels],
+            "warnings": self.warnings,
+            "confidence": self.confidence.value,
+        }
+
+
+@dataclass
+class ChannelHiguchiFractalDimension:
+    """Higuchi fractal dimension for one channel."""
+    name: str
+    index: int
+    hfd: float | None
+    k_max: int
+    n_scales_used: int
+    low_confidence: bool = False
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "index": self.index,
+            "higuchi_fractal_dimension": self.hfd,
+            "k_max": self.k_max,
+            "n_scales_used": self.n_scales_used,
+            "low_confidence": self.low_confidence,
+        }
+
+
+@dataclass
+class HiguchiFractalDimensionReport:
+    """Higuchi fractal dimension across channels."""
+    scope: str
+    n_channels: int
+    n_times: int
+    k_max: int
+    sampling_frequency_hz: float | None = None
+    channels: list[ChannelHiguchiFractalDimension] = field(default_factory=list)
+    mean_hfd: float | None = None
+    std_hfd: float | None = None
+    runtime_s: float = 0.0
+    warnings: list[str] = field(default_factory=list)
+    confidence: MethodConfidence = MethodConfidence.HIGH
+
+    def to_result(self) -> NeuroClassicResult:
+        metrics = [
+            MetricResult("n_channels", self.n_channels),
+            MetricResult(
+                "mean_higuchi_fractal_dimension",
+                self.mean_hfd,
+                interpretation="Higher values indicate greater signal complexity.",
+            ),
+            MetricResult("std_higuchi_fractal_dimension", self.std_hfd),
+            MetricResult("k_max", self.k_max),
+        ]
+        for ch in self.channels:
+            metrics.append(MetricResult(f"hfd.{ch.name}", ch.hfd))
+        return NeuroClassicResult(
+            method_name="higuchi_fractal_dimension",
+            method_version=__version__,
+            modality="eeg",
+            scope=self.scope,
+            inputs={"n_channels": self.n_channels, "n_times": self.n_times},
+            parameters={
+                "k_max": self.k_max,
+                "sampling_frequency_hz": self.sampling_frequency_hz,
+            },
+            assumptions=_SPEC_HFD.assumptions,
+            metrics=metrics,
+            warnings=self.warnings,
+            runtime_s=self.runtime_s,
+            confidence=self.confidence,
+            provenance={"method": "higuchi_fractal_dimension", "version": __version__},
+        )
+
+    def to_dict(self) -> dict:
+        return {
+            "scope": self.scope,
+            "n_channels": self.n_channels,
+            "n_times": self.n_times,
+            "k_max": self.k_max,
+            "sampling_frequency_hz": self.sampling_frequency_hz,
+            "mean_hfd": self.mean_hfd,
+            "std_hfd": self.std_hfd,
             "channels": [c.to_dict() for c in self.channels],
             "warnings": self.warnings,
             "confidence": self.confidence.value,
@@ -499,6 +599,74 @@ def compute_autocorrelation_summary(
     return report
 
 
+def compute_higuchi_fractal_dimension(
+    data: np.ndarray,
+    *,
+    channel_names: list[str] | None = None,
+    scope: str = "unknown",
+    k_max: int = 10,
+    sampling_frequency_hz: float | None = None,
+) -> HiguchiFractalDimensionReport:
+    """Compute Higuchi fractal dimension (HFD) per channel.
+
+    HFD estimates nonlinear waveform complexity from curve length growth over
+    increasingly coarse time scales.  It is useful for EEG/MEG feature
+    extraction and QC, but Qortex reports it only as a numerical descriptor.
+    """
+    t0 = time.perf_counter()
+    if data.ndim != 2:
+        raise ValueError(f"data must be [n_channels, n_times]; got {data.shape}")
+    if k_max < 2:
+        raise ValueError(f"k_max must be >= 2; got {k_max}")
+    if sampling_frequency_hz is not None and sampling_frequency_hz <= 0:
+        raise ValueError(f"sampling_frequency_hz must be > 0; got {sampling_frequency_hz}")
+
+    n_ch, n_t = data.shape
+    if channel_names is None:
+        channel_names = [f"ch_{i}" for i in range(n_ch)]
+    if len(channel_names) != n_ch:
+        raise ValueError(f"channel_names length {len(channel_names)} != n_channels {n_ch}")
+
+    report = HiguchiFractalDimensionReport(
+        scope=scope,
+        n_channels=n_ch,
+        n_times=n_t,
+        k_max=k_max,
+        sampling_frequency_hz=sampling_frequency_hz,
+    )
+    if n_t < 2 * k_max:
+        report.confidence = MethodConfidence.LOW_CONFIDENCE
+        report.warnings.append(
+            f"n_times={n_t} is shorter than 2*k_max={2 * k_max}; HFD estimates are low-confidence."
+        )
+
+    values: list[float] = []
+    channels: list[ChannelHiguchiFractalDimension] = []
+    for i, ch_name in enumerate(channel_names):
+        finite = data[i][np.isfinite(data[i])].astype(np.float64, copy=False)
+        hfd, n_scales = _higuchi_fd_1d(finite, k_max=k_max)
+        if hfd is not None:
+            values.append(hfd)
+        channels.append(ChannelHiguchiFractalDimension(
+            name=ch_name,
+            index=i,
+            hfd=hfd,
+            k_max=k_max,
+            n_scales_used=n_scales,
+            low_confidence=hfd is None or n_t < 2 * k_max,
+        ))
+
+    report.channels = channels
+    if values:
+        report.mean_hfd = float(np.mean(values))
+        report.std_hfd = float(np.std(values, ddof=1)) if len(values) > 1 else 0.0
+    else:
+        report.confidence = MethodConfidence.UNKNOWN
+        report.warnings.append("No channel had enough non-constant finite samples for HFD.")
+    report.runtime_s = time.perf_counter() - t0
+    return report
+
+
 # ── PSD helpers ───────────────────────────────────────────────────────────────
 
 def _estimate_psd(row: np.ndarray, sfreq: float, nperseg: int) -> tuple[np.ndarray, int]:
@@ -522,3 +690,32 @@ def _shannon_entropy_bits(psd: np.ndarray) -> float | None:
     p = psd_pos / psd_pos.sum()
     with np.errstate(divide="ignore"):
         return float(-np.sum(p * np.log2(p)))
+
+
+def _higuchi_fd_1d(x: np.ndarray, *, k_max: int) -> tuple[float | None, int]:
+    """Higuchi fractal dimension for one finite 1-D signal."""
+    n = int(x.size)
+    if n < 2 * k_max or float(np.nanstd(x)) == 0.0:
+        return None, 0
+
+    lengths: list[float] = []
+    inv_scales: list[float] = []
+    for k in range(1, k_max + 1):
+        lm: list[float] = []
+        for m in range(k):
+            idx = np.arange(m, n, k)
+            if idx.size < 2:
+                continue
+            diffs = np.abs(np.diff(x[idx]))
+            norm = (n - 1) / ((idx.size - 1) * k)
+            lm.append(float(np.sum(diffs) * norm / k))
+        if lm:
+            lk = float(np.mean(lm))
+            if lk > 0:
+                lengths.append(lk)
+                inv_scales.append(1.0 / k)
+
+    if len(lengths) < 2:
+        return None, len(lengths)
+    slope, _intercept = np.polyfit(np.log(inv_scales), np.log(lengths), 1)
+    return float(slope), len(lengths)

@@ -132,6 +132,22 @@ class ModalityBudget:
     window_duration_s: float | None = None
     window_overlap: float = 0.0
 
+    @property
+    def total_hours(self) -> float:
+        """Backward-compatible alias for ``total_duration_hours``."""
+        return self.total_duration_hours
+
+    @property
+    def avg_sfreq(self) -> float:
+        """Backward-compatible alias for ``mean_sfreq``.
+
+        Older scenario scripts formatted this value numerically even for
+        modalities such as fMRI where a sampling frequency is not defined in
+        the sidecar summary. Return 0.0 for that display-only compatibility
+        surface while preserving ``mean_sfreq=None`` in structured output.
+        """
+        return self.mean_sfreq if self.mean_sfreq is not None else 0.0
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "modality": self.modality,

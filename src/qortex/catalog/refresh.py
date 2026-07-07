@@ -56,6 +56,55 @@ query AllDatasets($after: String, $first: Int!) {
 """
 
 
+def _offset_cursor(offset: int) -> str | None:
+    """Build OpenNeuro's base64 ``{"offset": N}`` cursor for page N. Returns
+    None for offset 0 (the first page is requested with no ``after``). This is
+    what makes concurrent paging possible: every page's cursor is known from
+    its index alone, with no need to chain through prior ``endCursor`` values."""
+    if offset <= 0:
+        return None
+    import base64
+    import json as _json
+
+    return base64.b64encode(_json.dumps({"offset": int(offset)}).encode()).decode()
+
+
+def _advance_cursor(cursor: str, page_size: int) -> str | None:
+    """OpenNeuro's dataset cursor is base64 ``{"offset": N}``. Bump the offset
+    by one page so a hard-failed page can be skipped rather than retried
+    forever. Returns None if the cursor isn't the expected offset shape."""
+    import base64
+    import json as _json
+
+    try:
+        payload = _json.loads(base64.b64decode(cursor).decode())
+        payload["offset"] = int(payload.get("offset", 0)) + page_size
+        return base64.b64encode(_json.dumps(payload).encode()).decode()
+    except Exception:  # noqa: BLE001 - unknown cursor shape, give up cleanly
+        return None
+
+
+def _fetch_page(client, cursor, page_size):
+    """Fetch one page of dataset nodes and return (rows, page_info).
+
+    ``partial_ok``: OpenNeuro has a handful of datasets with a broken
+    latestSnapshot that return a field-level "Not Found". Without tolerating
+    that the whole sweep aborts on the first such page (~offset 250) — the
+    exact reason the catalog was stuck near 300 instead of the full ~1.8k.
+    Null edges/nodes (the broken datasets) are simply skipped."""
+    variables: dict[str, Any] = {"first": page_size}
+    if cursor:
+        variables["after"] = cursor
+    data = client._query(_Q_ALL_DATASETS, variables=variables, partial_ok=True)
+    page_data = data.get("datasets") or {}
+    rows = [
+        normalize_dataset_node(node)
+        for edge in (page_data.get("edges") or [])
+        if (node := (edge or {}).get("node"))
+    ]
+    return rows, (page_data.get("pageInfo") or {})
+
+
 def refresh(
     catalog_path: Path | None = None,
     max_pages: int = 40,
@@ -64,20 +113,29 @@ def refresh(
     page_size: int = 50,
     include_file_summary: bool = False,
     file_summary_limit: int | None = None,
+    workers: int = 8,
+    on_progress=None,
 ) -> int:
     """Fetch dataset metadata from OpenNeuro and populate the local catalog.
 
+    Count-first, then fast: the total is fetched up front (one cheap query),
+    which both gives an honest progress denominator and lets the metadata
+    sweep pre-compute every page's offset cursor and fetch them CONCURRENTLY
+    (``OpenNeuroClient`` is thread-safe). Writes stay on this thread — DuckDB's
+    single connection serializes them, and the set-based bulk upsert makes that
+    cheap. Deep file-summary ingestion (``include_file_summary``) stays on the
+    sequential cursor-chained path, one dataset at a time.
+
     Parameters
     ----------
-    include_file_summary:
-        When true, fetches the recursive file manifest for each indexed dataset
-        and digests extensions, datatypes, suffixes, event files, derivative
-        files, and metadata/primary counts into the catalog. This is more
-        expensive than metadata-only ingestion, but it gives the search layer
-        real file-content facets.
-    file_summary_limit:
-        Optional cap on how many datasets receive deep file-summary ingestion
-        during this refresh call.
+    workers:
+        Concurrent page fetchers for the metadata sweep. 1 forces the
+        sequential path. Ignored when ``include_file_summary`` is set.
+    on_progress:
+        Optional ``callable(done, total)`` invoked as datasets land — wires
+        straight into the job system's progress hook.
+    include_file_summary / file_summary_limit:
+        As before — deep, per-dataset file-content facets (slower).
     """
     cfg = get_config()
     if catalog_path is None:
@@ -85,45 +143,94 @@ def refresh(
 
     index = CatalogIndex(catalog_path)
     client = OpenNeuroClient()
-    count = 0
-    deep_count = 0
-
     try:
-        cursor: str | None = None
-        for page in range(max_pages):
-            variables: dict[str, Any] = {"first": page_size}
-            if cursor:
-                variables["after"] = cursor
-            data = client._query(_Q_ALL_DATASETS, variables=variables)
+        total = 0
+        try:
+            total = client.count_datasets()
+        except Exception:  # noqa: BLE001 - count is a nicety; sweep still works
+            total = 0
+        if progress and total:
+            print(f"OpenNeuro reports {total} datasets — indexing…")
 
-            page_data = data.get("datasets", {})
-            edges = page_data.get("edges", [])
-            page_info = page_data.get("pageInfo", {})
-
-            rows = []
-            for edge in edges:
-                node = edge.get("node", {})
-                row = normalize_dataset_node(node)
-                if include_file_summary and (
-                    file_summary_limit is None or deep_count < file_summary_limit
-                ):
-                    row.update(_fetch_file_summary(client, row["dataset_id"], row.get("snapshot")))
-                    deep_count += 1
-                rows.append(row)
-
-            index.upsert_many(rows)
-            count += len(rows)
-
-            if progress:
-                suffix = f", deep summaries: {deep_count}" if include_file_summary else ""
-                print(f"  Page {page + 1}: {len(rows)} datasets (total: {count}{suffix})")
-
-            if not page_info.get("hasNextPage"):
-                break
-            cursor = page_info.get("endCursor")
+        if total and workers and workers > 1 and not include_file_summary:
+            return _refresh_concurrent(
+                client, index, total, page_size, max_pages, workers, progress, on_progress
+            )
+        return _refresh_sequential(
+            client, index, total, page_size, max_pages,
+            include_file_summary, file_summary_limit, progress, on_progress,
+        )
     finally:
         client.close()
         index.close()
+
+
+def _refresh_concurrent(client, index, total, page_size, max_pages, workers, progress, on_progress) -> int:
+    """Known count → independent offset cursors → parallel fetch, serial write."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    n_pages = min(max_pages, (total + page_size - 1) // page_size)
+    offsets = [k * page_size for k in range(n_pages)]
+    count = 0
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(_fetch_page, client, _offset_cursor(off), page_size): off for off in offsets}
+        for future in as_completed(futures):
+            off = futures[future]
+            try:
+                rows, _ = future.result()
+            except Exception as exc:  # noqa: BLE001 - one bad page never sinks the run
+                if progress:
+                    print(f"  offset {off}: skipped ({type(exc).__name__}: {exc})")
+                continue
+            index.upsert_many(rows)  # main thread: DuckDB writes stay serialized
+            count += len(rows)
+            if on_progress:
+                on_progress(count, total)
+            if progress:
+                print(f"  +{len(rows)} (offset {off}) → {count}/{total}")
+    return count
+
+
+def _refresh_sequential(client, index, total, page_size, max_pages,
+                        include_file_summary, file_summary_limit, progress, on_progress) -> int:
+    """Cursor-chained fallback (and the deep-profile path). Resilient: one bad
+    page is skipped by advancing the offset rather than aborting the sweep."""
+    count = 0
+    deep_count = 0
+    cursor: str | None = None
+    for page in range(max_pages):
+        try:
+            rows, page_info = _fetch_page(client, cursor, page_size)
+        except Exception as exc:  # noqa: BLE001 - keep sweeping past a bad page
+            if progress:
+                print(f"  Page {page + 1}: skipped ({type(exc).__name__}: {exc})")
+            if cursor is None:
+                break
+            next_cursor = _advance_cursor(cursor, page_size)
+            if next_cursor is None:
+                break
+            cursor = next_cursor
+            continue
+
+        if include_file_summary:
+            for row in rows:
+                if file_summary_limit is not None and deep_count >= file_summary_limit:
+                    break
+                row.update(_fetch_file_summary(client, row["dataset_id"], row.get("snapshot")))
+                deep_count += 1
+
+        index.upsert_many(rows)
+        count += len(rows)
+        if on_progress and total:
+            on_progress(count, total)
+        if progress:
+            suffix = f", deep summaries: {deep_count}" if include_file_summary else ""
+            print(f"  Page {page + 1}: {len(rows)} datasets (total: {count}{suffix})")
+
+        if not page_info.get("hasNextPage"):
+            break
+        cursor = page_info.get("endCursor")
+    return count
 
     return count
 

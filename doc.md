@@ -861,8 +861,28 @@ All inherit `_base.py → TrainingBridge`. `prepare(manifest, split) → framewo
 ### `stream/` — Direct file streaming (non-pipeline)
 
 **`edf.py`** — `EDFStreamer(path)` → yields epochs; uses MNE `read_raw_edf`.
-**`nifti.py`** — `NiftiStreamer(path)` → yields volume slices or TR volumes.
-**`_cache.py`** — per-streamer LRU cache to avoid repeated file opens.
+**`nifti.py`** — `NiftiStreamer(url_or_path)` → header, 2D slices, or 3D/TR
+volumes from a **remote** `.nii`/`.nii.gz` via HTTP byte-range reads, without
+downloading the whole file. Key properties:
+
+- **Header-only** parse (< 128 KB): shape, voxel sizes, TR, affine, dtype,
+  `vox_offset`, `scl_slope`/`scl_inter`.
+- **Endianness-safe**: NIfTI carries no endian flag, so the byte order is
+  detected from `sizeof_hdr` (the nibabel-canonical method) and carried onto
+  the voxel dtype. Big-endian files (older FSL/AFNI, PPC-era scanners) decode
+  correctly — before this they were read as little-endian garbage
+  (`_detect_byte_order`).
+- **Axial fast path** (`_fetch_slice_contiguous`): for an uncompressed `.nii`,
+  an `axis=2` slice is contiguous in Fortran-ordered storage, so exactly one
+  `nx*ny*itemsize` Range request is issued — not a whole-volume fetch. `axis=0/1`
+  and any `.nii.gz` fall back to a whole-volume decode.
+- **Decompressed-volume LRU** (`_volume_array`): a `.nii.gz` can't be seeked, so
+  any slice means decompressing the volume from byte 0; the decoded volume is
+  memoized (small LRU) so scrubbing Z-slices or timepoints over one volume
+  decodes it once, not once per slice.
+
+**`_cache.py`** — per-streamer LRU + optional disk cache of fetched byte ranges,
+so repeated Range requests to the same offsets never re-hit the network.
 
 ### `runtime/` — ML dataset wrappers
 

@@ -11,6 +11,12 @@ bundle = eegbci.load_data(       # EEGBundle — downloads and caches via MNE
     runs=[4, 8, 12],
 )
 X, y = bundle.to_windows(window_s=4.0, bandpass=(8.0, 30.0))
+features = bundle.to_feature_matrix()
+print(features.shape, features.feature_names[:5])
+
+# For local BIDS EEG datasets, delegate sidecar-aware reads to MNE-BIDS.
+bids_report = bundle.read_bids_raws(root="./data/my-bids-dataset", preload=False)
+print(bids_report.n_files, bids_report.to_dict()["bids_paths"][:1])
 ```
 
 ---
@@ -48,17 +54,34 @@ X, y = bundle.to_windows(window_s=4.0, bandpass=(8.0, 30.0))
 
 ## EEGBundle
 
-Returned by EEG dataset loaders (`eegbci`, `sleep_edf`, `chbmit`).
+Returned by EEG dataset loaders (`eegbci`, `sleep_edf`, `chbmit`). In
+addition to Qortex windowing, QC, and feature extraction, `EEGBundle` can read
+local BIDS EEG recordings through MNE-BIDS when `qortex[eeg]` is installed.
+That path preserves BIDS entities, `events.tsv` annotations, `channels.tsv`
+bad-channel metadata, and inherited sidecars in the upstream MNE `Raw` object.
 
 ::: qortex.datasets._base.EEGBundle
     options:
       show_source: false
       members:
         - to_windows
+        - to_feature_matrix
+        - read_bids_raws
         - run_qc
         - info
         - n_channels
         - n_files
+
+## BIDSRawReadReport
+
+Returned by `EEGBundle.read_bids_raws()`.
+
+::: qortex.datasets.BIDSRawReadReport
+    options:
+      show_source: false
+      members:
+        - n_files
+        - to_dict
 
 ---
 

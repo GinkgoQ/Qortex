@@ -57,8 +57,8 @@ pip install "qortex[hdf5]"
 ```python
 import h5py
 with h5py.File("artifacts/ds004130/train/data.h5", "r") as f:
-    X = f["X"][:32]
-    y = f["y"][:32]
+    X = f["signals"][:32]
+    metadata = f["metadata"][:32]
 ```
 
 **Best for:** legacy pipelines that already use HDF5, MATLAB interop.
@@ -67,7 +67,7 @@ with h5py.File("artifacts/ds004130/train/data.h5", "r") as f:
 
 ## WebDataset
 
-Sharded tar archives, each containing one sample as a pair of files: `{key}.npy` (features) and `{key}.cls` (label). Compatible with the WebDataset library.
+Sharded tar archives, each containing one sample as `{key}.npy` (signal array) and `{key}.json` (sample metadata, including subject, label, timing, split, and modality). Compatible with streaming tar readers and the WebDataset library.
 
 ```bash
 pip install "qortex[torch]"  # webdataset is bundled with the torch extra
@@ -76,10 +76,11 @@ pip install "qortex[torch]"  # webdataset is bundled with the torch extra
 ```python
 import webdataset as wds
 
-ds_wds = wds.WebDataset("artifacts/ds004130/train/shard-{000000..000099}.tar")
+ds_wds = wds.WebDataset("artifacts/ds004130/train/shard_{00000..00099}.tar")
 for sample in ds_wds:
     X = sample["npy"]
-    y = sample["cls"]
+    metadata = sample["json"]
+    y = metadata["label"]
 ```
 
 **Best for:** large-scale distributed training, cloud storage (S3, GCS).
@@ -96,7 +97,7 @@ pip install "qortex[hf]"
 from datasets import load_from_disk
 
 hf_ds = load_from_disk("artifacts/ds004130/train/")
-X = hf_ds["X"]
+X = hf_ds["signal"]
 y = hf_ds["label"]
 ```
 

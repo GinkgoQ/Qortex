@@ -22,7 +22,9 @@ planning, remote metadata preview, metadata-only and exact-path plans, EDA,
 event/table conversion, readiness, loaders, windowing, local indexing,
 validation report exports, catalog search, CLI behavior, high-level Dataset
 facade usage, live OpenNeuro metadata, decision-first workflows, and deep
-catalog metadata ingestion when the network is available.
+catalog metadata ingestion when the network is available. The final coverage
+project validates that every tutorial and runnable scenario is represented in
+the tutorial/project coverage map.
 
 `test/run_all.py` shares one real metadata download across downstream projects.
 If the official `bids-validator` CLI is not installed, the validation scenario

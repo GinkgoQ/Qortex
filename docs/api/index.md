@@ -9,7 +9,7 @@ Reference is auto-generated from source docstrings via mkdocstrings.
 | [Artifact](artifact.md) | `qortex.Artifact` | Open and use a converted ML artifact |
 | [Conversion](conversion.md) | `qortex.convert` | `ConversionPipeline`, `WindowSpec`, `SplitSpec` |
 | [Datasets](datasets.md) | `qortex.datasets` | Keras-style loaders for open neuroscience datasets |
-| [Neuroclassic](neuroclassic.md) | `qortex.neuroclassic` | Signal QC, image QC, connectivity, stats, splits |
+| [Neuroclassic](neuroclassic.md) | `qortex.neuroclassic` | Signal/image QC, Pearson/PLV connectivity, graph metrics, CSP, entropy/complexity, stats, splits |
 | [CLI](cli.md) | `qortex <command>` | All CLI commands with options |
 
 ---
