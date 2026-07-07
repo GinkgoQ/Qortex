@@ -1,0 +1,89 @@
+{
+  "metric": "pearson",
+  "node_definition": "Schaefer-400 (17 networks)",
+  "nodes": [
+    {
+      "label": "VIS",
+      "degree": 2.0
+    },
+    {
+      "label": "SMN",
+      "degree": 2.0
+    },
+    {
+      "label": "DAN",
+      "degree": 2.0
+    },
+    {
+      "label": "VAN",
+      "degree": 2.0
+    },
+    {
+      "label": "LIM",
+      "degree": 2.0
+    },
+    {
+      "label": "FPN",
+      "degree": 2.0
+    },
+    {
+      "label": "DMN",
+      "degree": 2.0
+    },
+    {
+      "label": "CBL",
+      "degree": 2.0
+    },
+    {
+      "label": "SUB",
+      "degree": 2.0
+    }
+  ],
+  "edges": [
+    {
+      "source": 0,
+      "target": 1,
+      "weight": 0.48069623826131175
+    },
+    {
+      "source": 0,
+      "target": 2,
+      "weight": 0.3694783642902163
+    },
+    {
+      "source": 1,
+      "target": 2,
+      "weight": 0.4440409561025051
+    },
+    {
+      "source": 3,
+      "target": 4,
+      "weight": 0.46463268646291456
+    },
+    {
+      "source": 3,
+      "target": 5,
+      "weight": 0.40280063167016833
+    },
+    {
+      "source": 4,
+      "target": 5,
+      "weight": 0.623851899235849
+    },
+    {
+      "source": 6,
+      "target": 7,
+      "weight": 0.42452300344847216
+    },
+    {
+      "source": 6,
+      "target": 8,
+      "weight": 0.4926243806424744
+    },
+    {
+      "source": 7,
+      "target": 8,
+      "weight": 0.47186657697689993
+    }
+  ]
+}

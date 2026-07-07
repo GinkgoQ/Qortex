@@ -337,7 +337,7 @@ def _save_model_zoo_board(
     # ── Inference example ─────────────────────────────────────────────────────
     ax_inf = fig.add_subplot(gs[2])
     if top5:
-        status = "ImageNet-pretrained weights" if pretrained else "untrained weights — architecture demo only"
+        status = "pretrained" if pretrained else "untrained"
         status_color = STATUS["success"] if pretrained else STATUS["warning"]
         names, vals = zip(*top5)
         y_pos = np.arange(len(names))

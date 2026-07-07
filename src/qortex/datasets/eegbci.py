@@ -167,8 +167,9 @@ def load_data(
     for subject in subjects:
         try:
             fnames = mne_eegbci.load_data(
-                subject=subject,
+                subjects=[subject],
                 runs=runs,
+                update_path=True,
                 verbose=verbose,
             )
         except Exception as exc:
