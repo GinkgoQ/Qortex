@@ -251,6 +251,17 @@ def render_model_zoo_showcase(
     return ModelZooArtifacts(output_dir=out_dir, board=board_path, manifest=manifest_path)
 
 
+_TASK_COLORS: dict[str, str] = {
+    "image_classification": "#4f46e5",
+    "classification": "#4f46e5",
+    "eeg_classification": "#0891b2",
+    "audio_transcription": "#7c3aed",
+    "segmentation": "#059669",
+    "detection": "#d97706",
+    "embedding": "#db2777",
+}
+
+
 def _save_model_zoo_board(
     board_path: Path,
     backends: dict[str, bool],
@@ -260,64 +271,99 @@ def _save_model_zoo_board(
     pretrained: bool,
 ) -> None:
     import matplotlib.pyplot as plt
-    import seaborn as sns
     from matplotlib import gridspec
+    from matplotlib.patches import FancyBboxPatch
 
-    sns.set_theme(style="white", context="notebook")
-    fig = plt.figure(figsize=(12.5, 9.0), constrained_layout=True)
-    gs = gridspec.GridSpec(3, 1, figure=fig, height_ratios=[0.35, 1.5, 1.1])
+    from qortex.visualize._mpl_theme import (
+        BORDER, CARD_BG, INK, SUBINK, STATUS,
+        apply_theme, figure_title, section_title, style_table,
+    )
 
+    apply_theme()
+    fig = plt.figure(figsize=(13.0, 10.2))
+    gs = gridspec.GridSpec(
+        3, 1, figure=fig, height_ratios=[0.34, 1.55, 1.15],
+        hspace=0.62, top=0.86, bottom=0.06, left=0.055, right=0.97,
+    )
+
+    n_available = sum(backends.values())
+    figure_title(
+        fig, "NeuroAI model registry",
+        subtitle=f"{n_available}/{len(backends)} backends importable in this environment  ·  "
+                 f"{len(models)} curated example models",
+    )
+
+    # ── Backend availability, as pill badges (not plain checkmark text) ──────
     ax_backends = fig.add_subplot(gs[0])
     ax_backends.axis("off")
-    ax_backends.text(0.0, 0.85, "Available backends", fontsize=13, fontweight="bold", color="#20242c")
-    x = 0.0
-    for name, ok in backends.items():
-        mark = "✓" if ok else "✗"
-        color = "#2f9e44" if ok else "#adb5bd"
-        ax_backends.text(x, 0.3, f"{mark} {name}", fontsize=10.5, color=color, fontweight="bold" if ok else "normal")
-        x += 1.0 / len(backends)
+    section_title(ax_backends, "Available backends", y=1.15)
+    ordered = sorted(backends.items(), key=lambda kv: (not kv[1], kv[0]))
+    n_cols = len(ordered)
+    slot = 1.0 / n_cols
+    for i, (name, ok) in enumerate(ordered):
+        color = STATUS["success"] if ok else SUBINK
+        mark = "●" if ok else "○"
+        cx = i * slot + slot * 0.06
+        ax_backends.text(
+            cx, 0.42, f"{mark}  {name}", fontsize=10.5, fontweight="bold" if ok else "normal",
+            color=color if ok else "#9ca3af", transform=ax_backends.transAxes, va="center",
+            bbox=dict(boxstyle="round,pad=0.42", facecolor=color, alpha=0.10 if ok else 0.05,
+                      edgecolor=color, linewidth=1.0 if ok else 0.8),
+        )
 
+    # ── Example models table ──────────────────────────────────────────────────
     ax_table = fig.add_subplot(gs[1])
     ax_table.axis("off")
-    ax_table.set_title("Example models", fontsize=12, fontweight="bold", loc="left")
+    section_title(ax_table, "Example models", y=1.05)
     rows = [
         [
             m.model_id,
             (m.output_contract.output_type if m.output_contract else "?"),
             m.provider,
-            f"{m.estimated_memory_mb:.0f} MB" if m.estimated_memory_mb else "?",
+            f"{m.estimated_memory_mb:,.0f} MB" if m.estimated_memory_mb else "n/a",
         ]
         for m in models
     ]
     tbl = ax_table.table(cellText=rows, colLabels=["Model", "Task", "Backend", "Est. memory"],
-                          loc="center", cellLoc="left")
-    tbl.auto_set_font_size(False)
-    tbl.set_fontsize(8.5)
-    tbl.scale(1, 1.3)
+                          loc="upper center", cellLoc="left", bbox=[0.0, 0.0, 1.0, 0.98],
+                          colWidths=[0.42, 0.24, 0.18, 0.16])
+    style_table(tbl)
+    task_col = 1
     for (r, c), cell in tbl.get_celld().items():
-        cell.set_edgecolor("#dee2e6")
-        if r == 0:
-            cell.set_facecolor("#f1f3f5")
-            cell.set_text_props(fontweight="bold")
+        if r > 0 and c == task_col:
+            task = rows[r - 1][task_col]
+            cell.set_text_props(color=_TASK_COLORS.get(task, INK), fontweight="bold")
 
+    # ── Inference example ─────────────────────────────────────────────────────
     ax_inf = fig.add_subplot(gs[2])
     if top5:
-        status = "ImageNet-pretrained" if pretrained else "untrained weights — architecture demo only"
+        status = "ImageNet-pretrained weights" if pretrained else "untrained weights — architecture demo only"
+        status_color = STATUS["success"] if pretrained else STATUS["warning"]
         names, vals = zip(*top5)
         y_pos = np.arange(len(names))
-        ax_inf.barh(y_pos, vals, color="#6574a6")
+        max_val = max(vals) or 1.0
+        shades = np.linspace(1.0, 0.55, len(names))
+        colors = [(0.310, 0.275, 0.898, s) for s in shades]  # indigo, fading alpha by rank
+        bars = ax_inf.barh(y_pos, vals, color=colors, edgecolor="none", height=0.62)
+        for bar, val in zip(bars, vals):
+            ax_inf.text(bar.get_width() + max_val * 0.015, bar.get_y() + bar.get_height() / 2,
+                        f"{val:.4f}", va="center", fontsize=8.5, color=INK)
         ax_inf.set_yticks(y_pos)
-        ax_inf.set_yticklabels(names)
+        ax_inf.set_yticklabels(names, fontsize=9)
         ax_inf.invert_yaxis()
-        ax_inf.set_xlabel("probability")
-        ax_inf.set_title(f"Inference example — {example_model} ({status})", fontsize=12, fontweight="bold", loc="left")
-        sns.despine(ax=ax_inf)
+        ax_inf.set_xlabel("probability", fontsize=9, color=SUBINK)
+        ax_inf.set_xlim(0, max_val * 1.18)
+        ax_inf.grid(axis="x", color="#eef1f4", linewidth=0.9)
+        ax_inf.grid(axis="y", visible=False)
+        section_title(ax_inf, f"Inference example — {example_model}", y=1.14)
+        ax_inf.text(1.0, 1.14, status, transform=ax_inf.transAxes, ha="right", va="bottom",
+                    fontsize=8.5, fontweight="bold", color=status_color)
     else:
         ax_inf.axis("off")
         ax_inf.text(0.0, 0.5, f"No classification example available for {example_model!r}.",
-                     fontsize=10, color="#51555f")
+                     fontsize=9.5, color=SUBINK, transform=ax_inf.transAxes)
 
-    fig.savefig(board_path, dpi=170, facecolor="white", bbox_inches="tight")
+    fig.savefig(board_path, dpi=200, facecolor="white")
     plt.close(fig)
 
 
@@ -747,23 +793,27 @@ def _save_detection_board(
     board_path: Path,
 ) -> None:
     import matplotlib.pyplot as plt
-    import seaborn as sns
     from matplotlib import gridspec
     from matplotlib.patches import Rectangle
 
-    sns.set_theme(style="white", context="notebook")
-    fig = plt.figure(figsize=(13.5, 8.6), constrained_layout=True)
-    gs = gridspec.GridSpec(3, 3, figure=fig, height_ratios=[0.16, 1.0, 0.5])
+    from qortex.visualize._mpl_theme import INK, SUBINK, apply_theme
+
+    apply_theme()
+    fig = plt.figure(figsize=(13.5, 8.8))
+    gs = gridspec.GridSpec(
+        3, 3, figure=fig, height_ratios=[0.18, 1.0, 0.55], hspace=0.35,
+        top=0.93, bottom=0.05, left=0.03, right=0.98,
+    )
 
     ax_title = fig.add_subplot(gs[0, :])
     ax_title.axis("off")
-    ax_title.text(0.0, 0.72, payload.case_id, fontsize=20, fontweight="bold", color="#20242c", ha="left", va="center")
+    ax_title.text(0.0, 0.72, payload.case_id, fontsize=18, fontweight="bold", color=INK, ha="left", va="center")
     nms_txt = f"   NMS IoU: {payload.nms_iou:.2f}" if payload.nms_iou is not None else ""
     ax_title.text(
         0.0, 0.2,
         f"source: {payload.source_id}   model: {payload.model_id}   "
         f"threshold: {payload.threshold:.2f}{nms_txt}   detections: {len(payload.detections)}",
-        fontsize=10.5, color="#51555f", ha="left", va="center",
+        fontsize=10, color=SUBINK, ha="left", va="center",
     )
 
     ax_img = fig.add_subplot(gs[1, :])

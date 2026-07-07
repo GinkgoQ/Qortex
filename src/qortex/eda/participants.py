@@ -225,6 +225,13 @@ def participants_metadata_figure(
             "pip install matplotlib seaborn"
         ) from exc
 
+    from qortex.visualize._mpl_theme import (
+        BORDER, CATEGORICAL, INK, SUBINK, STATUS,
+        apply_theme, figure_title, metric_card, section_title, style_table,
+    )
+
+    apply_theme()
+
     group_summary = summarize_categorical(table, group_col)
     stats = numeric_by_group(table, value_col, group_summary)
     valid_order = [s.group for s in stats if s.group != "Invalid"]
@@ -251,35 +258,34 @@ def participants_metadata_figure(
     n_invalid = group_summary.n_invalid
     n_missing = group_summary.n_missing
 
-    sns.set_theme(style="whitegrid", font_scale=0.85)
-    fig = plt.figure(figsize=(11.5, 6.4), dpi=150)
+    fig = plt.figure(figsize=(12.5, 7.0))
     gs = gridspec.GridSpec(
-        3, 4, height_ratios=[0.5, 2.6, 0.55], hspace=0.65, wspace=0.4, figure=fig,
+        3, 4, height_ratios=[0.5, 2.6, 0.6], hspace=0.75, wspace=0.4, figure=fig,
+        top=0.86, bottom=0.06, left=0.055, right=0.97,
+    )
+
+    header_dataset = f"{dataset_id}  ·  " if dataset_id else ""
+    figure_title(
+        fig, title or "Participant metadata",
+        subtitle=f"{header_dataset}{value_col}s extracted from participants.tsv (BIDS)",
     )
 
     def _pct(n: int) -> str:
         return f"{n / n_total * 100:.0f}%" if n_total else "0%"
 
     cards = [
-        ("Total participants", str(n_total), "#343a40"),
-        ("Valid entries", f"{n_valid} ({_pct(n_valid)})", "#2f9e44"),
-        ("Invalid entries", f"{n_invalid} ({_pct(n_invalid)})", "#e8590c" if n_invalid else "#868e96"),
-        ("Missing", str(n_missing), "#868e96"),
+        ("Total participants", str(n_total), INK, None),
+        ("Valid entries", f"{n_valid} ({_pct(n_valid)})", STATUS["success"], STATUS["success"]),
+        ("Invalid entries", f"{n_invalid} ({_pct(n_invalid)})",
+         STATUS["danger"] if n_invalid else SUBINK, STATUS["danger"] if n_invalid else None),
+        ("Missing", str(n_missing), SUBINK, None),
     ]
-    for i, (label, value, color) in enumerate(cards):
+    for i, (label, value, color, accent) in enumerate(cards):
         ax = fig.add_subplot(gs[0, i])
-        ax.axis("off")
-        ax.add_patch(plt.Rectangle(
-            (0.02, 0.05), 0.96, 0.9, transform=ax.transAxes,
-            facecolor="#f8f9fa", edgecolor="#dee2e6", linewidth=1, zorder=0,
-        ))
-        ax.text(0.12, 0.62, value, fontsize=16, fontweight="bold", color=color,
-                transform=ax.transAxes, va="center")
-        ax.text(0.12, 0.24, label, fontsize=8, color="#495057", transform=ax.transAxes, va="center")
+        metric_card(ax, value=value, label=label, color=color, accent=accent)
 
     ax_main = fig.add_subplot(gs[1, :3])
-    palette = sns.color_palette("muted", n_colors=max(1, len(valid_order)))
-    color_map = {g: palette[i % len(palette)] for i, g in enumerate(valid_order)}
+    color_map = {g: CATEGORICAL[i % len(CATEGORICAL)] for i, g in enumerate(valid_order)}
 
     if values_valid:
         sns.violinplot(
@@ -303,7 +309,7 @@ def participants_metadata_figure(
         x_invalid = len(valid_order)
         ax_main.scatter(
             [x_invalid] * len(invalid_values), invalid_values,
-            color="#e8590c", marker="x", s=45, linewidth=1.5, zorder=4, label="Invalid",
+            color=STATUS["danger"], marker="x", s=55, linewidth=1.8, zorder=4, label="Invalid",
         )
         x_labels = x_labels + ["Invalid"]
         ax_main.set_xlim(-0.6, x_invalid + 0.6)
@@ -311,15 +317,13 @@ def participants_metadata_figure(
         ax_main.set_xticklabels(x_labels)
 
     ax_main.set_xlabel("")
-    ax_main.set_ylabel(value_col.replace("_", " ").title())
-    ax_main.set_title(
-        f"{value_col.replace('_', ' ').title()} distribution by {group_col}",
-        fontsize=11, fontweight="bold", loc="left",
-    )
-    sns.despine(ax=ax_main)
+    ax_main.set_ylabel(value_col.replace("_", " ").title(), color=INK, fontsize=9.5)
+    ax_main.grid(axis="x", visible=False)
+    section_title(ax_main, f"{value_col.replace('_', ' ').title()} distribution by {group_col}", y=1.03)
 
     ax_table = fig.add_subplot(gs[1, 3])
     ax_table.axis("off")
+    section_title(ax_table, "Summary", y=1.03)
     rows = [
         [s.group, str(s.n), f"{s.median:.0f}", f"[{s.q1:.0f}-{s.q3:.0f}]", f"{s.vmin:.0f}-{s.vmax:.0f}"]
         for s in stats
@@ -327,16 +331,9 @@ def participants_metadata_figure(
     if rows:
         tbl = ax_table.table(
             cellText=rows, colLabels=["Group", "n", "Median", "IQR", "Range"],
-            loc="center", cellLoc="center",
+            loc="upper center", cellLoc="center", bbox=[0.0, 0.0, 1.0, 0.95],
         )
-        tbl.auto_set_font_size(False)
-        tbl.set_fontsize(7.5)
-        tbl.scale(1, 1.5)
-        for (r, c), cell in tbl.get_celld().items():
-            cell.set_edgecolor("#dee2e6")
-            if r == 0:
-                cell.set_facecolor("#f1f3f5")
-                cell.set_text_props(fontweight="bold")
+        style_table(tbl, fontsize=8)
 
     ax_warn = fig.add_subplot(gs[2, :])
     ax_warn.axis("off")
@@ -347,23 +344,17 @@ def participants_metadata_figure(
             f"group statistics — shown as a separate 'Invalid' group: {examples}"
         )
         ax_warn.add_patch(plt.Rectangle(
-            (0.0, 0.1), 1.0, 0.8, transform=ax_warn.transAxes,
-            facecolor="#fff3bf", edgecolor="#f08c00", linewidth=1,
+            (0.0, 0.12), 1.0, 0.72, transform=ax_warn.transAxes,
+            facecolor=STATUS["warning"], alpha=0.10, edgecolor=STATUS["warning"], linewidth=1.1,
         ))
-        ax_warn.text(0.015, 0.5, "⚠ " + msg, fontsize=8.5, color="#5c3c00",
+        ax_warn.text(0.015, 0.48, "WARNING  ", fontsize=9, fontweight="bold", color=STATUS["warning"],
+                     va="center", transform=ax_warn.transAxes)
+        ax_warn.text(0.10, 0.48, msg, fontsize=9, color="#7c4a03",
                      va="center", transform=ax_warn.transAxes)
     else:
-        ax_warn.text(0.015, 0.5, f"No invalid '{group_col}' values detected.",
-                     fontsize=8.5, color="#495057", va="center", transform=ax_warn.transAxes)
+        ax_warn.text(0.015, 0.48, f"No invalid '{group_col}' values detected.",
+                     fontsize=9, color=SUBINK, va="center", transform=ax_warn.transAxes)
 
-    header = title or (f"Participant metadata — {dataset_id}" if dataset_id else "Participant metadata")
-    fig.suptitle(header, fontsize=13, fontweight="bold", x=0.02, y=0.99, ha="left", va="top")
-    fig.text(
-        0.02, 0.945,
-        f"{value_col.title()}s extracted from participants.tsv (BIDS)",
-        fontsize=8.5, color="#868e96", va="top",
-    )
-    fig.subplots_adjust(top=0.84, left=0.045, right=0.98, bottom=0.06)
     return fig
 
 

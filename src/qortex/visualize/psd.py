@@ -34,23 +34,24 @@ def psd_band_comparison(
     """
     try:
         import matplotlib.pyplot as plt
-        import seaborn as sns
     except ImportError as exc:
         raise ImportError(
             "psd_band_comparison() requires matplotlib and seaborn: "
             "pip install matplotlib seaborn"
         ) from exc
 
+    from qortex.visualize._mpl_theme import CATEGORICAL, INK, SUBINK, apply_theme
     from qortex.visualize.timeseries import _welch_psd
+
+    apply_theme()
 
     if not conditions:
         raise ValueError("conditions must contain at least one condition with signals")
 
     fmax_use = fmax if fmax is not None else sfreq / 2.0
 
-    sns.set_theme(style="whitegrid", font_scale=0.85)
-    fig, ax = plt.subplots(figsize=(7.5, 4.6), dpi=150)
-    palette = sns.color_palette("deep", n_colors=len(conditions))
+    fig, ax = plt.subplots(figsize=(8.5, 5.0))
+    palette = CATEGORICAL
 
     for color, (label, signals) in zip(palette, conditions.items()):
         if not signals:
@@ -73,12 +74,11 @@ def psd_band_comparison(
         ax.fill_between(freqs[mask], (mean_psd - sem_psd)[mask], (mean_psd + sem_psd)[mask],
                          color=color, alpha=0.25, linewidth=0)
 
-    ax.set_xlabel("Frequency (Hz)")
-    ax.set_ylabel("Power (dB/Hz)" if log_scale else "Power (V²/Hz)")
+    ax.set_xlabel("Frequency (Hz)", color=SUBINK)
+    ax.set_ylabel("Power (dB/Hz)" if log_scale else "Power (V²/Hz)", color=SUBINK)
     ax.set_title(title or f"Power spectral density (mean ± SEM), {fmin:.1f}–{fmax_use:.1f} Hz",
-                 fontsize=11, fontweight="bold", loc="left")
-    ax.legend(frameon=False, fontsize=8.5)
-    sns.despine(ax=ax)
+                 fontsize=12, fontweight="bold", color=INK, loc="left")
+    ax.legend(frameon=False, fontsize=9)
     fig.tight_layout()
     return fig
 

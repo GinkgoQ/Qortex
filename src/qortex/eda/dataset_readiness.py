@@ -15,11 +15,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from qortex.core.entities import ReadinessReport
 
-_STATUS_COLORS = {
-    "ready": "#2f9e44",
-    "uncertain": "#e8590c",
-    "blocked": "#c92a2a",
-}
+_STATUS_KEY = {"ready": "success", "uncertain": "warning", "blocked": "danger"}
 
 
 def _status_for(report: "ReadinessReport") -> str:
@@ -58,8 +54,15 @@ def dataset_readiness_figure(
             "dataset_readiness_figure() requires matplotlib: pip install matplotlib"
         ) from exc
 
+    from qortex.visualize._mpl_theme import (
+        BORDER, CARD_BG, INK, SUBINK, STATUS,
+        apply_theme, figure_title, metric_card, section_title, status_badge,
+    )
+
+    apply_theme()
+
     status = _status_for(report)
-    status_color = _STATUS_COLORS[status]
+    status_color = STATUS[_STATUS_KEY[status]]
 
     errors = [f for f in report.findings if f.severity == "error"]
     warnings_ = [f for f in report.findings if f.severity == "warning"]
@@ -68,39 +71,41 @@ def dataset_readiness_figure(
         if f.recommendation and f.recommendation not in recommendations:
             recommendations.append(f.recommendation)
 
-    fig = plt.figure(figsize=(11.5, 6.8), dpi=150)
-    gs = gridspec.GridSpec(4, 4, height_ratios=[0.75, 0.5, 1.1, 1.0], hspace=0.55, wspace=0.4, figure=fig)
+    fig = plt.figure(figsize=(12.0, 7.4))
+    gs = gridspec.GridSpec(
+        4, 4, height_ratios=[0.7, 0.62, 1.15, 1.05], hspace=0.68, wspace=0.4, figure=fig,
+        top=0.86, bottom=0.06, left=0.13, right=0.97,
+    )
 
-    # ── Header ──────────────────────────────────────────────────────────────
+    figure_title(fig, "Dataset readiness summary", subtitle=f"{report.dataset_id}  ·  snapshot {report.snapshot}")
+
+    # ── Header: status badge + target/download info ──────────────────────────
     ax_head = fig.add_subplot(gs[0, :2])
     ax_head.axis("off")
-    ax_head.text(0.0, 0.82, report.dataset_id, fontsize=17, fontweight="bold", color="#20242c", transform=ax_head.transAxes)
-    ax_head.text(0.0, 0.5, f"snapshot: {report.snapshot}", fontsize=9, color="#868e96", transform=ax_head.transAxes)
-    ax_head.add_patch(plt.Rectangle((0.0, 0.05), 0.42, 0.24, transform=ax_head.transAxes,
-                                     facecolor=status_color, alpha=0.15, edgecolor=status_color))
-    ax_head.text(0.02, 0.17, f"status: {status}", fontsize=10, fontweight="bold", color=status_color, transform=ax_head.transAxes)
+    status_badge(ax_head, text=f"status: {status}", color=status_color, x=0.0, y=0.55, fontsize=12)
+    ax_head.text(0.0, 0.1, f"readiness score  {report.score:.0f}/100", fontsize=9.5, color=SUBINK,
+                 transform=ax_head.transAxes)
 
     ax_info = fig.add_subplot(gs[0, 2:])
     ax_info.axis("off")
     lines = [f"Target: {target}" if target else "Target: not specified"]
     if estimated_download_mb is not None:
         lines.append(f"Required download: {estimated_download_mb:.1f} MB")
-    ax_info.text(0.0, 0.7, "\n".join(lines), fontsize=9.5, color="#495057", transform=ax_info.transAxes, va="top")
+    ax_info.text(0.0, 0.6, "\n".join(lines), fontsize=9.5, color=SUBINK, transform=ax_info.transAxes, va="top")
 
     # ── Metric cards ────────────────────────────────────────────────────────
     cards = [
-        ("Recordings", str(report.n_recordings), "#343a40"),
-        ("Loadable", str(report.n_loadable), "#2f9e44" if report.n_loadable else "#868e96"),
-        ("Event-complete", str(report.n_event_complete), "#2f9e44" if report.n_event_complete else "#868e96"),
-        ("Label-ready", str(report.n_label_ready), "#2f9e44" if report.n_label_ready else "#c92a2a"),
+        ("Recordings", str(report.n_recordings), INK, None),
+        ("Loadable", str(report.n_loadable), STATUS["success"] if report.n_loadable else SUBINK,
+         STATUS["success"] if report.n_loadable else BORDER),
+        ("Event-complete", str(report.n_event_complete), STATUS["success"] if report.n_event_complete else SUBINK,
+         STATUS["success"] if report.n_event_complete else BORDER),
+        ("Label-ready", str(report.n_label_ready), STATUS["success"] if report.n_label_ready else STATUS["danger"],
+         STATUS["success"] if report.n_label_ready else STATUS["danger"]),
     ]
-    for i, (label, value, color) in enumerate(cards):
+    for i, (label, value, color, accent) in enumerate(cards):
         ax = fig.add_subplot(gs[1, i])
-        ax.axis("off")
-        ax.add_patch(plt.Rectangle((0.02, 0.05), 0.96, 0.9, transform=ax.transAxes,
-                                    facecolor="#f8f9fa", edgecolor="#dee2e6", linewidth=1))
-        ax.text(0.12, 0.58, value, fontsize=15, fontweight="bold", color=color, transform=ax.transAxes, va="center")
-        ax.text(0.12, 0.22, label, fontsize=8, color="#495057", transform=ax.transAxes, va="center")
+        metric_card(ax, value=value, label=label, color=color, accent=accent)
 
     # ── Trainability bars ───────────────────────────────────────────────────
     ax_bar = fig.add_subplot(gs[2, :])
@@ -114,16 +119,19 @@ def dataset_readiness_figure(
     labels = [m[0] for m in metrics]
     values = [m[1] for m in metrics]
     y_pos = range(len(labels))
-    colors = ["#c92a2a" if v == 0 else "#4c6ef5" for v in values]
-    ax_bar.barh(y_pos, values, color=colors)
+    colors = [STATUS["danger"] if v == 0 else "#4f46e5" for v in values]
+    bars = ax_bar.barh(y_pos, values, color=colors, height=0.6)
+    for bar, v in zip(bars, values):
+        ax_bar.text(bar.get_width() + n * 0.012, bar.get_y() + bar.get_height() / 2, f"{v:,}",
+                    va="center", fontsize=8.5, color=INK)
     ax_bar.set_yticks(list(y_pos))
-    ax_bar.set_yticklabels(labels)
-    ax_bar.set_xlabel("count")
-    ax_bar.set_title("Trainability assessment", fontsize=11, fontweight="bold", loc="left")
-    ax_bar.axvline(n * 0.5, color="#adb5bd", linestyle="--", linewidth=1)
-    ax_bar.text(n * 0.5, len(labels) - 0.4, "minimum recommended", fontsize=7.5, color="#868e96", ha="left")
-    for spine in ("top", "right"):
-        ax_bar.spines[spine].set_visible(False)
+    ax_bar.set_yticklabels(labels, fontsize=9)
+    ax_bar.set_xlabel("count", fontsize=9, color=SUBINK)
+    ax_bar.set_xlim(0, n * 1.12)
+    section_title(ax_bar, "Trainability assessment", y=1.12)
+    ax_bar.axvline(n * 0.5, color="#c7cbd1", linestyle="--", linewidth=1.1)
+    ax_bar.text(n * 0.5 + n * 0.012, len(labels) - 0.55, "minimum recommended", fontsize=7.5, color=SUBINK, ha="left")
+    ax_bar.grid(axis="y", visible=False)
 
     # ── Blockers panel ──────────────────────────────────────────────────────
     ax_block = fig.add_subplot(gs[3, :2])
@@ -131,36 +139,32 @@ def dataset_readiness_figure(
     if report.n_label_ready == 0:
         header = "Why this dataset cannot be used for training"
         body = (
-            f"No label-ready recordings were found"
+            "No label-ready recordings were found"
             + (f" for target {target!r}." if target else ".")
             + "\nCheck annotations or select a different target."
         )
     elif errors:
         header = "Blockers"
-        body = "\n".join(f"• {e.message}" for e in errors[:4])
+        body = "\n".join(textwrap.fill(f"• {e.message}", width=52) for e in errors[:4])
     elif warnings_:
         header = "Warnings"
-        body = "\n".join(f"• {w.message}" for w in warnings_[:4])
+        body = "\n".join(textwrap.fill(f"• {w.message}", width=52) for w in warnings_[:4])
     else:
         header = "Blockers"
         body = "None — no error-level findings."
-    ax_block.text(0.0, 0.95, header, fontsize=10.5, fontweight="bold", color="#20242c", va="top", transform=ax_block.transAxes)
-    ax_block.text(0.0, 0.72, body, fontsize=9, color="#495057", va="top", transform=ax_block.transAxes)
+    section_title(ax_block, header, y=1.0)
+    ax_block.text(0.0, 0.86, body, fontsize=9, color=SUBINK, va="top", transform=ax_block.transAxes)
 
     # ── Next steps panel ─────────────────────────────────────────────────────
     ax_next = fig.add_subplot(gs[3, 2:])
     ax_next.axis("off")
-    ax_next.text(0.0, 0.95, "Recommended next steps", fontsize=10.5, fontweight="bold", color="#20242c",
-                 va="top", transform=ax_next.transAxes)
+    section_title(ax_next, "Recommended next steps", y=1.0)
     wrapped_steps = [
         textwrap.fill(f"• {r}", width=52, subsequent_indent="  ")
         for r in recommendations[:5]
     ] or ["• No further action recommended."]
-    ax_next.text(0.0, 0.72, "\n".join(wrapped_steps), fontsize=9, color="#495057", va="top", transform=ax_next.transAxes)
+    ax_next.text(0.0, 0.86, "\n".join(wrapped_steps), fontsize=9, color=SUBINK, va="top", transform=ax_next.transAxes)
 
-    header_title = title or "Dataset readiness summary"
-    fig.suptitle(header_title, fontsize=13, fontweight="bold", x=0.02, y=0.985, ha="left", va="top")
-    fig.subplots_adjust(top=0.9, left=0.11, right=0.98, bottom=0.06)
     return fig
 
 

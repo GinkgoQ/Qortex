@@ -53,23 +53,34 @@ def connectivity_figure(
             "pip install matplotlib seaborn"
         ) from exc
 
+    from qortex.visualize._mpl_theme import INK, SUBINK, apply_theme, figure_title, section_title
+
+    apply_theme()
+
     m = np.asarray(matrix.matrix, dtype=np.float64)
     labels = matrix.node_labels
     n = m.shape[0]
 
-    fig = plt.figure(figsize=(12.5, 5.4), dpi=150)
-    gs = gridspec.GridSpec(1, 3, width_ratios=[1.15, 1.0, 0.85], wspace=0.35, figure=fig)
+    fig = plt.figure(figsize=(13.5, 6.0))
+    gs = gridspec.GridSpec(
+        1, 3, width_ratios=[1.15, 1.0, 0.85], wspace=0.4, figure=fig,
+        top=0.82, bottom=0.1, left=0.06, right=0.97,
+    )
 
     # ── Panel 1: ROI-ROI heatmap ───────────────────────────────────────────
     ax_hm = fig.add_subplot(gs[0])
     sns.heatmap(
         m, xticklabels=labels, yticklabels=labels, cmap="RdBu_r",
-        vmin=-1.0, vmax=1.0, square=True, ax=ax_hm,
+        vmin=-1.0, vmax=1.0, square=True, ax=ax_hm, linewidths=0.4, linecolor="white",
         cbar_kws={"label": matrix.spec.edge_weight_meaning.replace("_", " "), "shrink": 0.75},
     )
-    ax_hm.set_title("ROI-ROI connectivity", fontsize=11, fontweight="bold", loc="left")
-    ax_hm.tick_params(axis="both", labelsize=7, rotation=90 if n > 12 else 0)
+    section_title(ax_hm, "ROI-ROI connectivity", y=1.05)
+    ax_hm.tick_params(axis="both", labelsize=8, rotation=90 if n > 12 else 0, colors=SUBINK)
     ax_hm.tick_params(axis="y", rotation=0)
+    cbar = ax_hm.collections[0].colorbar
+    cbar.ax.tick_params(labelsize=8, colors=SUBINK)
+    cbar.ax.yaxis.label.set_color(SUBINK)
+    cbar.ax.yaxis.label.set_size(8.5)
 
     # ── Panel 2: thresholded network graph (circular layout) ─────────────
     ax_net = fig.add_subplot(gs[1])
@@ -86,7 +97,7 @@ def connectivity_figure(
             w = m[i, j]
             if abs(w) < threshold:
                 continue
-            color = "#e03131" if w > 0 else "#1971c2"
+            color = "#dc2626" if w > 0 else "#2563eb"
             ax_net.plot(
                 [pos[i, 0], pos[j, 0]], [pos[i, 1], pos[j, 1]],
                 color=color, alpha=min(1.0, 0.25 + 0.65 * abs(w) / max_abs),
@@ -94,14 +105,15 @@ def connectivity_figure(
             )
 
     degree = np.sum(np.abs(m) >= threshold, axis=1) - (np.abs(np.diag(m)) >= threshold)
-    node_size = 220 + 60 * degree
-    ax_net.scatter(pos[:, 0], pos[:, 1], s=node_size, c="#495057", zorder=2, edgecolors="white", linewidth=1.2)
+    node_size = 220 + 55 * degree
+    ax_net.scatter(pos[:, 0], pos[:, 1], s=node_size, c="#4f46e5", zorder=2, edgecolors="white", linewidth=1.4)
     for i, label in enumerate(labels):
-        r = 1.18
-        ax_net.text(pos[i, 0] * r, pos[i, 1] * r, label, fontsize=8, ha="center", va="center", fontweight="bold")
-    ax_net.set_xlim(-1.5, 1.5)
-    ax_net.set_ylim(-1.5, 1.5)
-    ax_net.set_title(f"Network connectome (|edge| ≥ {threshold:.2f})", fontsize=11, fontweight="bold", loc="left")
+        r = 1.34
+        ax_net.text(pos[i, 0] * r, pos[i, 1] * r, label, fontsize=8.5, color=INK,
+                    ha="center", va="center", fontweight="bold")
+    ax_net.set_xlim(-1.65, 1.65)
+    ax_net.set_ylim(-1.65, 1.65)
+    section_title(ax_net, f"Network connectome (|edge| ≥ {threshold:.2f})", y=1.02)
 
     # ── Panel 3: summary + hub table ───────────────────────────────────────
     ax_sum = fig.add_subplot(gs[2])
@@ -122,27 +134,26 @@ def connectivity_figure(
             ("Small-worldness (σ)", f"{metrics.small_world_sigma:.2f}" if metrics.small_world_sigma is not None else "n/a"),
         ]
 
-    y = 0.97
-    ax_sum.text(0.0, y, "Global summary", fontsize=10, fontweight="bold", transform=ax_sum.transAxes)
-    y -= 0.09
+    y = 1.05
+    section_title(ax_sum, "Global summary", y=y)
+    y -= 0.13
     for label, value in lines:
-        ax_sum.text(0.0, y, label, fontsize=8.5, color="#495057", transform=ax_sum.transAxes)
-        ax_sum.text(1.0, y, value, fontsize=8.5, fontweight="bold", ha="right", transform=ax_sum.transAxes)
-        y -= 0.075
+        ax_sum.text(0.0, y, label, fontsize=8.5, color=SUBINK, transform=ax_sum.transAxes)
+        ax_sum.text(1.0, y, value, fontsize=8.5, fontweight="bold", color=INK, ha="right", transform=ax_sum.transAxes)
+        y -= 0.085
 
     y -= 0.05
-    ax_sum.text(0.0, y, "Hub regions (degree)", fontsize=10, fontweight="bold", transform=ax_sum.transAxes)
-    y -= 0.09
+    section_title(ax_sum, "Hub regions (degree)", y=y)
+    y -= 0.11
     hub_degree = metrics.degree if metrics is not None and metrics.degree else degree.tolist()
     ranked = sorted(zip(labels, hub_degree), key=lambda kv: kv[1], reverse=True)[:5]
     for rank, (label, deg) in enumerate(ranked, start=1):
-        ax_sum.text(0.0, y, f"{rank}. {label}", fontsize=8.5, color="#495057", transform=ax_sum.transAxes)
-        ax_sum.text(1.0, y, f"{deg:.2f}", fontsize=8.5, fontweight="bold", ha="right", transform=ax_sum.transAxes)
-        y -= 0.075
+        ax_sum.text(0.0, y, f"{rank}.  {label}", fontsize=8.5, color=SUBINK, transform=ax_sum.transAxes)
+        ax_sum.text(1.0, y, f"{deg:.2f}", fontsize=8.5, fontweight="bold", color=INK, ha="right", transform=ax_sum.transAxes)
+        y -= 0.085
 
-    header = title or f"Connectivity analysis — {matrix.spec.connectivity_metric} ({matrix.spec.node_definition})"
-    fig.suptitle(header, fontsize=13, fontweight="bold", x=0.02, ha="left")
-    fig.subplots_adjust(top=0.86, left=0.06, right=0.97, bottom=0.08)
+    subtitle = f"{matrix.spec.connectivity_metric} · {matrix.spec.node_definition} · {n} nodes"
+    figure_title(fig, title or "Connectivity analysis", subtitle=subtitle)
     return fig
 
 
