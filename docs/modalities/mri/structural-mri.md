@@ -61,7 +61,7 @@ viewer.interactive_html("sub01_T1w.html")
 CLI:
 
 ```bash
-qortex visualize ds004130 --subject 01 --suffix T1w --data-dir data/ds004130/
+qortex visualize data/ds004130/sub-01/anat/sub-01_T1w.nii.gz --mode interactive
 ```
 
 ## Load into Python
@@ -114,6 +114,9 @@ Each sample is a `(256, 256, 176)` float32 array in the artifact. There are no w
 - **Label source.** Labels typically come from `participants.tsv` (age, sex, diagnosis, group). These are covariate labels, not trial-type labels.
 - **Size.** A T1w NIfTI at 1 mm isotropic is typically 30–80 MB compressed. Plan storage accordingly.
 - **Orientation.** Qortex reorients all volumes to RAS canonical by default via nibabel. Pass `canonical=False` to skip.
+
+
+
 
 ## Related
 

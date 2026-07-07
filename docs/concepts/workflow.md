@@ -71,14 +71,23 @@ print(report.to_text())
 Before downloading bulk imaging data, confirm that labels are present and have enough coverage.
 
 ```python
-ok = ds.can_train(target_col="trial_type", min_classes=2, min_per_class=10)
-if not ok:
-    print(ds.label_landscape())
+training = ds.can_train(target="trial_type")
+print(training.to_text())
+
+landscape = ds.label_landscape(label_column="trial_type", max_events_files=4)
+print(landscape.summary())
 ```
 
-If the dataset does not have usable labels, the imaging data has no value for classification tasks.
+`can_train()` returns a decision report, not a loose boolean. The report names the state, the evidence Qortex found, the missing evidence, a split recommendation, and the next command when the dataset needs a smaller metadata or first-batch download.
 
-**Decision gate:** Proceed only if `can_train()` returns True.
+On OpenNeuro `ds000001`, the label scan over four real `events.tsv` files reports four classes and 568 events. It also flags a severe class imbalance: `pumps_demean` has 299 events, while `explode_demean` has 38. That does not make the dataset unusable, but it changes the training plan: use class weighting or resampling, and report per-class metrics instead of accuracy alone.
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-can-train.png" alt="Training readiness chart for ds000001 showing uncertain status, 16 subjects, 80 recordings, zero locally confirmed label-ready recordings, and 0.05 GB required for the first batch plan.">
+  <figcaption>Real `Dataset("ds000001").can_train(target="trial_type")` output visualized from the generated docs run. Qortex is cautious until local label evidence is confirmed.</figcaption>
+</figure>
+
+**Decision gate:** proceed only when the report is `possible`, or when the next action is small and explicit enough to verify before any large download.
 
 ## Stage 4: Download the minimum
 

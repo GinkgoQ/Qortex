@@ -1,0 +1,45 @@
+{
+  "artifact_dir": "docs/assets/results/neuroai/demo_artifact",
+  "prediction_records": 0,
+  "segmentation_showcase": {
+    "area_plot": "docs/assets/images/examples/neuroai-showcase/mask-area-profile.png",
+    "board": "docs/assets/images/examples/neuroai-showcase/segmentation-board.png",
+    "manifest": "docs/assets/images/examples/neuroai-showcase/showcase-manifest.json",
+    "mask": "docs/assets/results/neuroai/showcase/sub-04_foreground-candidate.nii.gz",
+    "metrics": "docs/assets/images/examples/neuroai-showcase/metrics.json",
+    "overlay": "docs/assets/images/examples/neuroai-showcase/prediction-overlay.png",
+    "showcase_dir": "docs/assets/images/examples/neuroai-showcase",
+    "source_image": "data/qortex_visual_test/sub-04/anat/sub-04_T1w.nii.gz"
+  },
+  "validation": {
+    "artifact_dir": "/home/arman/project/GinkgoQ/repos/Qortex/docs/assets/results/neuroai/demo_artifact",
+    "issues": [],
+    "n_manifest_files": 9,
+    "n_marker_records": 0,
+    "n_prediction_records": 0,
+    "n_verified_files": 9,
+    "output_files": [
+      {
+        "marker_records": 0,
+        "path": "outputs/source-profile.json",
+        "records": null,
+        "type": "json"
+      }
+    ],
+    "runtime_report": {
+      "errors": [],
+      "n_outputs_written": 1,
+      "n_windows_processed": 0,
+      "outputs": [
+        {
+          "path": "outputs/source-profile.json",
+          "records": 1,
+          "type": "json"
+        }
+      ],
+      "success": true,
+      "warnings": []
+    },
+    "status": "PASS"
+  }
+}

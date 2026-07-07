@@ -115,6 +115,30 @@ Each returns a matplotlib Figure.
 
 **Framewise displacement.** Volumes with FD > 0.5 mm are typically censored before analysis. If more than 20% of volumes exceed this threshold, consider excluding the subject.
 
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-bold-axial.png" alt="Axial BOLD slice from OpenNeuro ds000001 subject 01 run 01.">
+  <figcaption>Real BOLD axial slice streamed with `Dataset.stream_slice()` without downloading the full NIfTI file.</figcaption>
+</figure>
+
+```python
+sl = ds.stream_slice(subject='01', modality='bold', run='01', time_index=0, axis=2)
+```
+
+Result artifact: [ds000001-example-results.json](/Qortex/assets/results/ds000001-example-results.json)
+
+<!-- qortex-evidence:end -->
+
 ## Related
 
 - [DWI QC](dwi-qc.md) — equivalent panels for diffusion data

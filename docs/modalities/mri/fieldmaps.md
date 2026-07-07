@@ -60,6 +60,9 @@ ds.download(
 
 Qortex does not perform fieldmap-based distortion correction itself. Fieldmap files are read, sidecar metadata is inspected, and `IntendedFor` relationships are resolved. Actual SDC requires fMRIPrep or a dedicated preprocessing tool.
 
+
+
+
 ## Related
 
 - [Selective download](../../download/selective-download.md) — include fieldmaps in a plan

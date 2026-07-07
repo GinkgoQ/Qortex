@@ -196,3 +196,28 @@ except ImportError:
 | Corrected revision | Check `dataset_description.json` BIDSVersion |
 | Event onsets within scan | Step 5 — onset + duration ≤ scan_duration |
 | TR / volume metadata | Step 4 — header TR matches bundle.tr |
+
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-events-timeline.png" alt="Timeline of ds000001 events and trial-type counts for subject 01 run 01.">
+  <figcaption>Real `events.tsv` timeline for ds000001 sub-01 run-01.</figcaption>
+</figure>
+
+```python
+events = ds.events(subject='01', task='balloonanalogrisktask', run='01')
+print(events.shape)
+```
+
+Result artifact: [ds000001-example-results.json](/Qortex/assets/results/ds000001-example-results.json)
+
+<!-- qortex-evidence:end -->

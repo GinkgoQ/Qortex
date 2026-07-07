@@ -1,104 +1,70 @@
 # Recipes
 
-A recipe is a named set of readiness parameters tuned for a specific task type. Instead of specifying every check parameter manually, you pick a recipe and get sensible defaults for that modality and task combination.
+A Qortex recipe is a small JSON file that records a reproducible decision workflow: dataset ID, snapshot, modality, target, split unit, goal, and output directory. Use it when a download plan or first-batch check must be rerun exactly by another person or on another machine.
 
 ## Using a recipe
 
 ```python
 from qortex import Dataset
 
-ds = Dataset("ds004130")
-report = ds.doctor(recipe="eeg-classification")
+ds = Dataset("ds000001", snapshot="1.0.0")
+report = ds.minimum(goal="first-batch", target="trial_type", output_dir="data/ds000001")
+print(report.to_text())
 ```
 
 Or from the CLI:
 
 ```bash
-qortex make-recipe eeg-classification
-qortex doctor ds004130 --recipe eeg-classification
+qortex make-recipe ds000001 recipes/ds000001_first_batch.json \
+  --snapshot 1.0.0 \
+  --target trial_type \
+  --goal first-batch \
+  --output-dir data/ds000001
+
+qortex run-recipe recipes/ds000001_first_batch.json
 ```
 
-## Available recipes
+## What belongs in a recipe
 
-### eeg-classification
+Keep recipes operational rather than aspirational:
 
-For supervised classification from EEG epochs:
-
-- Requires `trial_type` or equivalent events column
-- Minimum 20 subjects
-- Minimum 2 classes, 30 samples per class
-- Checks for `channels.tsv` and `coordsystem.json`
-- Window: 1.0 s, no overlap (event-aligned)
-
-### eeg-regression
-
-For regression from EEG (e.g., predicting reaction time):
-
-- Requires a numeric events column
-- Minimum 20 subjects
-- Checks continuous range of target column
-
-### fmri-classification
-
-For supervised classification from fMRI BOLD:
-
-- Requires `events.tsv` with `trial_type`
-- Minimum 15 subjects
-- TR check: warns if TR > 2.5 s
-- Checks for fMRIPrep confounds if present
-
-### fmri-regression
-
-For regression from fMRI (e.g., predicting behavioral scores from resting-state):
-
-- Requires numeric column in participants.tsv
-- Minimum 30 subjects (regression needs more data)
-- Checks for resting-state BOLD (task=rest or no task)
-
-### dwi
-
-For DWI-based analysis (tractography, diffusion metrics):
-
-- Requires `bval` and `bvec` files
-- Checks number of gradient directions (warns if < 30)
-- Checks for multiple b-value shells
-
-### anat-segmentation
-
-For anatomical segmentation tasks:
-
-- Requires T1w or T2w
-- No events required
-- Minimum 30 subjects
+- `dataset_id` and `snapshot` pin the remote dataset state.
+- `target` names the label column to check, such as `trial_type`.
+- `modality` narrows the plan when a dataset has several signal types.
+- `goal` chooses the evidence level: `metadata`, `label-check`, `first-batch`, or `validation`.
+- `output_dir` fixes where downloaded files will land if `--download` is used.
 
 ## Creating and saving a recipe
 
 ```python
-from qortex.readiness import Recipe
+from qortex.decision import Recipe, write_recipe
 
 recipe = Recipe(
-    name="my-custom-recipe",
-    modality="eeg",
-    target_col="condition",
-    min_subjects=50,
-    min_classes=3,
-    min_per_class=20,
-    window_s=2.0,
+    dataset_id="ds000001",
+    snapshot="1.0.0",
+    modality="fmri",
+    target="trial_type",
+    split="subject",
+    goal="first-batch",
+    output_dir="data/ds000001",
 )
-recipe.save("my_recipe.json")
+write_recipe(recipe, "recipes/ds000001_first_batch.json")
 ```
 
 Load and use:
 
 ```bash
-qortex run-recipe my_recipe.json --dataset ds004130
+qortex run-recipe recipes/ds000001_first_batch.json
 ```
 
 ## Recipe output
 
-A recipe run produces the same structured report as `doctor()`, but the findings are evaluated against the recipe's thresholds rather than the defaults. This makes comparison across datasets using the same criteria straightforward.
+A recipe run produces the same structured minimum-plan report as `ds.minimum()`. The recipe does not invent new thresholds; it freezes the inputs so the plan can be audited and repeated.
+
+
+
 
 ## Related
 
 - [Doctor](doctor.md) — the underlying readiness check engine
-- [Can train](can-train.md) — binary version of the label check
+- [Can train](can-train.md) — structured label-readiness report

@@ -101,6 +101,9 @@ report = ds.doctor()
 
 Signal data can still be downloaded and converted, but spatial analysis is not possible without electrode positions.
 
+
+
+
 ## Related
 
 - [iEEG files](files.md)

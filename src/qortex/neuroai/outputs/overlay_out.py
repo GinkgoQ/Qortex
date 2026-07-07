@@ -203,14 +203,17 @@ class OverlayOutputAdapter(OutputAdapter):
     def _write_sidecar(self, output: ModelOutput, meta: dict) -> None:
         import json
         sidecar = self._dir / f"prediction_{self._frame_idx:06d}.json"
+        raw = getattr(output, "raw", output)
         record: dict[str, Any] = {
             "window_index": meta.get("window_index", self._frame_idx),
             "source": meta.get("source"),
-            "class_name": getattr(output, "class_name", None),
-            "confidence": getattr(output, "confidence", None),
+            "output_type": getattr(output, "output_type", getattr(raw, "output_type", None)),
+            "class_name": getattr(output, "class_name", None) or getattr(raw, "class_name", None),
+            "class_index": getattr(output, "class_index", None) or getattr(raw, "class_index", None),
+            "confidence": getattr(raw, "confidence", None),
         }
         sidecar.write_text(json.dumps(record, indent=2), encoding="utf-8")
-        self.n_written += 1
+        self._n_written += 1
 
 
 # ── Image helpers ──────────────────────────────────────────────────────────────

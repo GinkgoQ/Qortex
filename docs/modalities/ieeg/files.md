@@ -67,6 +67,9 @@ BIDS distinguishes several iEEG channel types in `channels.tsv`:
 
 These are exposed as `channel_type_counts` in the inspect output.
 
+
+
+
 ## Related
 
 - [Electrodes and coordinates](electrodes-and-coordinates.md)

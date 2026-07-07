@@ -207,6 +207,23 @@ transforms are present in the bundle config and no explicit Qortex
 `model.required_transforms` mapping is provided, `inspect()` emits an
 error-severity model warning and compatibility blocks before runtime.
 
+## External Model Sources
+
+Qortex treats external medical-imaging models as engines with contracts, not as
+built-in claims. These sources are documented by their maintainers:
+
+| Source | Use in Qortex | Primary project page |
+|---|---|---|
+| MONAI Model Zoo | `provider: monai` bundles, local bundle directories, or bundle ZIP files | [Project MONAI model zoo](https://github.com/Project-MONAI/model-zoo) |
+| nnU-Net | trained segmentation folders through a local/plugin adapter | [MIC-DKFZ nnU-Net](https://github.com/MIC-DKFZ/nnUNet) |
+| MedSAM / MedSAM2 | prompted medical segmentation through HuggingFace or a plugin adapter | [MedSAM2](https://github.com/bowang-lab/MedSAM2) |
+| TotalSegmentator | anatomy segmentation through a CLI/plugin adapter | [TotalSegmentator](https://github.com/wasserth/TotalSegmentator) |
+
+Use [External segmentation runners](external-runners.md) when the model already exposes a file-based CLI such as `TotalSegmentator` or `nnUNetv2_predict`.
+
+The docs do not show masks, boxes, or class probabilities unless a model run
+produces those files for the stated input.
+
 ## Ultralytics (YOLOv8)
 
 ```yaml
@@ -319,3 +336,27 @@ out.produces_probabilities    # bool — True when output is a probability distr
 The compatibility engine reads `input_contract` to check modality, channel count, sampling rate, spatial shape, and axis convention against `SourceProfile`. Fields with `evidence_status=unknown` produce `uncertain` compatibility rather than a blocker.
 
 The plugin adapter raises `ModelAdapterError` (not `CompatibilityError`) when `trust_remote_code` is not set.
+
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/neuroai-model-sources.png" alt="Table of external medical-imaging model sources and the Qortex adapter path for each source.">
+  <figcaption>Real external model sources Qortex can connect to through existing adapters or local plugin adapters. No prediction is shown here.</figcaption>
+</figure>
+
+```bash
+qortex neuroai inspect-model <model-id> --provider monai
+```
+
+Result artifact: [neuroai-fixture-validation.txt](/Qortex/assets/results/neuroai-fixture-validation.txt)
+
+<!-- qortex-evidence:end -->

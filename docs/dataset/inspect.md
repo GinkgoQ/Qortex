@@ -219,6 +219,31 @@ qortex local-index data/ds004130/ --dataset-id ds004130
 qortex inspect ds004130 --local
 ```
 
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-manifest-composition.png" alt="Bar charts showing OpenNeuro ds000001 file suffix counts and bytes by BIDS datatype.">
+  <figcaption>Real `Dataset.manifest()` output from OpenNeuro ds000001: suffix counts and bytes by BIDS datatype.</figcaption>
+</figure>
+
+```python
+ds = Dataset('ds000001', snapshot='1.0.0')
+manifest = ds.manifest()
+```
+
+Result artifact: [ds000001-example-results.json](/Qortex/assets/results/ds000001-example-results.json)
+
+<!-- qortex-evidence:end -->
+
 ## Related
 
 - [`DatasetQuery`](search-catalog.md) — search and filter across all public datasets

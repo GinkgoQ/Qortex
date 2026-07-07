@@ -1,8 +1,6 @@
 # First Batch
 
-`ds.first_batch()` runs a complete end-to-end pipeline test on the minimum subset of subjects: download → convert → extract one batch → return it.
-
-It is the equivalent of a smoke test. If `first_batch()` succeeds, the full pipeline will work.
+`ds.first_batch()` tells you whether Qortex can show a first usable batch now. If local data or an artifact is missing, it returns the smallest plan needed to produce one.
 
 ## Python
 
@@ -10,52 +8,40 @@ It is the equivalent of a smoke test. If `first_batch()` succeeds, the full pipe
 from qortex import Dataset
 
 ds = Dataset("ds004130")
-batch = ds.first_batch(
-    target_col="trial_type",
-    data_dir="data/ds004130/",
-    format="parquet",
-)
-print(batch.X.shape)    # (n_samples, n_features)
-print(batch.y[:5])      # first 5 labels
-print(batch.subject_ids[:5])
+report = ds.first_batch(local_path="data/ds004130", target="trial_type")
+print(report.to_text())
 ```
 
-The returned object has:
+The returned report has:
 
-- `X` — numpy array, shape `(n_samples, n_features)`
-- `y` — numpy array of label strings or integers
-- `subject_ids` — list of subject IDs, one per row in X
-- `feature_names` — list of feature names (channel × time, or channel × frequency, etc.)
-- `artifact_dir` — path to the temporary artifact written during the test
+- status and source
+- row or sample summary when data is available
+- a required download plan when data is missing
+- suggested next command
 
 ## What it does internally
 
-1. Calls `ds.minimum(goal="first-batch")` to select 3–5 subjects
-2. Downloads those subjects' files to `data_dir`
-3. Runs `ConversionPipeline` with default window settings
-4. Loads the first batch from the resulting Parquet artifact
-5. Returns the batch
+1. Checks an artifact if `artifact_path` is provided.
+2. Checks local BIDS files if `local_path` is provided.
+3. Falls back to `minimum(goal="first-batch")` when local data is missing.
+4. Reports the concrete blocker and next action.
 
 If any step fails, a descriptive exception is raised with the stage that failed.
 
 ## CLI
 
 ```bash
-qortex first-batch ds004130 \
-    --label trial_type \
-    --data-dir data/ds004130/ \
-    --format parquet
+qortex first-batch --dataset ds004130 --local-path data/ds004130 --target trial_type
+qortex first-batch --artifact artifacts/ds004130
 ```
 
-Output on success:
+Typical output when local data is missing:
 
 ```
-first_batch: ok
-  Subjects downloaded: 3 (sub-01, sub-02, sub-03)
-  Samples:   96
-  Features:  6,400 (64 channels × 100 time points)
-  Classes:   rest (32), eyes-open (32), task (32)
-  Batch shape: (96, 6400)
+Status : uncertain
+Source : ds004130
+Rows   : 0
+Message: No local data path was provided; returning the smallest required first-batch plan.
 ```
 
 ## Debugging first_batch failures
@@ -70,8 +56,33 @@ Common failures and what they mean:
 
 **`NoLabelError`** — the target column is not in events.tsv. Check the actual column names with `ds.events(subject="01")`.
 
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-minimum-plan.png" alt="Horizontal bar chart of the ds000001 first-batch download plan and file sizes.">
+  <figcaption>Real `minimum(goal='first-batch')` plan: metadata, sidecar, events, and one BOLD run.</figcaption>
+</figure>
+
+```python
+plan = ds.minimum(goal='first-batch', output_dir=Path('data/ds000001'))
+print(plan.to_text())
+```
+
+Result artifact: [ds000001-minimum-first-batch.txt](/Qortex/assets/results/ds000001-minimum-first-batch.txt)
+
+<!-- qortex-evidence:end -->
+
 ## Related
 
 - [Minimum](minimum.md) — understand the subject selection logic
-- [Can train](can-train.md) — binary label check before running first_batch
+- [Can train](can-train.md) — structured label-readiness report before running first_batch
 - [Conversion pipeline](../conversion/pipeline.md) — what happens during the convert step

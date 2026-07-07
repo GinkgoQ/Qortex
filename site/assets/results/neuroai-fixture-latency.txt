@@ -1,0 +1,11 @@
+Source read latency:         2.4 ms
+Preprocessing latency:       4.1 ms
+Inference latency:           9.8 ms
+Postprocessing latency:      1.2 ms
+Output write latency:        1.7 ms
+End-to-end p50:             18.4 ms
+End-to-end p95:             22.7 ms
+End-to-end p99:             23.1 ms
+Latency budget:             50.0 ms
+Windows / dropped:      2 / 0
+Status: PASS

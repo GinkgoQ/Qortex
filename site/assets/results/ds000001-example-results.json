@@ -1,0 +1,130 @@
+{
+  "can_train": {
+    "label_status": "candidate",
+    "n_label_ready": 0,
+    "n_recordings": 80,
+    "n_subjects": 16,
+    "next_command": "qortex minimum ds000001 --goal first-batch",
+    "required_download_mb": 50.498,
+    "status": "uncertain",
+    "suggested_split": "subject"
+  },
+  "dataset_id": "ds000001",
+  "doi": "10.18112/openneuro.ds000001.v1.0.0",
+  "events": {
+    "columns": [
+      "onset",
+      "duration",
+      "trial_type",
+      "cash_demean",
+      "control_pumps_demean",
+      "explode_demean",
+      "pumps_demean",
+      "response_time"
+    ],
+    "rows": 158,
+    "run": "01",
+    "subject": "01",
+    "task": "balloonanalogrisktask",
+    "trial_type_counts": {
+      "cash_demean": 9,
+      "control_pumps_demean": 52,
+      "explode_demean": 10,
+      "pumps_demean": 87
+    }
+  },
+  "figures": {
+    "bold_slice": "docs/assets/images/examples/ds000001-bold-axial.png",
+    "can_train": "docs/assets/images/examples/ds000001-can-train.png",
+    "events_timeline": "docs/assets/images/examples/ds000001-events-timeline.png",
+    "manifest_composition": "docs/assets/images/examples/ds000001-manifest-composition.png",
+    "minimum_plan": "docs/assets/images/examples/ds000001-minimum-plan.png",
+    "participants": "docs/assets/images/examples/ds000001-participants.png"
+  },
+  "info": {
+    "dataset_id": "ds000001",
+    "doi": "10.18112/openneuro.ds000001.v1.0.0",
+    "has_derivatives": false,
+    "has_events": true,
+    "modalities": [
+      "behavior",
+      "fmri",
+      "mri"
+    ],
+    "n_files": 136,
+    "n_sessions": 0,
+    "n_subjects": 16,
+    "n_tasks": 1,
+    "snapshot": "1.0.0",
+    "total_size_gb": 2.416
+  },
+  "manifest": {
+    "file_count": 136,
+    "suffix_counts": {
+      ".gitattributes": 2,
+      "CHANGES": 1,
+      "README": 1,
+      "T1w": 16,
+      "bold": 49,
+      "config": 1,
+      "description": 1,
+      "events": 48,
+      "inplaneT2": 16,
+      "participants": 1
+    }
+  },
+  "minimum_first_batch": {
+    "files": 7,
+    "paths": [
+      "CHANGES",
+      "README",
+      "dataset_description.json",
+      "participants.tsv",
+      "sub-16/func/sub-16_task-balloonanalogrisktask_run-01_bold.nii.gz",
+      "sub-16/func/sub-16_task-balloonanalogrisktask_run-01_events.tsv",
+      "task-balloonanalogrisktask_bold.json"
+    ],
+    "size_gb": 0.0505,
+    "status": "possible"
+  },
+  "nifti": {
+    "description": "FSL4.0",
+    "duration_s": 600.0,
+    "is_4d": true,
+    "n_volumes": 300,
+    "ndim": 4,
+    "shape": [
+      64,
+      64,
+      33,
+      300
+    ],
+    "tr_s": 2.0,
+    "voxel_sizes_mm": [
+      3.125,
+      3.125,
+      4.0
+    ]
+  },
+  "participants": {
+    "age_max": 30.0,
+    "age_mean": 23.5625,
+    "age_min": 19.0,
+    "rows": 16,
+    "sex_counts": {
+      "F": 10,
+      "M": 6
+    }
+  },
+  "snapshot": "1.0.0",
+  "streamed_slice": {
+    "dtype": "int16",
+    "max": 949.0,
+    "mean": 280.52978515625,
+    "min": 0.0,
+    "shape": [
+      64,
+      64
+    ]
+  }
+}

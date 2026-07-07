@@ -174,6 +174,9 @@ qortex catalog-profile
 
 Shows: total datasets indexed, last refresh timestamp, modality distribution.
 
+
+
+
 ## Related
 
 - [Inspect](inspect.md) — full metadata and file-level detail for a specific dataset

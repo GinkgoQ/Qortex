@@ -1,0 +1,5 @@
+PreprocessPlan:
+  1. normalize(method=minmax, range=[0, 1])  [irreversible]  [required_by: input_contract.intensity_range]
+  2. add_batch_dim(axis=0)  [reversible]  [required_by: input_contract.axis_convention]
+  3. to_tensor(backend=torch, dtype=float32)  [reversible]  [required_by: model_provider]
+  ⚠ Contains irreversible transforms

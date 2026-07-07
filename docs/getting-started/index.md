@@ -1,74 +1,91 @@
 # Get Started
 
-Qortex turns an OpenNeuro dataset ID into a training-ready artifact. It checks whether a dataset is actually usable — before you download a single file.
+Qortex helps you answer a practical question before you spend time or bandwidth:
 
----
+> Can this neuroscience dataset support my analysis, and what is the smallest safe path to a usable artifact?
 
-## New to Qortex?
+Start here if you have an OpenNeuro dataset ID, a local BIDS directory, or a model pipeline that needs source compatibility checks.
 
-Follow this path. It takes about 20 minutes.
+## Fastest Path
 
-**1 · Install**
+| Step | Do this | What you learn |
+|---|---|---|
+| 1 | [Install Qortex](install.md) | Which optional extras match your modality. |
+| 2 | [Run the quickstart](quickstart.md) | How `doctor`, `minimum`, download, conversion, and artifacts fit together. |
+| 3 | [Choose a tutorial](../tutorials/index.md) | How the same workflow changes for EEG, sleep, seizure, MRI, fMRI, and segmentation tasks. |
+| 4 | [Read the guide map](../guides/index.md) | Which subsystem owns the next problem you need to solve. |
 
-```bash
-pip install qortex
+## Mental Model
+
+Qortex is a readiness layer. It sits between raw neurodata and model code.
+
+```text
+OpenNeuro / local BIDS
+        ↓
+inspect       manifest, sidecars, participants, events, headers
+assess        labels, companions, sample counts, split safety
+plan          exact files and bytes for one goal
+download      selective, resumable transfer
+visualize     QC before conversion
+convert       artifact formats with provenance
+use           sklearn, torch, HuggingFace, NeuroAI runtime
 ```
 
-→ [Full install instructions and optional extras](install.md)
+The important design choice is that inspection comes before transfer. Qortex uses the manifest and lightweight metadata first, then asks you to download only when a real workflow needs local bytes.
 
-**2 · Run the quickstart**
+## Pick Your Entry Point
 
-Inspect a real dataset, check its readiness, download a minimal subset, and convert to Parquet — 20 lines of code.
+<div class="tq-card-grid tq-card-grid-3">
+  <div class="tq-card">
+    <h3><a href="quickstart/">Dataset ID</a></h3>
+    <p>Start with `Dataset("ds000001")`, inspect readiness, plan a first batch, convert, and open an artifact.</p>
+  </div>
+  <div class="tq-card">
+    <h3><a href="first-visual-audit/">Local BIDS data</a></h3>
+    <p>Run a visual audit before conversion so broken images, missing files, and geometry issues show up early.</p>
+  </div>
+  <div class="tq-card">
+    <h3><a href="../neuroai/">Inference pipeline</a></h3>
+    <p>Use NeuroAI when your question is source/model compatibility and reproducible inference output.</p>
+  </div>
+</div>
 
-→ [Quickstart](quickstart.md)
+## Common First Questions
 
-**3 · Try a hands-on tutorial**
-
-Pick a modality you work with and follow a complete end-to-end example with a real open dataset.
-
-→ [Tutorial index](../tutorials/index.md)
-
----
-
-## Already installed?
-
-| I want to… | Go to |
+| Question | Best page |
 |---|---|
-| Work through a real dataset end-to-end | [Tutorials](../tutorials/index.md) |
-| Check if a dataset is usable | [Assess readiness](../readiness/index.md) |
-| Download only what I need | [Download guide](../download/index.md) |
-| Convert data to Parquet / Zarr / HDF5 | [Conversion guide](../conversion/index.md) |
-| Look up what a function returns | [API reference](../api/index.md) |
-| Fix a specific error | [Troubleshooting](../troubleshooting/index.md) |
+| Which optional packages do I need? | [Install](install.md) |
+| Can this dataset train a model? | [Can train](../readiness/can-train.md) |
+| How do I avoid downloading the full dataset? | [Minimum subset](../readiness/minimum.md) |
+| How do I check labels and events? | [Label readiness](../readiness/label-readiness.md) |
+| How do I inspect images before conversion? | [First visual audit](first-visual-audit.md) |
+| How do I load converted data into ML code? | [ML bridge](../artifacts/ml-bridge.md) |
 
----
+## What Not To Skip
 
-## How Qortex works
+Run `doctor()` before conversion. Run `leakage_check()` before training. Keep the artifact manifest with your model results. These three habits catch the most expensive mistakes: unusable labels, unsafe subject splits, and unreproducible training data.
 
-Qortex is a **readiness layer** — not a downloader, not a training framework. It sits between OpenNeuro and your pipeline.
 
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-manifest-composition.png" alt="Bar charts showing OpenNeuro ds000001 file suffix counts and bytes by BIDS datatype.">
+  <figcaption>Real `Dataset.manifest()` output from OpenNeuro ds000001: suffix counts and bytes by BIDS datatype.</figcaption>
+</figure>
+
+```python
+ds = Dataset('ds000001', snapshot='1.0.0')
+manifest = ds.manifest()
 ```
-OpenNeuro API
-     ↓
-  inspect      ← manifest only, no download
-  assess       ← label coverage, class balance, split feasibility
-  plan         ← exact file list + byte count for your goal
-     ↓
-  download     ← selective, resumable
-  visualize    ← QC before converting
-  convert      ← Parquet / Zarr / HDF5 / HuggingFace / TFRecord
-     ↓
-ML artifact    ← subject-level splits, leakage verified, provenance recorded
-```
 
-The key principle: **every check runs on the manifest and sidecar files — not on imaging data.** You know whether a dataset is usable before paying for the download.
+Result artifact: [ds000001-example-results.json](/Qortex/assets/results/ds000001-example-results.json)
 
-→ [Core concepts](../concepts/index.md) — readiness-first design, data model, the full workflow
-
----
-
-## Visual audit (first practical step)
-
-After install, the fastest way to understand what Qortex does is to run a visual audit on a local BIDS dataset.
-
-→ [First visual audit](first-visual-audit.md)
+<!-- qortex-evidence:end -->

@@ -2,6 +2,11 @@
 
 Qortex includes visualization tools for inspecting neuroimaging data before and after download. All viewers are designed around lazy loading: only the slices needed for the current view are read from disk.
 
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-bold-axial.png" alt="Real OpenNeuro ds000001 BOLD axial slice rendered by Qortex">
+  <figcaption>Real `ds000001` BOLD slice rendered by Qortex from OpenNeuro metadata and streamed image bytes. The same generator also writes the event timeline and minimum-plan figures used in the docs.</figcaption>
+</figure>
+
 ## Design principles
 
 **One center slice per NIfTI, not the whole volume.** NIfTI files can be several hundred MB. Loading one at full resolution for a thumbnail is wasteful. Qortex reads only the center slice along each axis using nibabel's ArrayProxy.
@@ -57,3 +62,27 @@ pip install "qortex[eeg]"
 ---
 
 **Next →** [Convert](../conversion/index.md) — transform validated local data into training-ready ML formats.
+
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-bold-axial.png" alt="Axial BOLD slice from OpenNeuro ds000001 subject 01 run 01.">
+  <figcaption>Real BOLD axial slice streamed with `Dataset.stream_slice()` without downloading the full NIfTI file.</figcaption>
+</figure>
+
+```python
+sl = ds.stream_slice(subject='01', modality='bold', run='01', time_index=0, axis=2)
+```
+
+Result artifact: [ds000001-example-results.json](/Qortex/assets/results/ds000001-example-results.json)
+
+<!-- qortex-evidence:end -->

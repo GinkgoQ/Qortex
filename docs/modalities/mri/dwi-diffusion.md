@@ -111,6 +111,9 @@ Each artifact sample is a `(x, y, z, n_directions)` float32 array plus b-value m
 - **Minimum directions.** Most tractography algorithms need ≥ 30 unique gradient directions. Warn if fewer.
 - **No events.** DWI does not use events.tsv. Labels for ML typically come from participants.tsv (diagnosis, group).
 
+
+
+
 ## Related
 
 - [DWI QC](../../visualization/dwi-qc.md) — QC viewer reference

@@ -15,7 +15,7 @@ report.show()
 ## CLI
 
 ```bash
-qortex eda ds004130 --data-dir data/ds004130/ --label trial_type
+qortex eda ds004130 --output reports/ds004130_eda.html
 ```
 
 ## What EDA reports

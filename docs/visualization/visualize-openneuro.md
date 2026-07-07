@@ -1,58 +1,95 @@
 # Visualize OpenNeuro
 
-The `visualize-openneuro` CLI command renders center-slice thumbnails for an OpenNeuro dataset without downloading full files. It fetches only the bytes needed to render one slice from each NIfTI.
+Use `qortex visualize-openneuro` when you need to inspect one or a few OpenNeuro files without downloading the full dataset. The command selects matching manifest records, downloads only those files to the Qortex cache or an output directory, then renders a visual audit report.
 
-## How it works
+For remote NIfTI slice work in Python, use `Dataset.stream_slice()`. It reads header metadata and the requested slice through Qortex streaming code instead of requiring a full BOLD file download.
 
-NIfTI files on the OpenNeuro CDN support HTTP range requests. Qortex reads the NIfTI header (first 352 bytes) to get voxel dimensions and data offset, then fetches only the bytes corresponding to the center axial slice. For a 256×256×176 T1w at float32, that is roughly 256 KB per slice instead of 30 MB for the full volume.
+## Real Example
 
-For EEG and other non-NIfTI formats, full-file download is still required because the formats do not support range reads. The command skips non-NIfTI files unless `--include-all` is passed.
+This figure was generated from public OpenNeuro dataset `ds000001`, subject `01`, run `01`:
+
+```python
+from qortex import Dataset
+
+ds = Dataset("ds000001")
+info = ds.nifti_info("sub-01/func/sub-01_task-balloonanalogrisktask_run-01_bold.nii.gz")
+slice_2d = ds.stream_slice(subject="01", modality="bold", run="01", time_index=0, axis=2)
+
+print(info)
+print(slice_2d.shape, slice_2d.dtype)
+```
+
+Observed output:
+
+```text
+4D fMRI 64×64×33×300 vox=3.12×3.12×4.00mm TR=2.000s
+(64, 64) int16
+```
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-bold-axial.png" alt="Axial BOLD slice streamed from OpenNeuro ds000001 sub-01 without downloading the full NIfTI file">
+  <figcaption>Real BOLD center slice streamed from OpenNeuro. The generator script saved this PNG after calling `Dataset.stream_slice()`; the full 47 MB BOLD file was not downloaded for the Python example.</figcaption>
+</figure>
 
 ## CLI
 
 ```bash
-qortex visualize-openneuro ds004130
-qortex visualize-openneuro ds004130 --subjects 01 02 --suffixes T1w bold
-qortex visualize-openneuro ds004130 --output figures/ --format png
+qortex visualize-openneuro ds000001 --subject 01 --suffix bold --datatype func --output ds000001-bold.html
+qortex visualize-openneuro ds000001 --subject 01 --suffix T1w --open
+qortex visualize-openneuro ds000001 --datatype func --suffix bold --output-dir data/ds000001-viz
 ```
 
 Options:
 
 | Option | Default | Description |
-|--------|---------|-------------|
-| `--subjects` | all | Subjects to include |
-| `--suffixes` | T1w, bold, dwi | File suffixes to render |
-| `--snapshot` | latest | Snapshot version |
-| `--output` | . | Directory for output files |
-| `--format` | html | `html` or `png` |
-| `--include-all` | False | Include non-NIfTI files (downloads full file) |
+|---|---:|---|
+| `--subject`, `-s` | any | Subject ID without `sub-`. |
+| `--suffix` | any visual suffix | BIDS suffix such as `T1w`, `bold`, or `dwi`. |
+| `--datatype`, `-d` | any | BIDS datatype folder such as `anat`, `func`, or `dwi`. |
+| `--output`, `-o` | auto | HTML output path. |
+| `--output-dir` | Qortex cache | Destination for the selected downloaded file. |
+| `--mode`, `-m` | `auto` | Rendering mode: `auto`, `qc`, `thumbnail`, `interactive`, or `static`. |
+| `--max-size-mb` | `500` | Skip matching files larger than this limit. |
+| `--n-per-suffix` | `1` | Number of files to render per suffix. |
+| `--open` | false | Open the HTML report in a browser. |
 
-## Python
+## When To Use Which Path
 
-```python
-from qortex.visualize import visualize
+| Need | Use |
+|---|---|
+| One streamed slice for docs, notebooks, or lightweight QC | `Dataset.stream_slice()` |
+| Header facts such as shape, voxel size, TR, and number of volumes | `Dataset.nifti_info(path)` |
+| A browser report for selected OpenNeuro files | `qortex visualize-openneuro` |
+| Repeated interactive inspection of the same large file | Download the file once, then use the local viewer |
 
-results = visualize("openneuro://ds004130/sub-01/anat/sub-01_T1w.nii.gz")
-results[0].show()
+## Reproduce The Figure
+
+```bash
+python scripts/generate_docs_examples.py
 ```
 
-The `openneuro://` URI scheme triggers remote rendering. Pass a manifest FileRecord instead to avoid constructing the URI manually:
+The script writes the PNG to `docs/assets/images/examples/ds000001-bold-axial.png` and the numeric metadata to `docs/assets/results/ds000001-example-results.json`.
+
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-bold-axial.png" alt="Axial BOLD slice from OpenNeuro ds000001 subject 01 run 01.">
+  <figcaption>Real BOLD axial slice streamed with `Dataset.stream_slice()` without downloading the full NIfTI file.</figcaption>
+</figure>
 
 ```python
-from qortex import Dataset
-from qortex.visualize import visualize
-
-ds = Dataset("ds004130")
-files = ds.files(subjects=["01"], suffixes=["T1w"])
-results = [visualize(f) for f in files]
+sl = ds.stream_slice(subject='01', modality='bold', run='01', time_index=0, axis=2)
 ```
 
-## Performance
+Result artifact: [ds000001-example-results.json](/Qortex/assets/results/ds000001-example-results.json)
 
-A center-slice thumbnail fetch takes 1–3 seconds per file on a typical broadband connection. The limiting factor is CDN latency, not bandwidth. Batch requests are parallelized up to 8 concurrent fetches.
-
-## Limitations
-
-- Range reads only work for NIfTI. DICOM, EEG .set/.fif, and CIFTI files require full downloads.
-- The NIfTI must have a valid header at byte 0. Some older neuroimaging software writes malformed NIfTI headers. These files fail with `InvalidNIfTIHeaderError` and are skipped.
-- Range reads bypass Qortex's local cache. Each call fetches from CDN. If you plan to inspect many slices repeatedly, download the files first.
+<!-- qortex-evidence:end -->

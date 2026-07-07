@@ -48,6 +48,9 @@ result.to_png("sample_0.png")
 result.to_html("sample_0.html")
 ```
 
+
+
+
 ## Related
 
 - [Compare splits](compare-splits.md) — distribution-level comparison

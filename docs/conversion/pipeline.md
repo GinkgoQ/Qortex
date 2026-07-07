@@ -80,15 +80,11 @@ This is more efficient than post-hoc filtering because unneeded files are never 
 ## CLI
 
 ```bash
-qortex convert ds004130 \
-    --data-dir data/ds004130/ \
-    --output artifacts/ds004130/ \
+qortex convert data/ds004130 artifacts/ds004130 \
     --format parquet \
     --window 30 \
     --overlap 0.5 \
-    --label trial_type \
-    --val-frac 0.15 \
-    --test-frac 0.15
+    --split subject
 ```
 
 ## After conversion
@@ -102,6 +98,30 @@ print(art.manifest.splits)
 ```
 
 See [Formats](formats.md) for format-specific loading.
+
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/conversion-split-evidence.png" alt="Subject-safe split chart showing train, validation, and test allocation counts.">
+  <figcaption>`ds000001` split plan derived from 16 subjects and 80 candidate BOLD recordings.</figcaption>
+</figure>
+
+```bash
+qortex convert data/ds000001 artifacts/ds000001 --format parquet --split subject
+```
+
+Result artifact: [neuroai-fixture-summary.json](/Qortex/assets/results/neuroai-fixture-summary.json)
+
+<!-- qortex-evidence:end -->
 
 ## Related
 

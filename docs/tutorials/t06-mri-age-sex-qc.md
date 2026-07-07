@@ -204,3 +204,28 @@ print(classification_report(y_sex[te_sex], y_pred_sex, target_names=["male", "fe
 | Voxel-size QC | `run_qc()` reports voxel sizes and outlier flag |
 | Subject-level split | `assign_leakage_safe_splits()` |
 | Age MAE + R² | Regression metrics in Step 6 |
+
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-participants.png" alt="Histogram of participant ages and bar chart of sex values from ds000001 participants.tsv.">
+  <figcaption>Real `participants.tsv` loaded through `Dataset.participants(prefer_api=False)`.</figcaption>
+</figure>
+
+```python
+participants = ds.participants(prefer_api=False)
+print(participants.shape)
+```
+
+Result artifact: [ds000001-example-results.json](/Qortex/assets/results/ds000001-example-results.json)
+
+<!-- qortex-evidence:end -->

@@ -27,6 +27,8 @@ result.show()
 ## From the Dataset API
 
 ```python
+from qortex import Dataset
+
 ds = Dataset("ds004130", data_dir="data/ds004130/")
 results = ds.visualize(subject="01")
 for r in results:
@@ -37,10 +39,10 @@ for r in results:
 
 ```bash
 # Visualize one subject's data and open in browser
-qortex visualize ds004130 --subject 01 --data-dir data/ds004130/
+qortex visualize data/ds004130/sub-01 --open
 
 # Save all figures to a directory
-qortex visualize ds004130 --subject 01 --data-dir data/ds004130/ --output figures/
+qortex visualize data/ds004130/sub-01/anat/sub-01_T1w.nii.gz --output figures/sub-01_T1w.html
 ```
 
 ## What each intent renders
@@ -74,6 +76,30 @@ for r in results:
 ```
 
 Interactive HTML (Plotly) is produced for BOLD and EEG; static PNG (matplotlib) for anatomical and DWI.
+
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-bold-axial.png" alt="Axial BOLD slice from OpenNeuro ds000001 subject 01 run 01.">
+  <figcaption>Real BOLD axial slice streamed with `Dataset.stream_slice()` without downloading the full NIfTI file.</figcaption>
+</figure>
+
+```python
+sl = ds.stream_slice(subject='01', modality='bold', run='01', time_index=0, axis=2)
+```
+
+Result artifact: [ds000001-example-results.json](/Qortex/assets/results/ds000001-example-results.json)
+
+<!-- qortex-evidence:end -->
 
 ## Related
 

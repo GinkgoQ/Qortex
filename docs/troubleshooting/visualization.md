@@ -65,6 +65,9 @@ The file may be:
 - Corrupted (check file size vs manifest)
 - In ANALYZE format (`.img`/`.hdr` pair) not supported
 
+
+
+
 ## Related
 
 - [Local viewer](../visualization/local-viewer.md) — visualize local files

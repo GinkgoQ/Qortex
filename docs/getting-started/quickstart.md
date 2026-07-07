@@ -1,111 +1,184 @@
 # Quickstart
 
-This page walks through the minimal path from dataset ID to a Parquet artifact ready for training.
+This quickstart takes one dataset ID to one local ML artifact. It uses `ds000001` because it is small enough for smoke tests and has event files that expose the readiness workflow.
 
-The example uses `ds004130`, an EEG resting-state dataset from OpenNeuro with 88 subjects.
+You will run six checks:
 
-## 1. Inspect the dataset
+1. inspect the remote manifest
+2. ask whether the dataset can support training
+3. plan the smallest useful download
+4. download only that plan
+5. convert local files to an artifact
+6. open the artifact for model code
+
+## 1 · Inspect Before Download
 
 ```python
 from qortex import Dataset
 
-ds = Dataset("ds004130")
-report = ds.doctor()
-print(report.to_text())
+ds = Dataset("ds000001")
+doctor = ds.doctor()
+print(doctor.to_text())
 ```
 
-Expected output:
+`doctor()` reads the manifest and lightweight metadata. It reports subjects, modalities, event coverage, companion files, size estimates, and the next action. A useful report is not always a green light; an honest `uncertain` state is better than pretending labels are confirmed before local files exist.
 
+Observed result for `ds000001`:
+
+```text
+Dataset : ds000001 (1.0.0)
+Status  : uncertain
+Summary : Event files are present, but labels need local confirmation.
+Records : 80
+Events  : 48/80
+Labels  : 0/80
+Size    : 2.42 GB
+Download: True
+Convert : True
 ```
-Dataset: ds004130 (snapshot: 1.2.0)
-State:   manifest_only
-Subjects: 88    Sessions: 1    Modalities: eeg
-Events:   yes — 88 files found
-Labels:   trial_type has 3 classes (rest, eyes-open, task)
-Size:     ~4.2 GB
-Next action: download
-  Use ds.minimum(goal="first-batch") to get the smallest subset.
-```
 
-The manifest fetch takes a few seconds. No data is transferred.
-
-## 2. Check label readiness
+## 2 · Check Training Readiness
 
 ```python
-ok = ds.can_train(target_col="trial_type", min_classes=2, min_per_class=10)
-print(ok)  # True
+training = ds.can_train(target="trial_type")
+print(training.to_text())
 ```
 
-If this returns False, call `ds.label_landscape()` to see which subjects are missing labels or have too few samples.
-
-## 3. Plan the minimum download
+Use this before downloading raw imaging data. Qortex checks whether label evidence exists, whether enough records can be used, and whether a subject-level split is feasible. If labels are only candidates, download metadata first and rerun with `local_path`.
 
 ```python
-plan = ds.minimum(goal="first-batch")
-print(f"{len(plan.files)} files, {plan.size_gb:.1f} GB")
-# 12 files, 0.4 GB
+ds.download_metadata(output_dir="data/ds000001-meta")
+print(ds.can_train(local_path="data/ds000001-meta", target="trial_type").to_text())
 ```
 
-`minimum()` picks the smallest real set of subjects whose data can complete one full pipeline pass. It includes the primary data files AND their sidecar companions automatically.
+For `ds000001`, `can_train(target="trial_type")` is intentionally cautious: the
+manifest shows event files, but Qortex marks labels as `candidate` until local
+event columns are inspected.
 
-## 4. Download
+## 3 · Plan The Smallest Real Batch
 
 ```python
-ds.download_paths(plan.files, data_dir="data/ds004130/")
+plan = ds.minimum(goal="first-batch", output_dir="data/ds000001")
+print(plan.to_text())
 ```
 
-Progress is logged per file. If interrupted, re-running resumes incomplete files.
+`minimum("first-batch")` returns a file list, byte estimate, reason, and primary recording. It includes companion files such as sidecars and events. This is the safest way to test a pipeline without guessing which BIDS files travel together.
 
-## 5. Convert to Parquet
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-minimum-plan.png" alt="Qortex minimum first-batch download plan for ds000001 showing one BOLD file plus metadata and sidecars">
+  <figcaption>`minimum("first-batch")` selected 7 files totaling about 0.05 GB: root metadata, participants, one BOLD run, its events file, and the task sidecar. The primary BOLD file dominates the bytes; the sidecars carry the interpretation.</figcaption>
+</figure>
+
+Other useful goals:
+
+| Goal | Use it when |
+|---|---|
+| `label-check` | You need event tables and metadata to verify labels. |
+| `validation` | You want the smallest set that can run structural checks. |
+| `first-batch` | You need one loadable recording plus companions. |
+
+## 4 · Download The Plan
 
 ```python
-art = ds.convert(
-    data_dir="data/ds004130/",
-    output_dir="artifacts/ds004130_parquet/",
-    format="parquet",
-    window=dict(duration_s=30.0, overlap=0.5),
-    split=dict(strategy="subject", val_frac=0.15, test_frac=0.15),
-    label_col="trial_type",
+ds.download_paths(plan.files, output_dir="data/ds000001")
+```
+
+Downloads are resumable. Re-running the same command continues incomplete files instead of starting over.
+
+## 5 · Convert To An Artifact
+
+```python
+result = ds.convert(
+    output_dir="artifacts/ds000001",
+    output_format="parquet",
+    split_strategy="subject",
 )
-print(art.manifest.n_samples)
+print(result)
 ```
 
-## 6. Load for training
+Conversion writes data plus a manifest. The manifest records source files, split policy, format, provenance, and enough metadata to reopen the artifact later.
+
+## 6 · Load For Training
 
 ```python
 from qortex import Artifact
 
-art = Artifact.open("artifacts/ds004130_parquet/")
-X_train, y_train = art.sklearn(split="train")
-X_val,   y_val   = art.sklearn(split="val")
+artifact = Artifact.open("artifacts/ds000001")
+X_train, y_train = artifact.sklearn(split="train")
 ```
 
-Or with PyTorch:
+For deep learning, use the framework bridge that matches your stack:
 
 ```python
-train_ds = art.torch(split="train")
-val_ds   = art.torch(split="val")
+train_ds = artifact.torch(split="train")
+hf_ds = artifact.huggingface(split="train")
 ```
 
-## CLI equivalent
+Before training, run a split check:
 
-All of the above can be run from the command line:
+```python
+print(artifact.leakage_check().to_text())
+```
+
+## CLI Version
 
 ```bash
-qortex doctor ds004130
-qortex can-train ds004130 --label trial_type
-qortex download ds004130 --min-goal first-batch --data-dir data/ds004130/
-qortex convert ds004130 \
-    --data-dir data/ds004130/ \
-    --output artifacts/ds004130_parquet/ \
-    --format parquet \
-    --window 30 \
-    --overlap 0.5 \
-    --label trial_type
+qortex doctor ds000001
+qortex can-train ds000001 --target trial_type
+qortex minimum ds000001 --goal first-batch
+qortex minimum ds000001 --goal first-batch --download --output-dir data/ds000001
+qortex convert data/ds000001 artifacts/ds000001 --format parquet
 ```
 
-## Next steps
+## What You Just Learned
 
-- [Selective download](../download/selective-download.md) — filter by subject, session, task, run
-- [Visual audit](first-visual-audit.md) — inspect file coverage before downloading
-- [Conversion formats](../conversion/formats.md) — Zarr, HDF5, WebDataset, HuggingFace
+| Concept | Why it matters |
+|---|---|
+| Manifest-first inspection | Most structural questions can be answered before raw data transfer. |
+| Evidence states | `possible`, `uncertain`, and `not_possible` tell you how much Qortex actually knows. |
+| Goal-based planning | A file plan should follow a workflow goal, not a guess about filenames. |
+| Subject-level splits | Neuroimaging samples are not independent when they come from the same person. |
+| Artifact manifests | Training data should be reopenable, auditable, and linked to source files. |
+
+## Reproduce The Figures
+
+The figures used in this page are generated by a real Qortex run:
+
+```bash
+python scripts/generate_docs_examples.py
+```
+
+The script writes images to `docs/assets/images/examples/` and machine-readable
+results to `docs/assets/results/ds000001-example-results.json`.
+
+## Next Pages
+
+- [Readiness guide](../readiness/index.md): learn each decision report.
+- [Selective download](../download/selective-download.md): filter by subject, task, modality, suffix, and size.
+- [Conversion formats](../conversion/formats.md): choose Parquet, HDF5, WebDataset, HuggingFace, Zarr, or TFRecord.
+- [Tutorials](../tutorials/index.md): follow full EEG, MRI, fMRI, and segmentation workflows.
+
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-minimum-plan.png" alt="Horizontal bar chart of the ds000001 first-batch download plan and file sizes.">
+  <figcaption>Real `minimum(goal='first-batch')` plan: metadata, sidecar, events, and one BOLD run.</figcaption>
+</figure>
+
+```python
+plan = ds.minimum(goal='first-batch', output_dir=Path('data/ds000001'))
+print(plan.to_text())
+```
+
+Result artifact: [ds000001-minimum-first-batch.txt](/Qortex/assets/results/ds000001-minimum-first-batch.txt)
+
+<!-- qortex-evidence:end -->

@@ -4,7 +4,7 @@ Qortex extracts labels from `trial_type` in `events.tsv` and numeric columns fro
 
 ## Auto-detection
 
-When `target_col=None`, Qortex auto-selects the best label column:
+When `label_column=None`, `label_landscape()` auto-selects the best label column:
 
 1. Read all `events.tsv` files across subjects (fetched from CDN — no large download needed)
 2. Score each column by number of distinct non-null values, excluding known non-label columns: `onset`, `duration`, `stim_file`, `HED`, `response_time`, `trial_type_id`
@@ -13,16 +13,16 @@ When `target_col=None`, Qortex auto-selects the best label column:
 ```python
 from qortex import Dataset
 
-ds = Dataset("ds004130")
-ok = ds.can_train()  # auto-detects label column
-print(ds.label_landscape())
-# Label column: trial_type (auto-detected)
+ds = Dataset("ds000001", snapshot="1.0.0")
+landscape = ds.label_landscape(max_events_files=4)
+print(landscape.summary())
 ```
 
 Specify explicitly to avoid surprises:
 
 ```python
-ok = ds.can_train(target_col="trial_type")
+training = ds.can_train(target="trial_type")
+print(training.to_text())
 ```
 
 ## Label landscape
@@ -30,45 +30,51 @@ ok = ds.can_train(target_col="trial_type")
 `ds.label_landscape()` shows per-class counts and missing subjects:
 
 ```python
-landscape = ds.label_landscape(target_col="trial_type")
-print(landscape)
+landscape = ds.label_landscape(label_column="trial_type", max_events_files=4)
+print(landscape.summary())
 ```
 
 Output:
 
 ```
+Label Landscape — ds000001
+Events files: 4/4 fetched
 Label column: trial_type
-Total subjects: 88   With labels: 86   Missing labels: 2
+Classes: 4  Total events: 568
+Coverage: 100.0% of signal keys have events
+Imbalance: 7.87x (severe)
+Cross-subject consistency: 100.0%
 
 Class distribution:
-  rest        2,112 samples   (88 subjects)
-  task          528 samples   (86 subjects)  ← 2 subjects missing
-
-Subjects missing 'task':
-  sub-23  sub-47
+  pumps_demean                       299  ███████████████
+  control_pumps_demean               187  █████████
+  cash_demean                         44  ██
+  explode_demean                      38  ██
 ```
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-can-train.png" alt="Training readiness chart for ds000001.">
+  <figcaption>Real `can_train(target="trial_type")` output for `ds000001`. The report separates label evidence from local file availability so you know what must be downloaded next.</figcaption>
+</figure>
 
 ## Regression labels
 
 Numeric columns (response time, accuracy, behavioral score) can be used for regression:
 
 ```python
-# From events.tsv
-ok = ds.can_train(target_col="response_time", task_type="regression")
-
 # From participants.tsv
 parts = ds.participants()
 print(parts.select(["participant_id", "age", "diagnosis"]))
 ```
 
-For regression from `participants.tsv`, labels are subject-level, not trial-level. One label per subject propagates to all windows from that subject.
+For regression-style work, inspect the candidate numeric column directly before conversion. `can_train()` currently reports supervised classification readiness; subject-level numeric outcomes need a conversion recipe that preserves the target and a model objective chosen outside Qortex.
 
 ## Hierarchical trial types
 
 BIDS permits slash notation: `condition/stimulus`. Qortex treats the full string as the label by default.
 
 ```python
-landscape = ds.label_landscape(target_col="trial_type")
+landscape = ds.label_landscape(label_column="trial_type")
 # Classes: ["go/compatible", "go/incompatible", "nogo"] → 3 classes
 
 # Collapse to top level:
@@ -85,33 +91,47 @@ events = events.with_columns(
 Severe imbalance makes train/val/test split difficult without stratification. Check per-class counts:
 
 ```python
-landscape = ds.label_landscape(target_col="trial_type")
-# If one class has < 30 samples total: warning in doctor()
+landscape = ds.label_landscape(label_column="trial_type")
+print(landscape.summary())
 ```
 
 Qortex does not automatically balance classes during conversion. Handle imbalance in your training loop (class weights, oversampling, or undersampling).
 
 ## Can-train requirements
 
-`can_train()` requires all of the following:
+`can_train()` checks the evidence Qortex can prove from the manifest and available local files:
 
-| Check | Default threshold |
-|-------|------------------|
-| `min_classes` | 2 |
-| `min_per_class` | 10 samples total |
-| `min_subjects` | 10 subjects with the label |
-| `require_events` | True |
+- events exist and can be paired with signal files
+- the requested target appears in the behavioral tables
+- enough recordings can plausibly support a first supervised run
+- a subject-level split is feasible enough to avoid leakage
 
-Adjust thresholds for your use case:
+Use `label_landscape()` for class-balance detail, then use `minimum(goal="first-batch")` when the report asks for local confirmation.
+
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-events-timeline.png" alt="Timeline of ds000001 events and trial-type counts for subject 01 run 01.">
+  <figcaption>Real `events.tsv` timeline for ds000001 sub-01 run-01.</figcaption>
+</figure>
 
 ```python
-ok = ds.can_train(
-    target_col="trial_type",
-    min_classes=3,
-    min_per_class=50,
-    min_subjects=30,
-)
+events = ds.events(subject='01', task='balloonanalogrisktask', run='01')
+print(events.shape)
 ```
+
+Result artifact: [ds000001-example-results.json](/Qortex/assets/results/ds000001-example-results.json)
+
+<!-- qortex-evidence:end -->
 
 ## Related
 

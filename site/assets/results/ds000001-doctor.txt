@@ -1,0 +1,64 @@
+Dataset : ds000001 (1.0.0)
+Status  : uncertain
+Summary : Event files are present, but labels need local confirmation.
+Records : 80
+Events  : 48/80
+Labels  : 0/80
+Size    : 2.42 GB
+Download: True
+Convert : True
+Findings:
+  INFO: labels.candidate_unverified [sub-16/func/sub-16_task-balloonanalogrisktask_run-01_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-16/func/sub-16_task-balloonanalogrisktask_run-02_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-16/func/sub-16_task-balloonanalogrisktask_run-03_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-15/func/sub-15_task-balloonanalogrisktask_run-01_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-15/func/sub-15_task-balloonanalogrisktask_run-02_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-15/func/sub-15_task-balloonanalogrisktask_run-03_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-14/func/sub-14_task-balloonanalogrisktask_run-01_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-14/func/sub-14_task-balloonanalogrisktask_run-02_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-14/func/sub-14_task-balloonanalogrisktask_run-03_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-13/func/sub-13_task-balloonanalogrisktask_run-01_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-13/func/sub-13_task-balloonanalogrisktask_run-02_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-13/func/sub-13_task-balloonanalogrisktask_run-03_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-12/func/sub-12_task-balloonanalogrisktask_run-01_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-12/func/sub-12_task-balloonanalogrisktask_run-02_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-12/func/sub-12_task-balloonanalogrisktask_run-03_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-11/func/sub-11_task-balloonanalogrisktask_run-01_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-11/func/sub-11_task-balloonanalogrisktask_run-02_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-11/func/sub-11_task-balloonanalogrisktask_run-03_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-10/func/sub-10_task-balloonanalogrisktask_run-01_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-10/func/sub-10_task-balloonanalogrisktask_run-02_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-10/func/sub-10_task-balloonanalogrisktask_run-03_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-09/func/sub-09_task-balloonanalogrisktask_run-01_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-09/func/sub-09_task-balloonanalogrisktask_run-02_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-09/func/sub-09_task-balloonanalogrisktask_run-03_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-08/func/sub-08_task-balloonanalogrisktask_run-01_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-08/func/sub-08_task-balloonanalogrisktask_run-02_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-08/func/sub-08_task-balloonanalogrisktask_run-03_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-07/func/sub-07_task-balloonanalogrisktask_run-01_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-07/func/sub-07_task-balloonanalogrisktask_run-02_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-07/func/sub-07_task-balloonanalogrisktask_run-03_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-06/func/sub-06_task-balloonanalogrisktask_run-01_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-06/func/sub-06_task-balloonanalogrisktask_run-02_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-06/func/sub-06_task-balloonanalogrisktask_run-03_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-05/func/sub-05_task-balloonanalogrisktask_run-01_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-05/func/sub-05_task-balloonanalogrisktask_run-02_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-05/func/sub-05_task-balloonanalogrisktask_run-03_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-04/func/sub-04_task-balloonanalogrisktask_run-01_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-04/func/sub-04_task-balloonanalogrisktask_run-02_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-04/func/sub-04_task-balloonanalogrisktask_run-03_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-03/func/sub-03_task-balloonanalogrisktask_run-01_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-03/func/sub-03_task-balloonanalogrisktask_run-02_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-03/func/sub-03_task-balloonanalogrisktask_run-03_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-02/func/sub-02_task-balloonanalogrisktask_run-01_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-02/func/sub-02_task-balloonanalogrisktask_run-02_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-02/func/sub-02_task-balloonanalogrisktask_run-03_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-01/func/sub-01_task-balloonanalogrisktask_run-01_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-01/func/sub-01_task-balloonanalogrisktask_run-02_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  INFO: labels.candidate_unverified [sub-01/func/sub-01_task-balloonanalogrisktask_run-03_events.tsv]: A matching events.tsv file exists, but label columns have not been verified locally. Pass an explicit LabelPolicy column.
+  WARNING: train.no_labels: No label-ready recordings were found for sklearn training.
+Next actions:
+  - qortex metadata ds000001 --limit 20
+  - qortex minimum ds000001 --goal label-check
+  - qortex metadata ds000001 --download --output-dir ./data/ds000001-metadata
+  - Download metadata and rerun doctor/can-train with --local-path to confirm labels.

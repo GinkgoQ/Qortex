@@ -39,7 +39,7 @@ Content status: issues_found
 ## CLI
 
 ```bash
-qortex content-status ds004130 --data-dir data/ds004130/
+qortex content-status data/ds004130 --dataset ds004130
 ```
 
 ## What is checked
@@ -69,6 +69,9 @@ Or re-download through Qortex:
 ```python
 ds.download(subjects=["03", "07", "12"], force=True, data_dir="data/ds004130/")
 ```
+
+
+
 
 ## Related
 

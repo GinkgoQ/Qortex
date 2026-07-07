@@ -30,7 +30,6 @@ theme:
     - navigation.tabs.sticky
     - navigation.sections
     - navigation.indexes
-    - navigation.prune
     - navigation.footer
     - navigation.instant
     - navigation.instant.progress
@@ -97,7 +96,7 @@ markdown_extensions:
 nav:
   - Home: index.md
 
-  - Get Started:
+  - Start:
       - getting-started/index.md
       - Install: getting-started/install.md
       - Quickstart: getting-started/quickstart.md
@@ -122,8 +121,9 @@ nav:
       - "T07 · fMRI Readiness": tutorials/t07-fmri-design-readiness.md
       - "T08 · Tumor Segmentation": tutorials/t08-brain-tumour-segmentation.md
 
-  - Guides:
+  - Workflow:
       - guides/index.md
+      - Generated figures: guides/generated-figures.md
       - 1 · Inspect:
           - dataset/index.md
           - Search catalog: dataset/search-catalog.md
@@ -184,6 +184,7 @@ nav:
           - Models: neuroai/models.md
           - Sources: neuroai/sources.md
           - Outputs: neuroai/outputs.md
+          - External Runners: neuroai/external-runners.md
 
   - Modalities:
       - modalities/index.md
@@ -221,7 +222,7 @@ nav:
           - Events TSV: modalities/behavioral/events-tsv.md
           - Labels: modalities/behavioral/labels-and-trial-types.md
 
-  - API:
+  - Reference:
       - api/index.md
       - Dataset: api/dataset.md
       - Visualization: api/visualization.md

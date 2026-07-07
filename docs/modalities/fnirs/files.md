@@ -95,6 +95,9 @@ art = ds.convert(
 
 Each sample is a `(n_channels, n_time_points)` array. Low sampling rate means small arrays even for long windows.
 
+
+
+
 ## Related
 
 - [fNIRS overview](index.md)

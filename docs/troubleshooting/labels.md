@@ -32,7 +32,7 @@ The `trial_type` column may be all NaN for some datasets where conditions are en
 Use `label_landscape()` with a different column:
 
 ```python
-landscape = ds.label_landscape(target_col="stim_id")
+landscape = ds.label_landscape(label_column="stim_id")
 ```
 
 ## Events file has only one class
@@ -67,8 +67,33 @@ WARNING: 3 events for sub-01 extend past recording end (600.0 s)
 
 This can happen if the events file was created for a longer version of the recording, or if TR and onset times use different units.
 
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-events-timeline.png" alt="Timeline of ds000001 events and trial-type counts for subject 01 run 01.">
+  <figcaption>Real `events.tsv` timeline for ds000001 sub-01 run-01.</figcaption>
+</figure>
+
+```python
+events = ds.events(subject='01', task='balloonanalogrisktask', run='01')
+print(events.shape)
+```
+
+Result artifact: [ds000001-example-results.json](/Qortex/assets/results/ds000001-example-results.json)
+
+<!-- qortex-evidence:end -->
+
 ## Related
 
 - [Label readiness](../readiness/label-readiness.md) — per-subject label coverage
-- [Can train](../readiness/can-train.md) — binary label check
+- [Can train](../readiness/can-train.md) — structured label-readiness report
 - [EDA](../conversion/eda.md) — signal statistics and label analysis

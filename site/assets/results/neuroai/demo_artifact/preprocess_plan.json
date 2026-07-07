@@ -1,0 +1,42 @@
+{
+  "transforms": [
+    {
+      "kind": "normalize",
+      "required_by": "input_contract.intensity_range",
+      "params": {
+        "method": "minmax",
+        "range": [
+          0,
+          1
+        ]
+      },
+      "reversible": false,
+      "irreversible_reason": "intensity scaling is stored in provenance, not inverted",
+      "evidence_status": "confirmed"
+    },
+    {
+      "kind": "add_batch_dim",
+      "required_by": "input_contract.axis_convention",
+      "params": {
+        "axis": 0
+      },
+      "reversible": true,
+      "irreversible_reason": null,
+      "evidence_status": "confirmed"
+    },
+    {
+      "kind": "to_tensor",
+      "required_by": "model_provider",
+      "params": {
+        "backend": "torch",
+        "dtype": "float32"
+      },
+      "reversible": true,
+      "irreversible_reason": null,
+      "evidence_status": "confirmed"
+    }
+  ],
+  "has_destructive_transforms": true,
+  "warnings": [],
+  "unknowns": []
+}

@@ -82,6 +82,31 @@ plan = ds.plan(subjects=["01"], include_companions=False)
 
 Excluding companions is rarely useful — conversion will fail without sidecars and events.
 
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-minimum-plan.png" alt="Horizontal bar chart of the ds000001 first-batch download plan and file sizes.">
+  <figcaption>Real `minimum(goal='first-batch')` plan: metadata, sidecar, events, and one BOLD run.</figcaption>
+</figure>
+
+```python
+plan = ds.minimum(goal='first-batch', output_dir=Path('data/ds000001'))
+print(plan.to_text())
+```
+
+Result artifact: [ds000001-minimum-first-batch.txt](/Qortex/assets/results/ds000001-minimum-first-batch.txt)
+
+<!-- qortex-evidence:end -->
+
 ## Related
 
 - [Selective download](selective-download.md) — filter options

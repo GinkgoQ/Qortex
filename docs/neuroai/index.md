@@ -1,86 +1,58 @@
 # NeuroAI Runtime
 
 !!! warning "Research runtime"
-    The NeuroAI runtime is a contract-driven inference surface, but it is not a
-    clinical device and does not make medical decisions. Validate every source,
-    transform, model, and output contract for your own scientific or regulated
-    workflow before relying on results.
+    NeuroAI runs research inference pipelines. It does not diagnose, treat, triage, or recommend care. Validate every source, transform, model, and output contract before using results in a scientific or regulated workflow.
 
-The NeuroAI runtime connects neuroimaging data sources to AI models through a single
-declarative pipeline. It separates compatibility checking from execution: the model is
-never loaded until the runtime has confirmed the source and model can work together.
+NeuroAI connects a data source, a model, and one or more outputs through a typed pipeline contract. Its main job is to prevent an unsafe run from starting: the runtime probes the source, inspects the model contract, plans required transforms, and reports blockers before weights are loaded.
 
-## The core loop
+## Use It When
 
+| You need | Why NeuroAI fits |
+|---|---|
+| Source/model compatibility before inference | `check()` reports required transforms, blockers, unknowns, and whether the run is allowed. |
+| Reproducible inference artifacts | Runs write predictions plus contracts, provenance, warnings, latency, and validation records. |
+| Multiple data sources | Local files, BIDS directories, DICOM, NWB, XDF, LSL, BrainFlow, images, and video use the same source profile contract. |
+| Explicit preprocessing | Required transforms come from the model input contract; denied transforms become blockers. |
+| Replay and benchmark loops | `benchmark()` and `replay()` reuse the same pipeline semantics as `run()`. |
+
+Use `qortex.Dataset` instead when your job is OpenNeuro search, readiness, selective download, conversion, or artifact creation.
+
+## Runtime Loop
+
+```text
+source.probe()       header-only source profile
+model.inspect()      model contract, no weights yet
+check()              compatibility report
+plan()               preprocessing steps
+model.load()         only after compatibility passes
+source.stream()      windows or records
+transform()          strict critical transforms
+predict()            model output
+write()              JSONL, CSV, Parquet, NIfTI, DICOM, BIDS, overlay, HTTP, ...
+artifact()           provenance, contract, warnings, latency, validation
 ```
-source.probe()          ← header-only scan, no data loaded
-model.inspect()         ← config.json only, no weights
-CompatibilityEngine     ← reports required transforms, blockers, unknowns
-PreprocessPlanner       ← builds the documented transform chain
-model.load()            ← weights loaded only when check passes
-source.stream()         ← windowed data
-TransformExecutor       ← applies the plan; raises TransformError on failure
-model.predict()         ← inference
-output.write()          ← one or many sinks
-ArtifactWriter          ← 9-file provenance directory
-```
 
-Nothing in this chain is implicit. Each step produces a typed contract:
-`SourceProfile`, `ModelProfile`, `CompatibilityReport`, `PreprocessPlan`,
-`PipelineRunReport`, `ArtifactContract`. These contracts flow into the artifact
-directory written after each run.
+Each step produces a typed object: `SourceProfile`, `ModelProfile`, `CompatibilityReport`, `PreprocessPlan`, `PipelineRunReport`, and `ArtifactContract`.
 
-Pipeline configuration is parsed as a contract, not as loose YAML. `subject` and
-`session` are accepted as scalar aliases for `subjects` and `sessions`; window
-durations accept numeric seconds or strings such as `"2s"` / `"500ms"`; boolean
-strings are parsed explicitly. Invalid or contradictory specs raise
-`ContractValidationError` through `Pipeline.from_yaml()` / `Pipeline.from_dict()`.
+## Minimal Pipeline
 
-Preprocessing is also contract-driven. The compatibility engine plans only
-transforms required by the model input contract, and it respects
-`preprocessing.allow`, `preprocessing.deny`, and boolean gates such as
-`normalize`, `resample`, and `channel_select`. A denied required transform becomes
-an incompatibility blocker rather than a silent automatic operation.
+```yaml
+source:
+  type: local_file
+  path: data/sub-01.edf
+  modality: eeg
 
-## When to use it
+model:
+  type: braindecode
+  name: eegnet
 
-Use `qortex.Dataset` when your goal is OpenNeuro BIDS datasets — catalog search,
-download, conversion, readiness checks.
+outputs:
+  - type: jsonl
+    path: predictions/predictions.jsonl
 
-Use the NeuroAI runtime when:
-
-- You have local data (EDF, NWB, XDF, DICOM) and want to run a model on it
-- You want to evaluate source-model compatibility **before** committing to a run
-- You need a traceable artifact with provenance for every inference run
-
-## Contents
-
-- [Pipeline](pipeline.md) — YAML format, Python API, `check()`, `run()`, `benchmark()`, `replay()`
-- [Sources](sources.md) — BIDS, DICOM, NWB, XDF, LSL, BrainFlow, image, video
-- [Models](models.md) — HuggingFace (native tasks), ONNX, Torch, MONAI, Braindecode, Ultralytics, plugins
-- [Outputs](outputs.md) — JSONL, Parquet, CSV, NIfTI, DICOM-SEG, BIDS, COCO, YOLO, overlay, HTTP
-- Contracts — SourceProfile, ModelProfile, CompatibilityReport, PreprocessPlan, ArtifactContract
-- Ring buffer — lock-free windowing for real-time sources; Python fallback + Rust extension
-
-## Quick example
-
-```python
-from qortex.neuroai import Pipeline
-
-pipe = Pipeline.from_yaml("pipeline.yaml")
-
-report = pipe.check()
-print(report.summary())
-# CompatibilityReport: COMPATIBLE_WITH_TRANSFORMS
-#   source=local_file:sub-01.edf  model=braindecode/EEGNet
-#   Required transforms (1):
-#     • resample(from_hz=250.0, to_hz=128.0)  [irreversible]
-#   Warnings (1):
-#     ⚠ channel labels inferred from index, not names
-
-if report.is_runnable:
-    run = pipe.run(artifact_dir="artifacts/run_001")
-    print(run.latency_report.summary())
+runtime:
+  device: cpu
+  max_windows: 10
 ```
 
 ```bash
@@ -88,88 +60,80 @@ qortex neuroai check pipeline.yaml
 qortex neuroai plan pipeline.yaml --json
 qortex neuroai run pipeline.yaml --artifact-dir artifacts/run_001
 qortex neuroai validate-artifact artifacts/run_001
-qortex neuroai suggest-models data.edf --task classification
 ```
 
-## Known limitations
+## What Compatibility Means
 
-### HuggingFace adapter
+Compatibility is not a slogan. It is a structured comparison between the source profile and the model input contract.
 
-`transformers.pipeline()` accepts a fixed set of native task strings
-(`image-classification`, `audio-classification`, etc.).
-Domain-specific tasks such as `eeg_classification` are **not** native pipeline tasks.
-The adapter fails closed for those tasks unless the user supplies an explicit
-native task, ONNX/Torch/Braindecode/MONAI model, or trusted plugin adapter.
-
-For EEG or medical-imaging models, prefer the **Braindecode**, **ONNX**, or **Torch**
-adapter.  The HuggingFace adapter's input contract inference reads `num_channels` /
-`in_channels` from the model config when available; when those fields are absent the
-channel count is `unknown` (not guessed).  Window duration is **never** estimated from
-config fields — doing so has no scientific basis.
-
-### Compatibility engine
-
-When a model does not declare `n_channels` or `sampling_rate_hz` in its config,
-the engine marks those dimensions as `uncertain`.  This is intentional: a false
-`compatible` verdict is more dangerous than an honest `uncertain`.  Build a curated
-`InputContract` for models that lack machine-readable specs.
-
-### Preprocessing — contract-driven only
-
-The `PreprocessPlanner` inserts only transforms that the `CompatibilityEngine`
-determined are required by the model's `InputContract`.  No normalization or
-per-modality intensity rescaling is added automatically.  Wrong normalization
-destroys the distribution a model expects; only the model contract knows what's right.
-Unknown normalization methods raise `TransformError` instead of silently
-passing data through. Supported methods include `channel_zscore`,
-`global_zscore`, `robust_zscore`, `per_volume_zscore`, `minmax`,
-`percentile_clip`, `hu_window`, and `exponential_moving_standardize`.
-
-### TransformExecutor — critical transforms raise, not skip
-
-Critical transforms — `resample`, `reorient`, `normalize`, `rescale_intensity`,
-`cast_dtype`, `bandpass`, `channel_select`, `pad_or_crop`, `transpose_axes` — raise `TransformError`
-on failure.  The engine catches these at the window level, records the window as
-dropped, and continues.  Non-critical structural transforms (`add_batch_dim`,
-`to_tensor`) log a warning and pass data through.
-
-Runtime failure behavior is explicit. `runtime.source_failure_policy` controls
-source iterator errors (`strict`, `skip_window`, `continue_recording`), and
-`runtime.preprocess_failure_policy` controls batch preprocessing errors
-(`strict`, `drop_failed`).
-`runtime.max_windows`, `runtime.max_duration_s`, `runtime.idle_timeout_s`, and
-`runtime.fail_on_no_windows` bound smoke tests, offline replay, and long-running
-streams without changing model or preprocessing semantics.
-
-### Reorientation
-
-Volumetric reorientation uses `nibabel.orientations` when nibabel is installed
-(any 3-character orientation code pair).  Without nibabel, only LPS↔RAS is
-supported via a direct axis flip, and only when the array axes map directly to the
-orientation codes.  Install `qortex[mri]` for correct reorientation.
-
-### Latency profiler
-
-Source-read time is measured around the actual blocking `next()` call on the
-source iterator.  Benchmark numbers are a lower bound — they do not include Python
-GIL contention, data-loader initialisation, or GPU↔CPU transfer outside the timed
-region.
-
-### Source and output adapter coverage
-
-| Adapter | Status |
+| Check | Examples |
 |---|---|
-| Local EDF/BDF/FIF, NIfTI, DICOM | Tested |
-| BIDS directory | Tested |
-| LSL, BrainFlow, XDF | Prototype |
-| DICOMweb | Prototype |
-| JSONL, Parquet, CSV output | Tested |
-| DICOM-SEG, DICOM-SR | Partial |
-| COCO JSON, YOLO txt, WebSocket | Partial |
+| Modality | EEG model cannot silently accept a DICOM volume. |
+| Shape and axes | Channel/time arrays, image volumes, row/column tables, batch dimensions. |
+| Sampling and spacing | EEG sampling rate, voxel spacing, temporal windows. |
+| Channels | Required channel names, channel order, channel-selection plans. |
+| Dtype and range | Casts, intensity rescaling, normalization requirements. |
+| Required transforms | Resample, normalize, reorient, pad/crop, transpose, channel select. |
+| Policy gates | `preprocessing.allow`, `preprocessing.deny`, and per-transform booleans. |
 
-### Scope
+A denied required transform is an incompatibility blocker. Unknown model dimensions stay `uncertain`; Qortex does not guess them.
 
-The runtime covers many source, model, and output types. The strongest path is
-the contract-checked `check → plan → run → artifact → validate` workflow; source
-or model adapters marked prototype/partial should be promoted with project
-fixtures before they are used for claims.
+## Artifact Contents
+
+Every run can write a self-describing artifact directory:
+
+| File | Purpose |
+|---|---|
+| `artifact_contract.json` | What the run promised to produce. |
+| `artifact_manifest.json` | Files written by the run and their hashes. |
+| `provenance.json` | Source, model, config, runtime, and environment metadata. |
+| `compatibility_report.json` | Source/model compatibility evidence. |
+| `preprocess_plan.json` | Ordered transforms and whether they are reversible. |
+| `runtime_report.json` | Windows processed, dropped records, outputs written. |
+| `latency_report.json` | Timing summary for source, preprocessing, model, and output stages. |
+| `warnings.json` | Non-fatal problems kept with the run. |
+| `outputs/` | Predictions and sink-specific files. |
+
+## Strongest Paths Today
+
+| Area | Status |
+|---|---|
+| Local EDF/BDF/FIF, NIfTI, DICOM | Tested source paths |
+| BIDS directory source | Tested |
+| JSONL, CSV, Parquet outputs | Tested |
+| ONNX, Torch, Braindecode, MONAI, Ultralytics, HuggingFace adapters | Available with contract checks |
+| DICOM-SEG, DICOM-SR, COCO, YOLO, overlay, HTTP outputs | Implemented paths; use workflow fixtures before making claims |
+| LSL, BrainFlow, XDF, DICOMweb | Useful for integration work; validate with your hardware or service |
+
+## Pages
+
+- [Pipeline](pipeline.md): YAML schema, Python API, `check()`, `plan()`, `run()`, `benchmark()`, and `replay()`.
+- [Sources](sources.md): local files, BIDS, DICOM, DICOMweb, NWB, XDF, LSL, BrainFlow, image, video.
+- [Models](models.md): HuggingFace, ONNX, Torch, MONAI, Braindecode, Ultralytics, and trusted plugin adapters.
+- [Outputs](outputs.md): JSONL, Parquet, CSV, NIfTI, DICOM-SEG, DICOM-SR, BIDS, COCO, YOLO, overlay, HTTP, WebSocket.
+- [External runners](external-runners.md): subprocess boundary for file-based segmentation engines such as TotalSegmentator and nnU-Net.
+
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/neuroai-contract-flow.png" alt="Contract flow diagram from source profile to model contract, compatibility report, preprocessing plan, and artifact validation.">
+  <figcaption>Qortex checks source metadata, model input contracts, required transforms, and artifact validation before model execution.</figcaption>
+</figure>
+
+```bash
+qortex neuroai run pipeline.yaml --artifact-dir docs/assets/results/neuroai/demo_artifact
+qortex neuroai validate-artifact docs/assets/results/neuroai/demo_artifact
+```
+
+Result artifact: [neuroai-fixture-validation.txt](/Qortex/assets/results/neuroai-fixture-validation.txt)
+
+<!-- qortex-evidence:end -->

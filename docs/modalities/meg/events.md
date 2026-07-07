@@ -25,14 +25,14 @@ report = ds.doctor()
 # Events: yes — 102 files, columns: onset duration trial_type stim_file
 
 # Per-subject detail
-print(ds.label_landscape(target_col="trial_type"))
+print(ds.label_landscape(label_column="trial_type").summary())
 ```
 
 ## Read events for a specific file
 
 ```python
 events = ds.events(subject="01", task="facerecognition")
-# Polars or pandas DataFrame: onset, duration, trial_type, ...
+# Polars DataFrame: onset, duration, trial_type, ...
 print(events["trial_type"].value_counts())
 ```
 
@@ -69,6 +69,31 @@ Each sample is a `(n_channels, n_time_points)` array. The time axis spans `tmin`
 - `trial_type` with slash notation (`face/famous`) — Qortex treats the full string as the label class. Flatten if needed: `"famous"` instead of `"face/famous"`.
 - Response columns (`response`, `response_time`) can serve as regression targets.
 - Recordings with stim-channel-only events need manual preprocessing outside Qortex before supervised conversion.
+
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-events-timeline.png" alt="Timeline of ds000001 events and trial-type counts for subject 01 run 01.">
+  <figcaption>Real `events.tsv` timeline for ds000001 sub-01 run-01.</figcaption>
+</figure>
+
+```python
+events = ds.events(subject='01', task='balloonanalogrisktask', run='01')
+print(events.shape)
+```
+
+Result artifact: [ds000001-example-results.json](/Qortex/assets/results/ds000001-example-results.json)
+
+<!-- qortex-evidence:end -->
 
 ## Related
 

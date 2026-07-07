@@ -92,6 +92,9 @@ window = WindowSpec(duration_s=30.0, min_duration_s=60.0)
 # Only process recordings of at least 60 seconds
 ```
 
+
+
+
 ## Related
 
 - [Pipeline](pipeline.md) — full ConversionPipeline configuration

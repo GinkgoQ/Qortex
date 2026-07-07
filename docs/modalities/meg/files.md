@@ -69,6 +69,9 @@ record = loader.lazy_load(file_record, local_path=...)
 # raw MNE object backed by disk — data read on first access
 ```
 
+
+
+
 ## Related
 
 - [MEG events](events.md)

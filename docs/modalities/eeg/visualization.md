@@ -23,7 +23,7 @@ fig.show()
 CLI:
 
 ```bash
-qortex visualize ds004130 --subject 01 --suffix eeg --data-dir data/ds004130/
+qortex visualize data/ds004130/sub-01/eeg/sub-01_task-rest_eeg.set --mode interactive
 ```
 
 ## Power spectral density
@@ -88,9 +88,12 @@ viewer.dashboard("sub01_eeg_qc.html")
 Or from CLI:
 
 ```bash
-qortex visualize ds004130 --subject 01 \
-    --suffix eeg --data-dir data/ --output eeg_qc.html
+qortex visualize data/ds004130/sub-01/eeg/sub-01_task-rest_eeg.set \
+    --mode interactive --output eeg_qc.html
 ```
+
+
+
 
 ## Related
 

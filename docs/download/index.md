@@ -35,3 +35,28 @@ ds.download(subjects=["01", "02"], tasks=["rest"], data_dir="data/ds004130/")
 ---
 
 **Next →** [Visualize](../visualization/index.md) — QC your local files before conversion to catch bad data early.
+
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-minimum-plan.png" alt="Horizontal bar chart of the ds000001 first-batch download plan and file sizes.">
+  <figcaption>Real `minimum(goal='first-batch')` plan: metadata, sidecar, events, and one BOLD run.</figcaption>
+</figure>
+
+```python
+plan = ds.minimum(goal='first-batch', output_dir=Path('data/ds000001'))
+print(plan.to_text())
+```
+
+Result artifact: [ds000001-minimum-first-batch.txt](/Qortex/assets/results/ds000001-minimum-first-batch.txt)
+
+<!-- qortex-evidence:end -->

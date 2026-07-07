@@ -51,9 +51,8 @@ report = ds.doctor()
 Or use visual audit:
 
 ```python
-report = ds.visual_audit(mode="local")
-for item in report.missing_expected_files():
-    print(item)
+report = ds.visual_audit(local_path="/scratch/datasets/ds004130/", output_dir="qc/ds004130")
+print(report.summary())
 ```
 
 ## Limitations
@@ -61,6 +60,9 @@ for item in report.missing_expected_files():
 - Local indexing does not validate BIDS structure. It only parses entity labels from path names. Run `ds.validate()` for structural validation.
 - Files that do not follow BIDS naming conventions are indexed but have None for most entity fields. They appear in the manifest with unknown datatype and suffix.
 - Symlinks are followed during indexing. If the link target does not exist, the file is skipped.
+
+
+
 
 ## Related
 

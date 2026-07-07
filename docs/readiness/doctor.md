@@ -88,8 +88,33 @@ report = ds.doctor()
 # Checks file count vs manifest, LFS pointer detection, JSON sidecar parsability
 ```
 
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-can-train.png" alt="Readiness chart for ds000001 showing subject count, recording count, and label-ready count.">
+  <figcaption>Real `CanTrainReport` for ds000001. Qortex separates candidate labels from locally confirmed training evidence.</figcaption>
+</figure>
+
+```python
+report = ds.can_train(target='trial_type')
+print(report.to_text())
+```
+
+Result artifact: [ds000001-can-train.txt](/Qortex/assets/results/ds000001-can-train.txt)
+
+<!-- qortex-evidence:end -->
+
 ## Related
 
 - [Minimum](minimum.md) — smallest download for a specific goal
-- [Can train](can-train.md) — binary label readiness check
+- [Can train](can-train.md) — structured supervised-training readiness report
 - [Content status](content-status.md) — post-download content integrity

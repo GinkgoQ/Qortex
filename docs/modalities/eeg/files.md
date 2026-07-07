@@ -73,6 +73,9 @@ record = loader.lazy_load(file_record, local_path=...)
 # MNE Raw object — data stays on disk until to_numpy() or slicing
 ```
 
+
+
+
 ## Related
 
 - [EEG events](events.md)

@@ -27,12 +27,13 @@ report = ds.doctor()
 print(report.to_text())
 ```
 
-Use a built-in recipe for stricter modality-specific thresholds:
+Use `minimum()` and `can_train()` for goal-specific decisions:
 
 ```python
-report = ds.doctor(recipe="eeg-classification")
-report = ds.doctor(recipe="fmri-classification")
-report = ds.doctor(recipe="dwi")
+fmri_training = ds.can_train(target="trial_type", modality="fmri")
+first_batch = ds.minimum(goal="first-batch", modality="fmri", target="trial_type")
+print(fmri_training.to_text())
+print(first_batch.to_text())
 ```
 
 ## Structural MRI
@@ -40,11 +41,8 @@ report = ds.doctor(recipe="dwi")
 **No events required.** Labels come from `participants.tsv` (age, sex, group, diagnosis).
 
 ```python
-ok = ds.can_train(
-    target_col="group",          # from participants.tsv
-    label_source="participants",
-    min_subjects=30,
-)
+report = ds.can_train(target="group", modality="mri")
+print(report.to_text())
 ```
 
 Readiness flags:
@@ -54,7 +52,8 @@ Readiness flags:
 ## fMRI BOLD
 
 ```python
-ok = ds.can_train(target_col="trial_type")
+report = ds.can_train(target="trial_type", modality="fmri")
+print(report.to_text())
 ```
 
 Readiness flags:
@@ -62,10 +61,16 @@ Readiness flags:
 - `MISSING_TR` — TR not in JSON sidecar
 - `NO_COMPANIONS` — events.tsv missing for some subjects that have BOLD
 
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-events-timeline.png" alt="Event timeline for ds000001 subject 01 run 01 with cash, control_pumps, explode, and pumps events over a 600 second BOLD run.">
+  <figcaption>Real events from `ds000001/sub-01_task-balloonanalogrisktask_run-01_events.tsv`. fMRI readiness depends on this timing table as much as on the BOLD image.</figcaption>
+</figure>
+
 ## DWI
 
 ```python
-report = ds.doctor(recipe="dwi")
+report = ds.doctor()
+print(report.to_text())
 ```
 
 Readiness flags:
@@ -77,8 +82,8 @@ Readiness flags:
 ## EEG / MEG
 
 ```python
-ok = ds.can_train(target_col="trial_type")
-report = ds.doctor(recipe="eeg-classification")
+training = ds.can_train(target="trial_type", modality="eeg")
+print(training.to_text())
 ```
 
 Readiness flags:
@@ -105,6 +110,9 @@ Same event checks as EEG, plus:
 - `MISSING_TRACER` — TracerName or TracerRadionuclide absent in sidecar
 - `MISSING_FRAME_TIMES` — FrameTimesStart not in sidecar (static PET assumed)
 - `NO_SUV_FIELDS` — BodyWeight or InjectedRadioactivity absent (SUV not possible)
+
+
+
 
 ## Related
 

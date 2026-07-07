@@ -30,7 +30,7 @@ print(report.to_text())
 # Size: 4.2 GB
 
 # Full event coverage check
-print(ds.label_landscape(target_col="trial_type"))
+print(ds.label_landscape(label_column="trial_type").summary())
 ```
 
 ## Inspect after download
@@ -124,6 +124,30 @@ Each sample in the artifact is a `(n_voxels, n_time_points)` array or a flattene
 - **TR must be in JSON sidecar.** If the sidecar is missing, TR falls back to the NIfTI pixdim[4] which is unreliable.
 - **Confound files.** fMRIPrep confound TSVs are in `derivatives/`. They are excluded by default. Set `include_derivatives=True` to include them.
 - **Motion.** High motion subjects are not automatically flagged. Use framewise displacement from the confound file.
+
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-bold-axial.png" alt="Axial BOLD slice from OpenNeuro ds000001 subject 01 run 01.">
+  <figcaption>Real BOLD axial slice streamed with `Dataset.stream_slice()` without downloading the full NIfTI file.</figcaption>
+</figure>
+
+```python
+sl = ds.stream_slice(subject='01', modality='bold', run='01', time_index=0, axis=2)
+```
+
+Result artifact: [ds000001-example-results.json](/Qortex/assets/results/ds000001-example-results.json)
+
+<!-- qortex-evidence:end -->
 
 ## Related
 

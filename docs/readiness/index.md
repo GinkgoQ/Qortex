@@ -2,6 +2,11 @@
 
 Readiness checks answer "is this dataset usable for training?" before you download anything expensive. Each check works on the manifest and small sidecar files — not on imaging data.
 
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-events-timeline.png" alt="Real ds000001 events.tsv timeline used to inspect label candidates">
+  <figcaption>Real event evidence from `ds000001` subject `01`, run `01`. Qortex can see candidate labels remotely, but it reports uncertainty until local label columns and policies are confirmed.</figcaption>
+</figure>
+
 ## Checks and what they answer
 
 [**Doctor**](doctor.md) — Full structural readiness report. Covers subjects, modalities, companion files, label coverage, split feasibility, and total size. Start here.
@@ -76,3 +81,28 @@ Without `local_path` the checker cannot open events.tsv on disk and falls back t
 ---
 
 **Next →** [Download](../download/index.md) — once readiness is confirmed, fetch exactly the files you need.
+
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-can-train.png" alt="Readiness chart for ds000001 showing subject count, recording count, and label-ready count.">
+  <figcaption>Real `CanTrainReport` for ds000001. Qortex separates candidate labels from locally confirmed training evidence.</figcaption>
+</figure>
+
+```python
+report = ds.can_train(target='trial_type')
+print(report.to_text())
+```
+
+Result artifact: [ds000001-can-train.txt](/Qortex/assets/results/ds000001-can-train.txt)
+
+<!-- qortex-evidence:end -->

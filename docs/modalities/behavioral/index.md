@@ -23,22 +23,26 @@ A BOLD or EEG file without `events.tsv` cannot be used for supervised classifica
 ```python
 from qortex import Dataset
 
-ds = Dataset("ds004130")
+ds = Dataset("ds000001", snapshot="1.0.0")
 
-# Is any label column usable?
-ok = ds.can_train(target_col="trial_type")
-print(ok)
+training = ds.can_train(target="trial_type")
+print(training.to_text())
 
-# Detailed label landscape
-print(ds.label_landscape())
+landscape = ds.label_landscape(label_column="trial_type", max_events_files=4)
+print(landscape.summary())
 ```
 
 CLI:
 
 ```bash
-qortex can-train ds004130 --label trial_type
+qortex can-train ds000001 --snapshot 1.0.0 --target trial_type
 qortex eda ds004130 --label trial_type
 ```
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-events-timeline.png" alt="Timeline of real ds000001 events across the first BOLD run.">
+  <figcaption>The docs build generated this plot from a real Qortex `events()` call. The same table drives label readiness and event-aligned windows.</figcaption>
+</figure>
 
 ## Access behavioral data
 

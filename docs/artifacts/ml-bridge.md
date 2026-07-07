@@ -122,3 +122,27 @@ import pyarrow.parquet as pq
 ds = pq.ParquetDataset("artifacts/ds004130/train/")
 table = ds.read(filters=[("label", "=", "rest")])
 ```
+
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/conversion-split-evidence.png" alt="Subject-safe split chart showing train, validation, and test allocation counts.">
+  <figcaption>`ds000001` split plan derived from 16 subjects and 80 candidate BOLD recordings.</figcaption>
+</figure>
+
+```bash
+qortex convert data/ds000001 artifacts/ds000001 --format parquet --split subject
+```
+
+Result artifact: [neuroai-fixture-summary.json](/Qortex/assets/results/neuroai-fixture-summary.json)
+
+<!-- qortex-evidence:end -->

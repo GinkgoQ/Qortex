@@ -1897,6 +1897,140 @@ def _load_neuroai_contract_file(path: Path | None) -> dict[str, Any] | None:
     return data
 
 
+@neuroai_app.command("render-segmentation-showcase")
+def neuroai_render_segmentation_showcase(
+    image: Path = typer.Argument(..., help="Source NIfTI image"),
+    prediction_mask: Path = typer.Argument(..., help="Predicted segmentation NIfTI mask"),
+    output_dir: Path = typer.Argument(..., help="Directory for PNG/JSON showcase artifacts"),
+    case_id: str = typer.Option(..., "--case-id", help="Case identifier written to the manifest"),
+    model_id: str = typer.Option(..., "--model-id", help="Model or pipeline identifier written to the manifest"),
+    source_id: str | None = typer.Option(None, "--source-id", help="Source identifier; defaults to image path"),
+    truth_mask: Path | None = typer.Option(None, "--truth-mask", help="Optional ground-truth NIfTI mask"),
+    class_labels_json: str | None = typer.Option(
+        None,
+        "--class-labels-json",
+        help='JSON mapping of integer labels to names, for example: {"0":"background","1":"tumour"}',
+    ),
+    slice_index: int | None = typer.Option(None, "--slice-index", help="Slice index to render; defaults to largest mask area"),
+    json_output: bool = typer.Option(False, "--json", help="Print artifact paths as JSON"),
+) -> None:
+    """Render source/mask/overlay/metrics artifacts for a segmentation run."""
+
+    try:
+        from qortex.neuroai import render_segmentation_showcase_from_files
+    except Exception as exc:
+        typer.echo(f"[ERROR] Could not import NeuroAI showcase renderer: {exc}", err=True)
+        raise typer.Exit(2)
+
+    try:
+        labels = _parse_class_labels_json(class_labels_json)
+        artifacts = render_segmentation_showcase_from_files(
+            image_path=image,
+            prediction_mask_path=prediction_mask,
+            truth_mask_path=truth_mask,
+            output_dir=output_dir,
+            case_id=case_id,
+            model_id=model_id,
+            source_id=source_id,
+            class_labels=labels,
+            slice_index=slice_index,
+        )
+    except Exception as exc:
+        typer.echo(f"[ERROR] {exc}", err=True)
+        raise typer.Exit(1)
+
+    if json_output:
+        typer.echo(json.dumps(artifacts.to_dict(), indent=2, sort_keys=True))
+        return
+
+    typer.echo(f"Board    : {artifacts.board}")
+    typer.echo(f"Overlay  : {artifacts.overlay}")
+    typer.echo(f"Mask     : {artifacts.mask}")
+    typer.echo(f"Metrics  : {artifacts.metrics}")
+    typer.echo(f"Manifest : {artifacts.manifest}")
+
+
+@neuroai_app.command("run-external-segmentation")
+def neuroai_run_external_segmentation(
+    engine: str = typer.Argument(..., help="External engine: totalsegmentator or nnunet"),
+    image: Path = typer.Argument(..., help="Input NIfTI image or nnU-Net input case file"),
+    output: Path = typer.Argument(..., help="Expected output file or directory"),
+    task: str | None = typer.Option(None, "--task", help="TotalSegmentator task"),
+    model_folder: Path | None = typer.Option(None, "--model-folder", help="nnU-Net results folder; exported as nnUNet_results"),
+    dataset_id: int | None = typer.Option(None, "--dataset-id", help="nnU-Net dataset id"),
+    configuration: str | None = typer.Option(None, "--configuration", help="nnU-Net configuration, e.g. 3d_fullres"),
+    trainer: str | None = typer.Option(None, "--trainer", help="nnU-Net trainer name"),
+    plans: str | None = typer.Option(None, "--plans", help="nnU-Net plans name"),
+    fold: list[str] | None = typer.Option(None, "--fold", help="nnU-Net fold; repeat for multiple folds"),
+    device: str | None = typer.Option(None, "--device", help="Device string passed to the external engine"),
+    timeout_s: float | None = typer.Option(None, "--timeout-s", help="Subprocess timeout in seconds"),
+    extra_arg: list[str] | None = typer.Option(None, "--extra-arg", help="Extra argument forwarded to the external engine; repeat as needed"),
+    json_output: bool = typer.Option(False, "--json", help="Print run metadata as JSON"),
+) -> None:
+    """Run a supported external segmentation CLI and capture provenance."""
+
+    try:
+        from qortex.neuroai import ExternalSegmentationRequest, run_external_segmentation
+    except Exception as exc:
+        typer.echo(f"[ERROR] Could not import external segmentation runner: {exc}", err=True)
+        raise typer.Exit(2)
+
+    if engine not in {"totalsegmentator", "nnunet"}:
+        typer.echo("[ERROR] engine must be 'totalsegmentator' or 'nnunet'", err=True)
+        raise typer.Exit(1)
+
+    try:
+        result = run_external_segmentation(
+            ExternalSegmentationRequest(
+                engine=engine,  # type: ignore[arg-type]
+                image_path=image,
+                output_path=output,
+                task=task,
+                model_folder=model_folder,
+                dataset_id=dataset_id,
+                configuration=configuration,
+                trainer=trainer,
+                plans=plans,
+                folds=tuple(fold or ("all",)),
+                device=device,
+                timeout_s=timeout_s,
+                extra_args=tuple(extra_arg or ()),
+            )
+        )
+    except Exception as exc:
+        typer.echo(f"[ERROR] {exc}", err=True)
+        raise typer.Exit(1)
+
+    if json_output:
+        typer.echo(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+        return
+
+    typer.echo(f"Engine   : {result.engine}")
+    typer.echo(f"Output   : {result.output_path}")
+    typer.echo(f"Elapsed  : {result.elapsed_s:.2f}s")
+    typer.echo(f"Metadata : {result.metadata_path}")
+
+
+def _parse_class_labels_json(value: str | None) -> dict[int, str] | None:
+    if value is None:
+        return None
+    data = json.loads(value)
+    if not isinstance(data, dict):
+        raise ValueError("--class-labels-json must be a JSON object")
+    labels: dict[int, str] = {}
+    for key, label in data.items():
+        try:
+            idx = int(key)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Class label key must be an integer, got {key!r}") from exc
+        if not isinstance(label, str) or not label.strip():
+            raise ValueError(f"Class label for {idx} must be a non-empty string")
+        labels[idx] = label.strip()
+    if 0 not in labels:
+        labels[0] = "background"
+    return labels
+
+
 @neuroai_app.command("suggest-models")
 def neuroai_suggest_models(
     source: str = typer.Argument(..., help="Path to source file or BIDS directory"),

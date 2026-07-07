@@ -1,0 +1,25 @@
+{
+  "qortex_version": "docs",
+  "created_at": "2026-07-07T14:33:04.847203+00:00",
+  "source_id": "openneuro:ds000001:sub-01:run-01:bold",
+  "model_id": "monai_model_zoo_bundle_placeholder",
+  "model_revision": null,
+  "model_hash": null,
+  "pipeline_spec_hash": "b8d886eebe6919e34839418f3332d18677178f54023c5695275037ff61a0424a",
+  "preprocessing_transforms": [
+    "normalize",
+    "add_batch_dim",
+    "to_tensor"
+  ],
+  "runtime_backend": "fixture",
+  "device": "cpu",
+  "output_schema": "source_profile_and_contract_sidecars",
+  "output_type": "profile",
+  "n_records": 0,
+  "warnings": [],
+  "unknowns": [],
+  "compatibility_status": "compatible_with_transforms",
+  "leakage_check_applied": false,
+  "split_policy": null,
+  "seed": null
+}

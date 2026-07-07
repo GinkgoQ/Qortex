@@ -64,13 +64,13 @@ qortex download ds004130 \
     --subjects 01 02 03 04 05 06 07 08 09 10 \
     --tasks rest \
     --suffixes bold \
-    --data-dir data/ds004130/
+    --output-dir data/ds004130/
 
 # All EEG
-qortex download ds004130 --datatypes eeg --data-dir data/ds004130/
+qortex download ds004130 --modalities eeg --output-dir data/ds004130/
 
 # Skip large files
-qortex download ds004130 --max-size 0.5 --data-dir data/ds004130/
+qortex download ds004130 --modalities eeg --output-dir data/ds004130/ --dry-run
 ```
 
 ## Companion files
@@ -95,6 +95,31 @@ ds.download(suffixes=["bold"], include_companions=False, data_dir="data/")
 plan = ds.plan(subjects=["01"], tasks=["rest"])
 print(f"{len(plan.files)} files, {plan.size_gb:.2f} GB")
 ```
+
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-minimum-plan.png" alt="Horizontal bar chart of the ds000001 first-batch download plan and file sizes.">
+  <figcaption>Real `minimum(goal='first-batch')` plan: metadata, sidecar, events, and one BOLD run.</figcaption>
+</figure>
+
+```python
+plan = ds.minimum(goal='first-batch', output_dir=Path('data/ds000001'))
+print(plan.to_text())
+```
+
+Result artifact: [ds000001-minimum-first-batch.txt](/Qortex/assets/results/ds000001-minimum-first-batch.txt)
+
+<!-- qortex-evidence:end -->
 
 ## Related
 

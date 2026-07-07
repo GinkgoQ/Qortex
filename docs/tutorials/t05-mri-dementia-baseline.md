@@ -201,3 +201,28 @@ print("  CDR is a research label; this model does not diagnose Alzheimer's disea
 | Subject-level split | `assign_leakage_safe_splits(group_columns=[...])` |
 | Confound report | `compute_statistical_diagnostics()` in Step 2 |
 | Research disclaimer | Printed in Step 6 and dataset card |
+
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-participants.png" alt="Histogram of participant ages and bar chart of sex values from ds000001 participants.tsv.">
+  <figcaption>Real `participants.tsv` loaded through `Dataset.participants(prefer_api=False)`.</figcaption>
+</figure>
+
+```python
+participants = ds.participants(prefer_api=False)
+print(participants.shape)
+```
+
+Result artifact: [ds000001-example-results.json](/Qortex/assets/results/ds000001-example-results.json)
+
+<!-- qortex-evidence:end -->

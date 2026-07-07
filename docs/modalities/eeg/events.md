@@ -20,23 +20,26 @@ Recommended column: `trial_type`.
 ```python
 from qortex import Dataset
 
-ds = Dataset("ds004130")
+ds = Dataset("ds000001", snapshot="1.0.0")
 report = ds.doctor()
-# Events: yes — 88 files, columns: onset duration trial_type
 
-ok = ds.can_train(target_col="trial_type", min_classes=2, min_per_class=10)
-print(ok)  # True
+training = ds.can_train(target="trial_type")
+print(training.to_text())
 
-print(ds.label_landscape(target_col="trial_type"))
+print(ds.label_landscape(label_column="trial_type", max_events_files=4).summary())
 ```
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-events-timeline.png" alt="Real event timeline for ds000001 subject 01 run 01.">
+  <figcaption>Although this figure comes from an fMRI task, the same BIDS `events.tsv` contract is used for EEG and MEG event-aligned windows: onset, duration, label, and optional response columns.</figcaption>
+</figure>
 
 ## Read events for a specific subject
 
 ```python
-events = ds.events(subject="01", task="rest")
-# DataFrame: onset  duration  trial_type  ...
-print(events["trial_type"].unique())   # ["rest", "task"]
-print(events.shape)                    # (240, 4)
+events = ds.events(subject="01", task="balloonanalogrisktask", run="01")
+print(events["trial_type"].value_counts())
+print(events.shape)                    # (158, 8)
 ```
 
 For multiple sessions or runs:
@@ -87,6 +90,31 @@ events = events.with_columns(
 )
 # → ["go", "go", "nogo"]
 ```
+
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-events-timeline.png" alt="Timeline of ds000001 events and trial-type counts for subject 01 run 01.">
+  <figcaption>Real `events.tsv` timeline for ds000001 sub-01 run-01.</figcaption>
+</figure>
+
+```python
+events = ds.events(subject='01', task='balloonanalogrisktask', run='01')
+print(events.shape)
+```
+
+Result artifact: [ds000001-example-results.json](/Qortex/assets/results/ds000001-example-results.json)
+
+<!-- qortex-evidence:end -->
 
 ## Related
 

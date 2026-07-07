@@ -207,3 +207,28 @@ Adapters yield one of these types into the pipeline:
 | `QortexVideo` | `[n, h, w, c]` with fps | Video frames |
 | `QortexEmbeddingTable` | `[n, d]` | Embedding vectors |
 | `QortexStream` | descriptor only | Live stream (not data) |
+
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/neuroai-contract-flow.png" alt="Contract flow diagram from source profile to model contract, compatibility report, preprocessing plan, and artifact validation.">
+  <figcaption>Qortex checks source metadata, model input contracts, required transforms, and artifact validation before model execution.</figcaption>
+</figure>
+
+```bash
+qortex neuroai run pipeline.yaml --artifact-dir docs/assets/results/neuroai/demo_artifact
+qortex neuroai validate-artifact docs/assets/results/neuroai/demo_artifact
+```
+
+Result artifact: [neuroai-fixture-validation.txt](/Qortex/assets/results/neuroai-fixture-validation.txt)
+
+<!-- qortex-evidence:end -->

@@ -95,6 +95,22 @@ from qortex.neuroai.outputs import (
     BoundingBox,
 )
 from qortex.neuroai.artifact import ArtifactWriter
+from qortex.neuroai.showcase import (
+    QORTEX_COLORS,
+    ShowcaseArtifacts,
+    ShowcaseInput,
+    render_segmentation_showcase,
+    render_segmentation_showcase_from_files,
+    segmentation_metrics,
+)
+from qortex.neuroai.external import (
+    ExternalSegmentationError,
+    ExternalSegmentationRequest,
+    ExternalSegmentationResult,
+    available_external_segmentation_engines,
+    build_external_segmentation_command,
+    run_external_segmentation,
+)
 from qortex.neuroai.validate import (
     ArtifactValidationIssue,
     ArtifactValidationReport,
@@ -212,6 +228,18 @@ __all__ = [
     "ArtifactValidationIssue",
     "ArtifactValidationReport",
     "validate_artifact",
+    "QORTEX_COLORS",
+    "ShowcaseArtifacts",
+    "ShowcaseInput",
+    "render_segmentation_showcase",
+    "render_segmentation_showcase_from_files",
+    "segmentation_metrics",
+    "ExternalSegmentationError",
+    "ExternalSegmentationRequest",
+    "ExternalSegmentationResult",
+    "available_external_segmentation_engines",
+    "build_external_segmentation_command",
+    "run_external_segmentation",
     # Engines
     "CompatibilityEngine",
     "PreprocessPlanner",

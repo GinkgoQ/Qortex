@@ -1,9 +1,19 @@
 # First Visual Audit
 
-A visual audit is a coverage check with thumbnails. It answers two questions:
+A visual audit is a fast QC pass for local BIDS files. It answers:
 
-1. Which subjects/sessions/tasks have each expected file type?
-2. What do the center slices look like — any obvious acquisition failures?
+1. Which visualizable files are present?
+2. Which subjects or suffixes are missing?
+3. Do the thumbnails reveal obvious geometry, intensity, overlay, or loading problems?
+
+It reads one representative slice per NIfTI file for thumbnail mode, so it is safe to run before expensive conversion.
+
+## Real Rendered Example
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-bold-axial.png" alt="Axial BOLD slice from OpenNeuro ds000001 subject 01 run 01.">
+  <figcaption>OpenNeuro `ds000001` BOLD slice rendered through `Dataset.stream_slice()`. A local visual audit uses the same visual stack across many files and writes an HTML report.</figcaption>
+</figure>
 
 ## Requirements
 
@@ -11,72 +21,85 @@ A visual audit is a coverage check with thumbnails. It answers two questions:
 pip install "qortex[visual-all]"
 ```
 
-## Run against a local BIDS directory
-
-If you have a dataset on disk at `data/ds004130/`:
+## Run Against A Local BIDS Directory
 
 ```python
 from qortex import Dataset
 
-ds = Dataset("ds004130", data_dir="data/ds004130/")
-report = ds.visual_audit()
-report.show()  # opens browser
+ds = Dataset("ds000001")
+report = ds.visual_audit(
+    output_dir="qc/ds000001",
+    local_path="data/ds000001",
+    suffixes=["bold"],
+    max_files=8,
+)
+print(report.summary())
+report.to_html("qc/ds000001/visual_audit.html")
 ```
 
-`show()` renders an HTML page with:
+The report includes:
 
-- A coverage matrix (subjects × suffixes, green/red cells)
-- Per-suffix file counts
-- Warning summary (missing files, unexpected file sizes)
-- Thumbnails for a sample of each suffix
-
-## Run from the manifest only (no download needed)
-
-You can run a coverage-only audit against the remote manifest without downloading any data:
-
-```python
-ds = Dataset("ds004130")
-report = ds.visual_audit(mode="manifest")
-report.show()
-```
-
-In manifest mode, you get the coverage matrix and warnings but no thumbnails.
+- a coverage matrix
+- per-suffix counts
+- per-subject counts
+- warning summaries
+- rendered thumbnails
+- action items for missing or failed files
 
 ## CLI
 
 ```bash
-qortex visual-audit ds004130 --data-dir data/ds004130/ --output audit_report.html
+qortex visual-audit ds000001 \
+  --local data/ds000001 \
+  --output-dir qc/ds000001 \
+  --suffixes bold \
+  --max-files 8
 ```
 
-Without `--data-dir`, runs in manifest mode.
+Add `--open` to launch the generated HTML report in your browser.
 
-## Save the report
+## Manifest-Aware Use
+
+When you pass `local_path`, Qortex compares local files to the OpenNeuro manifest. This lets the report distinguish a file that does not exist in the dataset from a file that should exist but has not been downloaded.
+
+## Save Report Formats
+
+```bash
+qortex visual-audit ds000001 \
+  --local data/ds000001 \
+  --output-dir qc/ds000001 \
+  --json \
+  --markdown \
+  --manifest-json
+```
+
+## Next Steps
+
+- [Visual audit reference](../visualization/visual-audit.md)
+- [fMRI QC](../visualization/fmri-qc.md)
+- [Visualize OpenNeuro](../visualization/visualize-openneuro.md)
+- [Download](../download/index.md)
+
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-bold-axial.png" alt="Axial BOLD slice from OpenNeuro ds000001 subject 01 run 01.">
+  <figcaption>Real BOLD axial slice streamed with `Dataset.stream_slice()` without downloading the full NIfTI file.</figcaption>
+</figure>
 
 ```python
-report.to_html("audit_report.html")
-report.to_json("audit_report.json")
-report.to_markdown("audit_report.md")
+sl = ds.stream_slice(subject='01', modality='bold', run='01', time_index=0, axis=2)
 ```
 
-## Interpreting the coverage matrix
+Result artifact: [ds000001-example-results.json](/Qortex/assets/results/ds000001-example-results.json)
 
-Each cell is colored by whether a file was found for that subject/session combination:
-
-- Green — file present
-- Red — file expected (based on other subjects) but missing
-- Gray — not applicable (subject did not have this session or task)
-
-The `action_items()` method returns a list of the highest-priority missing files sorted by how many subjects are affected:
-
-```python
-for item in report.action_items():
-    print(item)
-# WARNING: sub-03_task-rest_events.tsv missing (affects 1/88 subjects)
-# WARNING: sub-17_T1w.nii.gz missing (affects 1/88 subjects)
-```
-
-## Next steps
-
-- [Visual audit reference](../visualization/visual-audit.md) — full VisualAuditReport API
-- [fMRI QC](../visualization/fmri-qc.md) — per-file QC panels
-- [Download](../download/index.md) — download the flagged missing files
+<!-- qortex-evidence:end -->

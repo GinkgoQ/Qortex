@@ -1,0 +1,18 @@
+Dataset : ds000001 (1.0.0)
+Goal    : first-batch
+Status  : possible
+Reason  : A first batch needs one loadable primary recording plus required companions.
+Dataset : ds000001  (snapshot 1.0.0)
+Target  : data/ds000001
+Files   : 7
+Size    : 0.05 GB (estimated)
+Recording: fmri|16|noses|balloonanalogrisktask|01|sub-16/func/sub-16_task-balloonanalogrisktask_run-01_bold.nii.gz
+Next    : qortex minimum ds000001 --goal first-batch
+Files:
+  CHANGES (286 bytes)
+  README (1175 bytes)
+  dataset_description.json (615 bytes)
+  participants.tsv (216 bytes)
+  sub-16/func/sub-16_task-balloonanalogrisktask_run-01_bold.nii.gz (50489238 bytes)
+  sub-16/func/sub-16_task-balloonanalogrisktask_run-01_events.tsv (6716 bytes)
+  task-balloonanalogrisktask_bold.json (73 bytes)

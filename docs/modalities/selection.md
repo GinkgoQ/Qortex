@@ -61,6 +61,9 @@ Qortex's pipeline is modality-agnostic. The same `Dataset → inspect → downlo
 # PET: sample shape is (x, y, z) per frame
 ```
 
+
+
+
 ## Related
 
 - [Modality readiness](readiness.md) — per-modality readiness checks

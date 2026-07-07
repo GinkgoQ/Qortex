@@ -38,7 +38,7 @@ ds.download(subjects=["01"], concurrency=8, data_dir="data/")
 Or set in configuration:
 
 ```bash
-qortex download ds004130 --concurrency 8 --data-dir data/
+qortex download ds004130 --output-dir data/ds004130
 ```
 
 Higher concurrency does not always improve throughput — CDN rate limiting may kick in above 4–8 concurrent streams.

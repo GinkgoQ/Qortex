@@ -244,3 +244,27 @@ print("✓ Patch sanity check passed")
 | Patch extraction | Foreground fraction > 1% (Step 7) |
 | Dice metric | Computed excluding background (Step 6) |
 | No clinical claims | Documented in card and code comments |
+
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/neuroai-model-sources.png" alt="Table of external medical-imaging model sources and the Qortex adapter path for each source.">
+  <figcaption>Real external model sources Qortex can connect to through existing adapters or local plugin adapters. No prediction is shown here.</figcaption>
+</figure>
+
+```bash
+qortex neuroai inspect-model <model-id> --provider monai
+```
+
+Result artifact: [neuroai-fixture-validation.txt](/Qortex/assets/results/neuroai-fixture-validation.txt)
+
+<!-- qortex-evidence:end -->

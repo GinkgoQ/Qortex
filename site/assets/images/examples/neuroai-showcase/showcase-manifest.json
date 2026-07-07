@@ -1,0 +1,44 @@
+{
+  "artifacts": {
+    "area_plot": "mask-area-profile.png",
+    "board": "segmentation-board.png",
+    "error_map": null,
+    "mask": "prediction-mask.png",
+    "metrics": "metrics.json",
+    "overlay": "prediction-overlay.png",
+    "source_slice": "source-slice.png"
+  },
+  "case_id": "qortex_visual_test/sub-04/T1w",
+  "class_labels": {
+    "0": "background",
+    "1": "foreground candidate"
+  },
+  "created_at": "2026-07-07T14:33:04.846025+00:00",
+  "image_shape": [
+    160,
+    192,
+    192
+  ],
+  "metadata": {
+    "image_path": "data/qortex_visual_test/sub-04/anat/sub-04_T1w.nii.gz",
+    "method": "percentile threshold + largest connected component + binary closing",
+    "model_claim": false,
+    "prediction_mask_path": "docs/assets/results/neuroai/showcase/sub-04_foreground-candidate.nii.gz",
+    "threshold_percentile": 35,
+    "truth_mask_path": null
+  },
+  "model_id": "qortex.foreground_candidate.v1",
+  "prediction_shape": [
+    160,
+    192,
+    192
+  ],
+  "slice_index": 62,
+  "source_id": "local:qortex_visual_test/sub-04/anat/sub-04_T1w.nii.gz",
+  "truth_shape": null,
+  "voxel_sizes": [
+    1.0,
+    1.3333330154418945,
+    1.3333330154418945
+  ]
+}

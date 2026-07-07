@@ -8,7 +8,7 @@
 from qortex import Dataset
 
 ds = Dataset("ds004130", data_dir="data/ds004130/")
-report = ds.visual_audit()
+report = ds.visual_audit(output_dir="qc/ds004130", local_path="data/ds004130")
 report.show()  # opens browser with HTML report
 ```
 
@@ -24,10 +24,10 @@ report.show()
 ## From the CLI
 
 ```bash
-qortex visual-audit ds004130 --data-dir data/ds004130/ --output audit.html
+qortex visual-audit ds004130 --local data/ds004130 --output-dir qc/ds004130
 ```
 
-Without `--data-dir`, runs in manifest-only mode (coverage matrix only, no thumbnails).
+Without `--local`, the command can still compare selected manifest records, but thumbnails require local files.
 
 ## Report contents
 
@@ -83,15 +83,15 @@ for path in report.missing_expected_files(threshold=0.9):
     print(path)
 ```
 
-## Manifest mode (no download required)
+## Manifest-Aware Mode
 
 ```python
 ds = Dataset("ds004130")
-report = ds.visual_audit(mode="manifest")
-report.show()
+report = ds.visual_audit(output_dir="qc/ds004130", local_path="data/ds004130")
+print(report.n_expected, report.n_local_present, report.n_missing_local)
 ```
 
-In manifest mode, coverage is based on the remote manifest. No files are read from disk. Thumbnails are not included.
+When `local_path` is passed, Qortex reconciles rendered files against the remote manifest and reports expected, present, and missing local files.
 
 ## Exporting the report
 
@@ -106,6 +106,30 @@ The JSON export includes `visual_manifest_json()` — a nested dict of all files
 ## Interpreting the coverage matrix
 
 A missing file (red cell) is not always a problem. In datasets where some subjects did not complete all tasks, gaps in the coverage matrix are expected. Use `missing_expected_files(threshold=0.8)` to focus on files that are present for at least 80% of subjects but absent for some — those are the unexpected gaps.
+
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-bold-axial.png" alt="Axial BOLD slice from OpenNeuro ds000001 subject 01 run 01.">
+  <figcaption>Real BOLD axial slice streamed with `Dataset.stream_slice()` without downloading the full NIfTI file.</figcaption>
+</figure>
+
+```python
+sl = ds.stream_slice(subject='01', modality='bold', run='01', time_index=0, axis=2)
+```
+
+Result artifact: [ds000001-example-results.json](/Qortex/assets/results/ds000001-example-results.json)
+
+<!-- qortex-evidence:end -->
 
 ## Related
 

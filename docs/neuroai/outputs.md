@@ -89,6 +89,38 @@ outputs:
 
 Writes a `nibabel.Nifti1Image` from a `SegmentationOutput` or `VolumePredictionOutput`. Validates that the affine determinant is positive before writing (a negative determinant indicates a flipped orientation). Writes a JSON sidecar (`mask_provenance.json`) with pipeline reference and model ID.
 
+### Segmentation Showcase
+
+`render_segmentation_showcase_from_files()` turns a source volume and predicted mask into files that can be inspected without a notebook:
+
+- source slice PNG
+- prediction mask PNG
+- source/mask overlay PNG
+- mask-area-by-slice plot
+- metrics JSON
+- manifest JSON
+- error map when a ground-truth mask is supplied
+
+```python
+from qortex.neuroai import render_segmentation_showcase_from_files
+
+artifacts = render_segmentation_showcase_from_files(
+    image_path="sub-04_T1w.nii.gz",
+    prediction_mask_path="sub-04_mask.nii.gz",
+    output_dir="artifacts/sub-04_showcase",
+    case_id="sub-04",
+    model_id="my-segmentation-model",
+    class_labels={0: "background", 1: "target"},
+)
+
+print(artifacts.board)
+```
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/neuroai-showcase/segmentation-board.png" alt="Qortex segmentation showcase board with source slice, foreground candidate mask, overlay, contour, metrics, and class legend.">
+  <figcaption>Renderer output from the documentation generation run. The mask is a source-derived foreground candidate, so the figure demonstrates artifact rendering rather than model accuracy.</figcaption>
+</figure>
+
 ### DICOM-SEG
 
 ```yaml
@@ -317,3 +349,28 @@ consistency between observed output records and `runtime_report.json.outputs`.
 When `artifact_contract.json` includes the model `OutputContract`, validation
 also checks available output type evidence and NIfTI output shape against that
 contract.
+
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/neuroai-contract-flow.png" alt="Contract flow diagram from source profile to model contract, compatibility report, preprocessing plan, and artifact validation.">
+  <figcaption>Qortex checks source metadata, model input contracts, required transforms, and artifact validation before model execution.</figcaption>
+</figure>
+
+```bash
+qortex neuroai run pipeline.yaml --artifact-dir docs/assets/results/neuroai/demo_artifact
+qortex neuroai validate-artifact docs/assets/results/neuroai/demo_artifact
+```
+
+Result artifact: [neuroai-fixture-validation.txt](/Qortex/assets/results/neuroai-fixture-validation.txt)
+
+<!-- qortex-evidence:end -->

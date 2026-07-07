@@ -18,7 +18,7 @@ qortex search [--modality MOD] [--task TASK] [--min-subjects N]
 Fetch and display the dataset manifest summary.
 
 ```bash
-qortex inspect DATASET_ID [--snapshot VER] [--local] [--json]
+qortex inspect DATASET_ID [--snapshot VER] [--output FILE]
 ```
 
 ### metadata
@@ -26,7 +26,7 @@ qortex inspect DATASET_ID [--snapshot VER] [--local] [--json]
 Print dataset metadata: dataset_description.json, participants.tsv, or a specific sidecar.
 
 ```bash
-qortex metadata DATASET_ID [FILE_PATH] [--participants] [--snapshots] [--json]
+qortex metadata DATASET_ID [--snapshot VER] [--output-dir DIR] [--download] [--limit N]
 ```
 
 ### readme
@@ -50,7 +50,8 @@ qortex validation-issues DATASET_ID --snapshot VER [--errors-only] [--json]
 Show the first N rows of a tabular file.
 
 ```bash
-qortex preview DATASET_ID FILE_PATH [--n 10]
+qortex preview DATASET_ID FILE_PATH [--snapshot VER] [--local-path DIR]
+                [--rows N] [--max-bytes N]
 ```
 
 ## Readiness commands
@@ -60,8 +61,7 @@ qortex preview DATASET_ID FILE_PATH [--n 10]
 Full readiness report: subjects, modalities, events, label coverage, split feasibility.
 
 ```bash
-qortex doctor DATASET_ID [--snapshot VER] [--local] [--data-dir DIR]
-              [--recipe NAME] [--json]
+qortex doctor DATASET_ID [--snapshot VER] [--local-path DIR] [--json-output FILE]
 ```
 
 ### minimum
@@ -69,25 +69,30 @@ qortex doctor DATASET_ID [--snapshot VER] [--local] [--data-dir DIR]
 Compute the smallest download for a given goal.
 
 ```bash
-qortex minimum DATASET_ID --goal {first-batch,label-check,validation,metadata}
-               [--download] [--data-dir DIR]
+qortex minimum DATASET_ID [--snapshot VER]
+               [--goal {first-batch,label-check,validation,metadata}]
+               [--modality MOD] [--target COL]
+               [--output-dir DIR] [--download] [--json-output FILE]
 ```
 
 ### can-train
 
-Binary label readiness check.
+Structured supervised-training readiness report.
 
 ```bash
-qortex can-train DATASET_ID --label COL [--min-classes N] [--min-per-class N]
-                 [--min-subjects N]
+qortex can-train DATASET_ID [--snapshot VER] [--modality MOD]
+                 [--target COL] [--local-path DIR] [--json-output FILE]
 ```
 
 ### first-batch
 
-Download minimum subjects and run a full pipeline pass.
+Print first artifact rows, or print the smallest plan needed to produce a first batch.
 
 ```bash
-qortex first-batch DATASET_ID --label COL [--data-dir DIR] [--format FMT]
+qortex first-batch [--dataset DATASET_ID] [--snapshot VER]
+                   [--artifact DIR] [--local-path DIR]
+                   [--modality MOD] [--target COL] [--limit N]
+                   [--json-output FILE]
 ```
 
 ### leakage-check
@@ -103,7 +108,7 @@ qortex leakage-check DATASET_ID --artifact DIR [--level {subject,session}]
 Check local files for LFS pointers and incomplete downloads.
 
 ```bash
-qortex content-status DATASET_ID --data-dir DIR
+qortex content-status PATH [--dataset DATASET_ID] [--snapshot VER] [--json-output FILE]
 ```
 
 ### make-recipe
@@ -111,8 +116,9 @@ qortex content-status DATASET_ID --data-dir DIR
 Create a readiness recipe file from parameters.
 
 ```bash
-qortex make-recipe RECIPE_NAME [--modality MOD] [--label COL]
-                   [--min-subjects N] [--output FILE]
+qortex make-recipe DATASET_ID OUTPUT [--snapshot VER] [--modality MOD]
+                   [--target COL] [--split subject] [--goal first-batch]
+                   [--output-dir DIR] [--metadata-only]
 ```
 
 ### run-recipe
@@ -120,7 +126,7 @@ qortex make-recipe RECIPE_NAME [--modality MOD] [--label COL]
 Run a recipe file against a dataset.
 
 ```bash
-qortex run-recipe RECIPE_FILE --dataset DATASET_ID [--data-dir DIR]
+qortex run-recipe RECIPE_FILE [--download]
 ```
 
 ## Download commands
@@ -130,8 +136,8 @@ qortex run-recipe RECIPE_FILE --dataset DATASET_ID [--data-dir DIR]
 Show what would be downloaded without downloading.
 
 ```bash
-qortex plan DATASET_ID [--subjects S [S ...]] [--tasks T [T ...]]
-            [--suffixes SUF [SUF ...]] [--output FILE]
+qortex plan DATASET_ID [--snapshot VER] [--subjects CSV] [--tasks CSV]
+            [--modalities CSV] [--include-derivatives] [--output-dir DIR]
 ```
 
 ### download
@@ -140,10 +146,8 @@ Download files from OpenNeuro.
 
 ```bash
 qortex download DATASET_ID [--subjects S [S ...]] [--tasks T [T ...]]
-                [--suffixes SUF [SUF ...]] [--datatypes D [D ...]]
-                [--metadata-only] [--min-goal GOAL]
-                [--data-dir DIR] [--snapshot VER]
-                [--max-size GB] [--concurrency N] [--force]
+                [--modalities CSV] [--include-derivatives]
+                [--output-dir DIR] [--snapshot VER] [--dry-run]
 ```
 
 ### validate
@@ -151,7 +155,10 @@ qortex download DATASET_ID [--subjects S [S ...]] [--tasks T [T ...]]
 Run BIDS Validator on a local directory.
 
 ```bash
-qortex validate DIR [--dataset-id ID]
+qortex validate DIR [--config FILE] [--json-output FILE]
+                [--markdown-output FILE] [--html-output FILE]
+                [--ignore-warnings] [--ignore-nifti-headers]
+                [--no-cache] [--refresh-cache] [--timeout SECONDS]
 ```
 
 ### local-index
@@ -159,7 +166,7 @@ qortex validate DIR [--dataset-id ID]
 Scan a local BIDS directory and build a local manifest.
 
 ```bash
-qortex local-index DIR --dataset-id ID
+qortex local-index DIR [--manifest-dir DIR] [--json-output FILE] [--no-pybids]
 ```
 
 ## Conversion commands
@@ -169,7 +176,7 @@ qortex local-index DIR --dataset-id ID
 Exploratory data analysis: signal statistics and label landscape.
 
 ```bash
-qortex eda DATASET_ID [--data-dir DIR] [--label COL]
+qortex eda DATASET_ID [--snapshot VER] [--output FILE]
 ```
 
 ### convert
@@ -177,13 +184,10 @@ qortex eda DATASET_ID [--data-dir DIR] [--label COL]
 Convert a local BIDS dataset to an ML artifact.
 
 ```bash
-qortex convert DATASET_ID [--data-dir DIR] --output DIR
+qortex convert DATA_DIR OUTPUT_DIR
                [--format {parquet,zarr,hdf5,webdataset,huggingface,tfrecord}]
                [--window SECONDS] [--overlap FRAC]
-               [--event-aligned] [--tmin SECONDS]
-               [--label COL] [--subjects S [S ...]]
-               [--val-frac F] [--test-frac F] [--seed N]
-               [--workers N] [--overwrite]
+               [--split STRATEGY] [--shard-size N]
 ```
 
 ## Cache commands
@@ -255,8 +259,8 @@ qortex catalog-profile
 Render figures for local files.
 
 ```bash
-qortex visualize DATASET_ID [--subject S] [--suffix SUF]
-                 [--data-dir DIR] [--output DIR]
+qortex visualize PATH [--mode {auto,qc,static,interactive,thumbnail,summary}]
+                 [--output FILE] [--colormap NAME] [--modality MOD] [--open]
 ```
 
 ### visualize-openneuro
@@ -299,8 +303,10 @@ qortex dwi-qc FILE --bval FILE --bvec FILE [--output FILE]
 Run a visual audit on a local BIDS directory or manifest.
 
 ```bash
-qortex visual-audit DATASET_ID [--data-dir DIR] [--output FILE]
-                    [--mode {local,manifest}]
+qortex visual-audit DATASET_ID [--local DIR] [--output-dir DIR]
+                    [--json] [--markdown] [--manifest-json]
+                    [--subjects CSV] [--suffixes CSV] [--datatypes CSV]
+                    [--max-files N] [--n-per-suffix N] [--open]
 ```
 
 ### visualize-overlay
@@ -469,6 +475,44 @@ Validate a completed NeuroAI run artifact.
 ```bash
 qortex neuroai validate-artifact ARTIFACT_DIR [--strict] [--json] [--markdown]
 ```
+
+### neuroai render-segmentation-showcase
+
+Render inspectable source/mask/overlay artifacts from a source NIfTI and a predicted mask.
+
+```bash
+qortex neuroai render-segmentation-showcase IMAGE_NIFTI PREDICTION_MASK_NIFTI OUT_DIR \
+  --case-id sub-04 \
+  --model-id my-segmentation-model \
+  --class-labels-json '{"0":"background","1":"target"}'
+```
+
+Writes source slice, prediction mask, overlay, area profile, metrics JSON, and manifest JSON. Add `--truth-mask TRUTH_NIFTI` to include Dice/IoU and an error map.
+
+### neuroai run-external-segmentation
+
+Run a supported external segmentation CLI and capture command provenance.
+
+```bash
+qortex neuroai run-external-segmentation totalsegmentator case_001_ct.nii.gz artifacts/case_001_total.nii.gz \
+  --task total \
+  --device gpu \
+  --extra-arg=--ml
+```
+
+For nnU-Net:
+
+```bash
+qortex neuroai run-external-segmentation nnunet nnunet_input/case_001_0000.nii.gz nnunet_predictions \
+  --model-folder /models/nnUNet_results \
+  --dataset-id 501 \
+  --configuration 3d_fullres \
+  --trainer nnUNetTrainer \
+  --plans nnUNetPlans \
+  --fold 0 --fold 1 --fold 2 --fold 3 --fold 4
+```
+
+The command writes a `*.qortex.json` provenance file beside the output file, or `qortex_external_segmentation.json` inside an output directory.
 
 ### neuroai benchmark
 

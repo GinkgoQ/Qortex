@@ -70,6 +70,9 @@ print(art.manifest.source_dataset) # "ds004130@1.2.0"
 print(art.manifest.created_at)    # ISO timestamp
 ```
 
+
+
+
 ## Related
 
 - [Artifact overview](../artifacts/index.md) — the Artifact class and its splits

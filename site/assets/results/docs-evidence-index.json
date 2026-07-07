@@ -1,0 +1,237 @@
+{
+  "cards": {
+    "content": {
+      "alt": "Content-status chart with complete, missing, pointer, and size-mismatch file counts.",
+      "caption": "Local availability check for the `ds000001` first-batch plan on this machine.",
+      "code": "qortex content-status data/ds000001 --dataset ds000001",
+      "image": "assets/images/examples/content-status-evidence.png",
+      "result": "docs/assets/results/neuroai-fixture-summary.json",
+      "title": "Local integrity evidence"
+    },
+    "conversion": {
+      "alt": "Subject-safe split chart showing train, validation, and test allocation counts.",
+      "caption": "`ds000001` split plan derived from 16 subjects and 80 candidate BOLD recordings.",
+      "code": "qortex convert data/ds000001 artifacts/ds000001 --format parquet --split subject",
+      "image": "assets/images/examples/conversion-split-evidence.png",
+      "result": "docs/assets/results/neuroai-fixture-summary.json",
+      "title": "Conversion evidence"
+    },
+    "dataset": {
+      "alt": "Bar charts showing OpenNeuro ds000001 file suffix counts and bytes by BIDS datatype.",
+      "caption": "Real `Dataset.manifest()` output from OpenNeuro ds000001: suffix counts and bytes by BIDS datatype.",
+      "code": "ds = Dataset('ds000001', snapshot='1.0.0')\nmanifest = ds.manifest()",
+      "image": "assets/images/examples/ds000001-manifest-composition.png",
+      "result": "docs/assets/results/ds000001-example-results.json",
+      "title": "Dataset evidence"
+    },
+    "events": {
+      "alt": "Timeline of ds000001 events and trial-type counts for subject 01 run 01.",
+      "caption": "Real `events.tsv` timeline for ds000001 sub-01 run-01.",
+      "code": "events = ds.events(subject='01', task='balloonanalogrisktask', run='01')\nprint(events.shape)",
+      "image": "assets/images/examples/ds000001-events-timeline.png",
+      "result": "docs/assets/results/ds000001-example-results.json",
+      "title": "Event-table evidence"
+    },
+    "metadata": {
+      "alt": "Histogram of participant ages and bar chart of sex values from ds000001 participants.tsv.",
+      "caption": "Real `participants.tsv` loaded through `Dataset.participants(prefer_api=False)`.",
+      "code": "participants = ds.participants(prefer_api=False)\nprint(participants.shape)",
+      "image": "assets/images/examples/ds000001-participants.png",
+      "result": "docs/assets/results/ds000001-example-results.json",
+      "title": "Metadata evidence"
+    },
+    "minimum": {
+      "alt": "Horizontal bar chart of the ds000001 first-batch download plan and file sizes.",
+      "caption": "Real `minimum(goal='first-batch')` plan: metadata, sidecar, events, and one BOLD run.",
+      "code": "plan = ds.minimum(goal='first-batch', output_dir=Path('data/ds000001'))\nprint(plan.to_text())",
+      "image": "assets/images/examples/ds000001-minimum-plan.png",
+      "result": "docs/assets/results/ds000001-minimum-first-batch.txt",
+      "title": "Minimum-download evidence"
+    },
+    "model_sources": {
+      "alt": "Table of external medical-imaging model sources and the Qortex adapter path for each source.",
+      "caption": "Real external model sources Qortex can connect to through existing adapters or local plugin adapters. No prediction is shown here.",
+      "code": "qortex neuroai inspect-model <model-id> --provider monai",
+      "image": "assets/images/examples/neuroai-model-sources.png",
+      "result": "docs/assets/results/neuroai-fixture-validation.txt",
+      "title": "NeuroAI model source evidence"
+    },
+    "neuroai": {
+      "alt": "Contract flow diagram from source profile to model contract, compatibility report, preprocessing plan, and artifact validation.",
+      "caption": "Qortex checks source metadata, model input contracts, required transforms, and artifact validation before model execution.",
+      "code": "qortex neuroai run pipeline.yaml --artifact-dir docs/assets/results/neuroai/demo_artifact\nqortex neuroai validate-artifact docs/assets/results/neuroai/demo_artifact",
+      "image": "assets/images/examples/neuroai-contract-flow.png",
+      "result": "docs/assets/results/neuroai-fixture-validation.txt",
+      "title": "NeuroAI contract evidence"
+    },
+    "neuroai_showcase": {
+      "alt": "Qortex segmentation showcase board with source slice, foreground candidate mask, overlay, contour, metrics, and class legend.",
+      "caption": "Real Qortex renderer output from the local `qortex_visual_test` T1w NIfTI and a source-derived foreground candidate mask.",
+      "code": "render_segmentation_showcase_from_files(image_path, prediction_mask_path, output_dir, case_id, model_id)",
+      "image": "assets/images/examples/neuroai-showcase/segmentation-board.png",
+      "result": "docs/assets/images/examples/neuroai-showcase/showcase-manifest.json",
+      "title": "Segmentation artifact evidence"
+    },
+    "readiness": {
+      "alt": "Readiness chart for ds000001 showing subject count, recording count, and label-ready count.",
+      "caption": "Real `CanTrainReport` for ds000001. Qortex separates candidate labels from locally confirmed training evidence.",
+      "code": "report = ds.can_train(target='trial_type')\nprint(report.to_text())",
+      "image": "assets/images/examples/ds000001-can-train.png",
+      "result": "docs/assets/results/ds000001-can-train.txt",
+      "title": "Readiness evidence"
+    },
+    "visualization": {
+      "alt": "Axial BOLD slice from OpenNeuro ds000001 subject 01 run 01.",
+      "caption": "Real BOLD axial slice streamed with `Dataset.stream_slice()` without downloading the full NIfTI file.",
+      "code": "sl = ds.stream_slice(subject='01', modality='bold', run='01', time_index=0, axis=2)",
+      "image": "assets/images/examples/ds000001-bold-axial.png",
+      "result": "docs/assets/results/ds000001-example-results.json",
+      "title": "Visualization evidence"
+    }
+  },
+  "dataset": {
+    "can_train": {
+      "label_status": "candidate",
+      "n_label_ready": 0,
+      "n_recordings": 80,
+      "n_subjects": 16,
+      "next_command": "qortex minimum ds000001 --goal first-batch",
+      "required_download_mb": 50.498,
+      "status": "uncertain",
+      "suggested_split": "subject"
+    },
+    "dataset_id": "ds000001",
+    "doi": "10.18112/openneuro.ds000001.v1.0.0",
+    "events": {
+      "columns": [
+        "onset",
+        "duration",
+        "trial_type",
+        "cash_demean",
+        "control_pumps_demean",
+        "explode_demean",
+        "pumps_demean",
+        "response_time"
+      ],
+      "rows": 158,
+      "run": "01",
+      "subject": "01",
+      "task": "balloonanalogrisktask",
+      "trial_type_counts": {
+        "cash_demean": 9,
+        "control_pumps_demean": 52,
+        "explode_demean": 10,
+        "pumps_demean": 87
+      }
+    },
+    "figures": {
+      "bold_slice": "docs/assets/images/examples/ds000001-bold-axial.png",
+      "can_train": "docs/assets/images/examples/ds000001-can-train.png",
+      "events_timeline": "docs/assets/images/examples/ds000001-events-timeline.png",
+      "manifest_composition": "docs/assets/images/examples/ds000001-manifest-composition.png",
+      "minimum_plan": "docs/assets/images/examples/ds000001-minimum-plan.png",
+      "participants": "docs/assets/images/examples/ds000001-participants.png"
+    },
+    "info": {
+      "dataset_id": "ds000001",
+      "doi": "10.18112/openneuro.ds000001.v1.0.0",
+      "has_derivatives": false,
+      "has_events": true,
+      "modalities": [
+        "behavior",
+        "fmri",
+        "mri"
+      ],
+      "n_files": 136,
+      "n_sessions": 0,
+      "n_subjects": 16,
+      "n_tasks": 1,
+      "snapshot": "1.0.0",
+      "total_size_gb": 2.416
+    },
+    "manifest": {
+      "file_count": 136,
+      "suffix_counts": {
+        ".gitattributes": 2,
+        "CHANGES": 1,
+        "README": 1,
+        "T1w": 16,
+        "bold": 49,
+        "config": 1,
+        "description": 1,
+        "events": 48,
+        "inplaneT2": 16,
+        "participants": 1
+      }
+    },
+    "minimum_first_batch": {
+      "files": 7,
+      "paths": [
+        "CHANGES",
+        "README",
+        "dataset_description.json",
+        "participants.tsv",
+        "sub-16/func/sub-16_task-balloonanalogrisktask_run-01_bold.nii.gz",
+        "sub-16/func/sub-16_task-balloonanalogrisktask_run-01_events.tsv",
+        "task-balloonanalogrisktask_bold.json"
+      ],
+      "size_gb": 0.0505,
+      "status": "possible"
+    },
+    "nifti": {
+      "description": "FSL4.0",
+      "duration_s": 600.0,
+      "is_4d": true,
+      "n_volumes": 300,
+      "ndim": 4,
+      "shape": [
+        64,
+        64,
+        33,
+        300
+      ],
+      "tr_s": 2.0,
+      "voxel_sizes_mm": [
+        3.125,
+        3.125,
+        4.0
+      ]
+    },
+    "participants": {
+      "age_max": 30.0,
+      "age_mean": 23.5625,
+      "age_min": 19.0,
+      "rows": 16,
+      "sex_counts": {
+        "F": 10,
+        "M": 6
+      }
+    },
+    "snapshot": "1.0.0",
+    "streamed_slice": {
+      "dtype": "int16",
+      "max": 949.0,
+      "mean": 280.52978515625,
+      "min": 0.0,
+      "shape": [
+        64,
+        64
+      ]
+    }
+  },
+  "neuroai": {
+    "artifact_dir": "docs/assets/results/neuroai/demo_artifact",
+    "prediction_records": 0,
+    "segmentation_showcase": {
+      "area_plot": "docs/assets/images/examples/neuroai-showcase/mask-area-profile.png",
+      "board": "docs/assets/images/examples/neuroai-showcase/segmentation-board.png",
+      "manifest": "docs/assets/images/examples/neuroai-showcase/showcase-manifest.json",
+      "mask": "docs/assets/results/neuroai/showcase/sub-04_foreground-candidate.nii.gz",
+      "metrics": "docs/assets/images/examples/neuroai-showcase/metrics.json",
+      "overlay": "docs/assets/images/examples/neuroai-showcase/prediction-overlay.png",
+      "showcase_dir": "docs/assets/images/examples/neuroai-showcase",
+      "source_image": "data/qortex_visual_test/sub-04/anat/sub-04_T1w.nii.gz"
+    },
+    "validation_status": "PASS"
+  }
+}

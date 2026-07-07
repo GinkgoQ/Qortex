@@ -66,3 +66,27 @@ Or delete the cached manifest:
 ```bash
 rm ~/.qortex/manifests/ds004130/1.2.0.json
 ```
+
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/content-status-evidence.png" alt="Content-status chart with complete, missing, pointer, and size-mismatch file counts.">
+  <figcaption>Local availability check for the `ds000001` first-batch plan on this machine.</figcaption>
+</figure>
+
+```bash
+qortex content-status data/ds000001 --dataset ds000001
+```
+
+Result artifact: [neuroai-fixture-summary.json](/Qortex/assets/results/neuroai-fixture-summary.json)
+
+<!-- qortex-evidence:end -->

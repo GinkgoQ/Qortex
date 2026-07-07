@@ -53,6 +53,9 @@ print(report.class_distribution)   # dict: split → class → fraction
 print(report.amplitude_summary)    # dict: split → {"mean", "std"}
 ```
 
+
+
+
 ## Related
 
 - [Splits](../conversion/splits.md) — how subjects are assigned to splits

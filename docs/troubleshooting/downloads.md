@@ -21,7 +21,7 @@ If a downloaded file is 134 bytes and contains `version https://git-lfs.github.c
 Check with content-status:
 
 ```bash
-qortex content-status ds004130 --data-dir data/ds004130/
+qortex content-status data/ds004130 --dataset ds004130
 ```
 
 Fix:
@@ -61,6 +61,30 @@ OpenNeuro CDN throughput varies by region and time of day. For large datasets (>
 1. Increase concurrency: `qortex download --concurrency 8`
 2. Run the download overnight when CDN load is lower
 3. Use AWS `--region` if the CDN is in a specific S3 region near you
+
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/content-status-evidence.png" alt="Content-status chart with complete, missing, pointer, and size-mismatch file counts.">
+  <figcaption>Local availability check for the `ds000001` first-batch plan on this machine.</figcaption>
+</figure>
+
+```bash
+qortex content-status data/ds000001 --dataset ds000001
+```
+
+Result artifact: [neuroai-fixture-summary.json](/Qortex/assets/results/neuroai-fixture-summary.json)
+
+<!-- qortex-evidence:end -->
 
 ## Related
 

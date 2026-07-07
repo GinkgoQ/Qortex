@@ -96,10 +96,9 @@ Requires the `dashboard` extra: `pip install "qortex[dashboard]"`.
 ## CLI
 
 ```bash
-qortex visualize ds004130 \
-    --subject 01 \
-    --suffix eeg \
-    --data-dir data/ds004130/
+qortex visualize data/ds004130/sub-01/eeg/sub-01_task-rest_eeg.edf \
+  --mode interactive \
+  --output figures/sub-01_eeg.html
 ```
 
 ## Supported file formats

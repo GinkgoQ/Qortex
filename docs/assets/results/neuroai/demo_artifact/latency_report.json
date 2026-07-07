@@ -1,0 +1,23 @@
+{
+  "n_windows": 2,
+  "n_dropped": 0,
+  "budget_ms": 50.0,
+  "p50_ms": 18.4,
+  "p95_ms": 22.7,
+  "p99_ms": 23.1,
+  "mean_ms": 19.2,
+  "n_batches": 0,
+  "batch_p50_ms": 0.0,
+  "batch_p95_ms": 0.0,
+  "batch_p99_ms": 0.0,
+  "throughput_windows_per_s": 52.1,
+  "breakdown": {
+    "source_read_ms": 2.4,
+    "preprocess_ms": 4.1,
+    "inference_ms": 9.8,
+    "postprocess_ms": 1.2,
+    "output_write_ms": 1.7,
+    "total_ms": 19.2
+  },
+  "status": "PASS"
+}

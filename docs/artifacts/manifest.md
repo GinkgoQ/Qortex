@@ -54,3 +54,27 @@ print(mf.qortex_version)      # "0.3.1"
 ## JSON structure
 
 See [Provenance](../conversion/provenance.md) for the full JSON schema.
+
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/conversion-split-evidence.png" alt="Subject-safe split chart showing train, validation, and test allocation counts.">
+  <figcaption>`ds000001` split plan derived from 16 subjects and 80 candidate BOLD recordings.</figcaption>
+</figure>
+
+```bash
+qortex convert data/ds000001 artifacts/ds000001 --format parquet --split subject
+```
+
+Result artifact: [neuroai-fixture-summary.json](/Qortex/assets/results/neuroai-fixture-summary.json)
+
+<!-- qortex-evidence:end -->

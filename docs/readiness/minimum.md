@@ -7,12 +7,16 @@
 ```python
 from qortex import Dataset
 
-ds = Dataset("ds004130")
+ds = Dataset("ds000001")
 
-plan = ds.minimum(goal="first-batch")
-print(f"{len(plan.files)} files, {plan.size_gb:.2f} GB")
-# 12 files, 0.4 GB
+report = ds.minimum(goal="first-batch", output_dir="data/ds000001")
+print(report.to_text())
 ```
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-minimum-plan.png" alt="Qortex minimum first-batch plan for ds000001 showing the selected metadata, events, sidecar, and BOLD file">
+  <figcaption>Real output from `ds.minimum(goal="first-batch")` on OpenNeuro `ds000001`. The plan contains 7 files and about 0.05 GB: enough to load one BOLD run with its interpretation files.</figcaption>
+</figure>
 
 ## Goals
 
@@ -26,24 +30,26 @@ print(f"{len(plan.files)} files, {plan.size_gb:.2f} GB")
 ## CLI
 
 ```bash
-qortex minimum ds004130 --goal first-batch
-qortex minimum ds004130 --goal label-check
-qortex minimum ds004130 --goal metadata
+qortex minimum ds000001 --goal first-batch
+qortex minimum ds000001 --goal label-check
+qortex minimum ds000001 --goal metadata
 ```
 
-Output:
+Observed output:
 
 ```
-Goal: first-batch
-Subjects: sub-01, sub-02, sub-03
-Files: 12
-Size: 0.4 GB
+Dataset : ds000001 (1.0.0)
+Goal    : first-batch
+Status  : possible
+Reason  : A first batch needs one loadable primary recording plus required companions.
+Files   : 7
+Size    : 0.05 GB (estimated)
 ```
 
 Add `--download` to execute the plan immediately:
 
 ```bash
-qortex minimum ds004130 --goal first-batch --download --data-dir data/ds004130/
+qortex minimum ds000001 --goal first-batch --download --output-dir data/ds000001
 ```
 
 ## How first-batch is computed
@@ -61,14 +67,14 @@ If the dataset has no label column (no events.tsv), `first-batch` falls back to 
 ## Using the plan
 
 ```python
-plan = ds.minimum(goal="first-batch")
+report = ds.minimum(goal="first-batch", output_dir="data/ds000001")
 
 # Inspect before committing
-for f in plan.files:
+for f in report.plan.files:
     print(f.path, f.size)
 
 # Download
-ds.download_paths(plan.files, data_dir="data/ds004130/")
+ds.download_paths(report.plan.files, output_dir="data/ds000001")
 ```
 
 ## After first-batch succeeds
@@ -80,6 +86,31 @@ A successful first-batch run confirms:
 - The ML bridge (PyTorch/sklearn) can load the artifact
 
 If first-batch fails, the error is almost always a data issue (missing events, malformed sidecar, LFS pointers) rather than a library bug.
+
+
+
+
+
+
+
+
+<!-- qortex-evidence:start -->
+
+## Evidence
+
+<figure class="tq-figure">
+  <img src="/Qortex/assets/images/examples/ds000001-minimum-plan.png" alt="Horizontal bar chart of the ds000001 first-batch download plan and file sizes.">
+  <figcaption>Real `minimum(goal='first-batch')` plan: metadata, sidecar, events, and one BOLD run.</figcaption>
+</figure>
+
+```python
+plan = ds.minimum(goal='first-batch', output_dir=Path('data/ds000001'))
+print(plan.to_text())
+```
+
+Result artifact: [ds000001-minimum-first-batch.txt](/Qortex/assets/results/ds000001-minimum-first-batch.txt)
+
+<!-- qortex-evidence:end -->
 
 ## Related
 

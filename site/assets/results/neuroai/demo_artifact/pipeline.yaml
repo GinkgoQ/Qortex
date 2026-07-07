@@ -1,0 +1,28 @@
+name: docs_neuroai_fixture
+version: '1'
+source:
+  type: bids
+  path: openneuro://ds000001/sub-01/run-01/bold
+  modality: fmri
+model:
+  provider: monai
+  id: monai_model_zoo_bundle_placeholder
+  task: model_contract_check
+preprocessing:
+  mode: auto
+  allow:
+  - normalize
+  - add_batch_dim
+  - to_tensor
+runtime:
+  device: cpu
+  optimize: safe
+  latency_budget_ms: 50.0
+  max_windows: 2
+outputs:
+- type: jsonl
+  path: outputs/source-profile.json
+artifact:
+  failure_policy: strict
+description: Documentation artifact that exercises Qortex NeuroAI contracts 
+  without model predictions.

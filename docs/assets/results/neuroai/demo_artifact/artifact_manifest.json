@@ -1,0 +1,53 @@
+{
+  "qortex_version": "0.1.0",
+  "created_at": "2026-07-07T14:33:04.863435+00:00",
+  "pipeline_ref": "docs-fixture",
+  "n_files": 9,
+  "files": {
+    "artifact_contract.json": {
+      "sha256": "c875c7edb2654cf0701a8aedbbd334fd40743bb8d7b2acee8403a1bf66b81232",
+      "size_bytes": 743,
+      "created_at": "2026-07-07T14:33:04.863435+00:00"
+    },
+    "compatibility_report.json": {
+      "sha256": "81d44a63a44c82ce486edb49b07ec3805733e5e063ab6d2d2e7862da3aad6ed7",
+      "size_bytes": 1314,
+      "created_at": "2026-07-07T14:33:04.863435+00:00"
+    },
+    "latency_report.json": {
+      "sha256": "ac75769a7de5f7eaf49e2cffeb29573f429edb93d13106f2557471978b6fa279",
+      "size_bytes": 451,
+      "created_at": "2026-07-07T14:33:04.863435+00:00"
+    },
+    "outputs/source-profile.json": {
+      "sha256": "746eb1d01e998f42ca6f0216663c315a8e73094af88eada320b8aa6f31fc34a2",
+      "size_bytes": 158,
+      "created_at": "2026-07-07T14:33:04.863435+00:00"
+    },
+    "pipeline.yaml": {
+      "sha256": "010bebef404dfda3d6c4a7757d00e442e75ea576412ddcca7e5d3de08306f00e",
+      "size_bytes": 587,
+      "created_at": "2026-07-07T14:33:04.863435+00:00"
+    },
+    "preprocess_plan.json": {
+      "sha256": "05a4d9000d22ad5d2ea34b83a79a2b84bfc8b245079edc7969262e7d6bc1ac5c",
+      "size_bytes": 955,
+      "created_at": "2026-07-07T14:33:04.863435+00:00"
+    },
+    "provenance.json": {
+      "sha256": "ce1ba7cc8fef4545529c7e50f371d17b25b1e72d865e8bbd2cfae02673b09fa1",
+      "size_bytes": 841,
+      "created_at": "2026-07-07T14:33:04.863435+00:00"
+    },
+    "runtime_report.json": {
+      "sha256": "2c0003c3d50f9279217a95d72554ac2495bbf2a003a62232febe9d092882cae3",
+      "size_bytes": 227,
+      "created_at": "2026-07-07T14:33:04.863435+00:00"
+    },
+    "warnings.json": {
+      "sha256": "773736495dbb1865c630b833f8c5da104f6d44e555c79a41ccdf2d38c9cd935d",
+      "size_bytes": 165,
+      "created_at": "2026-07-07T14:33:04.863435+00:00"
+    }
+  }
+}
