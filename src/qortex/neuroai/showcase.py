@@ -77,6 +77,250 @@ class ShowcaseArtifacts:
         }
 
 
+@dataclass(frozen=True)
+class Detection:
+    """One detected object in pixel coordinates."""
+
+    bbox: tuple[float, float, float, float]  # x1, y1, x2, y2
+    class_name: str
+    confidence: float
+
+
+@dataclass(frozen=True)
+class DetectionShowcaseInput:
+    """Inputs required to render a detection evidence board."""
+
+    image: Any                       # [H, W] or [H, W, 3]
+    detections: list[Detection]
+    output_dir: str | Path
+    case_id: str
+    model_id: str
+    source_id: str
+    threshold: float = 0.5
+    nms_iou: float | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class DetectionShowcaseArtifacts:
+    """Files written by :func:`render_detection_showcase`."""
+
+    output_dir: Path
+    board: Path
+    detections_json: Path
+    manifest: Path
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "output_dir": str(self.output_dir),
+            "board": str(self.board),
+            "detections_json": str(self.detections_json),
+            "manifest": str(self.manifest),
+        }
+
+
+def render_detection_showcase(payload: DetectionShowcaseInput) -> DetectionShowcaseArtifacts:
+    """Render detection evidence: annotated image + confidence table + legend + caption.
+
+    ``neuroai.outputs.overlay_out.OverlayOutputAdapter`` annotates individual
+    streamed frames one at a time (no legend, no threshold/NMS caption, no
+    composition). This renders one composed evidence board — the same design
+    as :func:`render_segmentation_showcase` — for archiving or sharing a
+    single detection run.
+    """
+    image = _as_image(payload.image)
+    out_dir = Path(payload.output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    board_path = out_dir / "detection-board.png"
+    detections_path = out_dir / "detections.json"
+    manifest_path = out_dir / "showcase-manifest.json"
+
+    class_names = sorted({d.class_name for d in payload.detections})
+    color_map = {name: QORTEX_COLORS[i % len(QORTEX_COLORS)] for i, name in enumerate(class_names)}
+
+    _save_detection_board(image, payload, color_map, board_path)
+
+    ranked = sorted(payload.detections, key=lambda d: d.confidence, reverse=True)
+    detections_path.write_text(
+        json.dumps(
+            [{"bbox": list(d.bbox), "class_name": d.class_name, "confidence": d.confidence} for d in ranked],
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    manifest = {
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "case_id": payload.case_id,
+        "model_id": payload.model_id,
+        "source_id": payload.source_id,
+        "threshold": payload.threshold,
+        "nms_iou": payload.nms_iou,
+        "n_detections": len(payload.detections),
+        "classes": class_names,
+        "metadata": _json_safe(payload.metadata),
+        "artifacts": {"board": board_path.name, "detections": detections_path.name},
+    }
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+
+    return DetectionShowcaseArtifacts(
+        output_dir=out_dir, board=board_path,
+        detections_json=detections_path, manifest=manifest_path,
+    )
+
+
+@dataclass(frozen=True)
+class ModelZooArtifacts:
+    """Files written by :func:`render_model_zoo_showcase`."""
+
+    output_dir: Path
+    board: Path
+    manifest: Path
+
+    def to_dict(self) -> dict[str, str]:
+        return {"output_dir": str(self.output_dir), "board": str(self.board), "manifest": str(self.manifest)}
+
+
+def render_model_zoo_showcase(
+    output_dir: str | Path,
+    *,
+    example_model: str = "resnet18",
+    pretrained: bool = False,
+    device: str = "cpu",
+) -> ModelZooArtifacts:
+    """Render a model-zoo reference board: backend availability, curated
+    example models, and one real inference example.
+
+    ``pretrained=True`` downloads real weights for *only* ``example_model*``
+    (never implicit, never for the other adapters) so the inference panel
+    shows genuine ImageNet-trained probabilities rather than an untrained
+    architecture. With the default ``pretrained=False`` the forward pass is
+    still real — a real architecture, real matrix multiplications — but the
+    weights are randomly initialised, so the panel is labelled as an
+    architecture demo rather than presented as a real classification.
+    """
+    from qortex.neuroai.models import list_models, get_model_card
+    from qortex.neuroai.models._registry import make_model_adapter
+    from qortex.neuroai.models.zoo import backend_availability
+    from qortex.neuroai.spec import ModelSpec, RuntimeSpec
+
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    board_path = out_dir / "model-zoo-board.png"
+    manifest_path = out_dir / "model-zoo-manifest.json"
+
+    backends = backend_availability()
+    models = list_models()
+
+    top5: list[tuple[str, float]] = []
+    entry = next((m for m in models if m.model_id == example_model or example_model in m.aliases), None)
+    if entry is not None and entry.output_contract is not None and entry.output_contract.output_type in (
+        "image_classification", "classification",
+    ):
+        spec = ModelSpec(provider=entry.provider, id=entry.model_id, task="classification",
+                          extra={"pretrained": pretrained})
+        adapter = make_model_adapter(spec)
+        adapter.load(RuntimeSpec(device=device))
+        rng = np.random.default_rng(0)
+        shape = entry.input_contract.spatial_shape or (224, 224)
+        if entry.provider == "keras":
+            image = rng.random((*shape, 3)).astype("float32")
+        else:
+            image = rng.random((3, *shape)).astype("float32")
+        out = adapter.predict(image)
+        top5 = sorted(out.probabilities.items(), key=lambda kv: kv[1], reverse=True)[:5]
+
+    _save_model_zoo_board(board_path, backends, models, example_model, top5, pretrained)
+
+    manifest = {
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "backends": backends,
+        "models": [
+            {"model_id": m.model_id, "provider": m.provider,
+             "task": m.output_contract.output_type if m.output_contract else None,
+             "estimated_memory_mb": m.estimated_memory_mb}
+            for m in models
+        ],
+        "example_model": example_model,
+        "pretrained": pretrained,
+        "top5": top5,
+    }
+    manifest_path.write_text(json.dumps(_json_safe(manifest), indent=2), encoding="utf-8")
+
+    return ModelZooArtifacts(output_dir=out_dir, board=board_path, manifest=manifest_path)
+
+
+def _save_model_zoo_board(
+    board_path: Path,
+    backends: dict[str, bool],
+    models: list[Any],
+    example_model: str,
+    top5: list[tuple[str, float]],
+    pretrained: bool,
+) -> None:
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    from matplotlib import gridspec
+
+    sns.set_theme(style="white", context="notebook")
+    fig = plt.figure(figsize=(12.5, 9.0), constrained_layout=True)
+    gs = gridspec.GridSpec(3, 1, figure=fig, height_ratios=[0.35, 1.5, 1.1])
+
+    ax_backends = fig.add_subplot(gs[0])
+    ax_backends.axis("off")
+    ax_backends.text(0.0, 0.85, "Available backends", fontsize=13, fontweight="bold", color="#20242c")
+    x = 0.0
+    for name, ok in backends.items():
+        mark = "✓" if ok else "✗"
+        color = "#2f9e44" if ok else "#adb5bd"
+        ax_backends.text(x, 0.3, f"{mark} {name}", fontsize=10.5, color=color, fontweight="bold" if ok else "normal")
+        x += 1.0 / len(backends)
+
+    ax_table = fig.add_subplot(gs[1])
+    ax_table.axis("off")
+    ax_table.set_title("Example models", fontsize=12, fontweight="bold", loc="left")
+    rows = [
+        [
+            m.model_id,
+            (m.output_contract.output_type if m.output_contract else "?"),
+            m.provider,
+            f"{m.estimated_memory_mb:.0f} MB" if m.estimated_memory_mb else "?",
+        ]
+        for m in models
+    ]
+    tbl = ax_table.table(cellText=rows, colLabels=["Model", "Task", "Backend", "Est. memory"],
+                          loc="center", cellLoc="left")
+    tbl.auto_set_font_size(False)
+    tbl.set_fontsize(8.5)
+    tbl.scale(1, 1.3)
+    for (r, c), cell in tbl.get_celld().items():
+        cell.set_edgecolor("#dee2e6")
+        if r == 0:
+            cell.set_facecolor("#f1f3f5")
+            cell.set_text_props(fontweight="bold")
+
+    ax_inf = fig.add_subplot(gs[2])
+    if top5:
+        status = "ImageNet-pretrained" if pretrained else "untrained weights — architecture demo only"
+        names, vals = zip(*top5)
+        y_pos = np.arange(len(names))
+        ax_inf.barh(y_pos, vals, color="#6574a6")
+        ax_inf.set_yticks(y_pos)
+        ax_inf.set_yticklabels(names)
+        ax_inf.invert_yaxis()
+        ax_inf.set_xlabel("probability")
+        ax_inf.set_title(f"Inference example — {example_model} ({status})", fontsize=12, fontweight="bold", loc="left")
+        sns.despine(ax=ax_inf)
+    else:
+        ax_inf.axis("off")
+        ax_inf.text(0.0, 0.5, f"No classification example available for {example_model!r}.",
+                     fontsize=10, color="#51555f")
+
+    fig.savefig(board_path, dpi=170, facecolor="white", bbox_inches="tight")
+    plt.close(fig)
+
+
 def render_segmentation_showcase(payload: ShowcaseInput) -> ShowcaseArtifacts:
     """Render segmentation evidence from real model outputs.
 
@@ -496,6 +740,95 @@ def _draw_legend_panel(ax: Any, labels: dict[int, str]) -> None:
     ax.text(0, 0.02, "green=true positive, red=false positive, blue=false negative", fontsize=8.5, color="#6b6f7b")
 
 
+def _save_detection_board(
+    image: np.ndarray,
+    payload: "DetectionShowcaseInput",
+    color_map: dict[str, str],
+    board_path: Path,
+) -> None:
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    from matplotlib import gridspec
+    from matplotlib.patches import Rectangle
+
+    sns.set_theme(style="white", context="notebook")
+    fig = plt.figure(figsize=(13.5, 8.6), constrained_layout=True)
+    gs = gridspec.GridSpec(3, 3, figure=fig, height_ratios=[0.16, 1.0, 0.5])
+
+    ax_title = fig.add_subplot(gs[0, :])
+    ax_title.axis("off")
+    ax_title.text(0.0, 0.72, payload.case_id, fontsize=20, fontweight="bold", color="#20242c", ha="left", va="center")
+    nms_txt = f"   NMS IoU: {payload.nms_iou:.2f}" if payload.nms_iou is not None else ""
+    ax_title.text(
+        0.0, 0.2,
+        f"source: {payload.source_id}   model: {payload.model_id}   "
+        f"threshold: {payload.threshold:.2f}{nms_txt}   detections: {len(payload.detections)}",
+        fontsize=10.5, color="#51555f", ha="left", va="center",
+    )
+
+    ax_img = fig.add_subplot(gs[1, :])
+    if image.ndim == 2:
+        ax_img.imshow(image, cmap="gray")
+    else:
+        ax_img.imshow(image)
+    for det in payload.detections:
+        x1, y1, x2, y2 = det.bbox
+        color = color_map[det.class_name]
+        ax_img.add_patch(Rectangle((x1, y1), x2 - x1, y2 - y1, fill=False, edgecolor=color, linewidth=2))
+        ax_img.text(
+            x1, max(y1 - 4, 0), f"{det.class_name} {det.confidence:.2f}",
+            fontsize=8.5, color="white", va="bottom", ha="left",
+            bbox=dict(facecolor=color, edgecolor="none", pad=1.5, alpha=0.9),
+        )
+    ax_img.set_xticks([])
+    ax_img.set_yticks([])
+    ax_img.set_title("detections", fontsize=12, fontweight="bold")
+
+    ax_table = fig.add_subplot(gs[2, :2])
+    _draw_detection_table(ax_table, payload.detections)
+    ax_legend = fig.add_subplot(gs[2, 2])
+    _draw_detection_legend(ax_legend, color_map)
+
+    fig.savefig(board_path, dpi=180, facecolor="white", bbox_inches="tight")
+    plt.close(fig)
+
+
+def _draw_detection_table(ax: Any, detections: list["Detection"]) -> None:
+    ax.axis("off")
+    ax.text(0, 0.94, "detections (by confidence)", fontsize=12, fontweight="bold", color="#20242c")
+    ranked = sorted(detections, key=lambda d: d.confidence, reverse=True)[:10]
+    lines = [
+        f"{d.class_name:<16} {d.confidence:.2f}   "
+        f"[{d.bbox[0]:.0f},{d.bbox[1]:.0f},{d.bbox[2]:.0f},{d.bbox[3]:.0f}]"
+        for d in ranked
+    ]
+    if len(detections) > 10:
+        lines.append(f"... +{len(detections) - 10} more")
+    ax.text(
+        0, 0.74, "\n".join(lines) or "no detections above threshold",
+        fontsize=9.5, color="#51555f", family="monospace", va="top",
+    )
+
+
+def _draw_detection_legend(ax: Any, color_map: dict[str, str]) -> None:
+    from matplotlib.patches import Rectangle
+
+    ax.axis("off")
+    ax.text(0, 0.94, "classes", fontsize=12, fontweight="bold", color="#20242c")
+    y = 0.74
+    for name, color in color_map.items():
+        ax.add_patch(Rectangle((0, y - 0.04), 0.1, 0.08, color=color, transform=ax.transAxes, clip_on=False))
+        ax.text(0.14, y, name, transform=ax.transAxes, va="center", fontsize=10, color="#51555f")
+        y -= 0.16
+
+
+def _as_image(value: Any) -> np.ndarray:
+    arr = np.asarray(value)
+    if arr.ndim not in (2, 3):
+        raise ValueError(f"image must be 2D (H,W) or 3D (H,W,C), got shape {arr.shape}")
+    return arr
+
+
 def _as_volume(value: Any, *, name: str) -> np.ndarray:
     arr = np.asarray(value)
     if arr.ndim == 2:
@@ -594,4 +927,10 @@ __all__ = [
     "render_segmentation_showcase",
     "render_segmentation_showcase_from_files",
     "segmentation_metrics",
+    "Detection",
+    "DetectionShowcaseInput",
+    "DetectionShowcaseArtifacts",
+    "render_detection_showcase",
+    "ModelZooArtifacts",
+    "render_model_zoo_showcase",
 ]

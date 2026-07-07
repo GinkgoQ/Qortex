@@ -107,6 +107,37 @@ def _sample_frame_indices(n_t: int, max_frames: int | None) -> list[int]:
     return np.unique(np.round(np.linspace(0, n_t - 1, n)).astype(int)).astype(int).tolist()
 
 
+def _best_axial_index(n_slices: int, read_slice, *, n_candidates: int = 9, margin: float = 0.15) -> int:
+    """Pick the axial index with the highest brain-tissue coverage.
+
+    Scores a handful of evenly spaced candidates in the central 1-2*margin
+    of the volume by nonzero-voxel fraction, instead of always returning the
+    geometric midpoint. Reads only `n_candidates` slices via `read_slice(idx)`
+    — bounded I/O, so lazy (memory-mapped) NIfTI sources are never fully
+    loaded. Ties favor the candidate closest to the geometric centre.
+    """
+    if n_slices <= 0:
+        return 0
+    lo = int(n_slices * margin)
+    hi = int(n_slices * (1 - margin))
+    if hi - lo < 2:
+        lo, hi = 0, n_slices
+    n_cand = max(1, min(n_candidates, hi - lo))
+    candidates = sorted(set(int(i) for i in np.linspace(lo, hi - 1, n_cand)))
+    center = n_slices // 2
+    best_idx, best_score = center, -1.0
+    for idx in candidates:
+        slc = np.asarray(read_slice(idx))
+        finite = slc[np.isfinite(slc)]
+        if finite.size == 0:
+            continue
+        score = float(np.count_nonzero(finite) / finite.size)
+        if score > best_score or (score == best_score and abs(idx - center) < abs(best_idx - center)):
+            best_score = score
+            best_idx = idx
+    return best_idx
+
+
 def _find_bold_companion(lazy: "_LazyNIfTI", kind: str) -> Path | None:
     path = _source_path_from_lazy(lazy)
     if path is None:
@@ -163,6 +194,28 @@ def _load_events(path: Path | str | None) -> list[dict[str, Any]]:
     return events
 
 
+def _framewise_displacement_from_motion(confounds: dict[str, np.ndarray]) -> np.ndarray | None:
+    """Compute FD (Power et al., 2012) from the 6 realignment parameters.
+
+    FD_t = |trans_x'| + |trans_y'| + |trans_z'| + 50*(|rot_x'| + |rot_y'| + |rot_z'|)
+    Rotations are in radians (fMRIPrep convention) and converted to
+    displacement on the surface of a 50 mm sphere. Returns None when the
+    motion columns are not all present — no motion is ever synthesized.
+    """
+    trans = [confounds.get(f"trans_{ax}") for ax in "xyz"]
+    rot = [confounds.get(f"rot_{ax}") for ax in "xyz"]
+    params = trans + rot
+    if any(p is None for p in params):
+        return None
+    n = len(params[0])
+    if n < 2 or any(len(p) != n for p in params):
+        return None
+    d_trans = sum(np.abs(np.diff(p)) for p in trans)
+    d_rot = sum(np.abs(np.diff(p)) * 50.0 for p in rot)
+    fd = np.concatenate([[0.0], (d_trans + d_rot)])
+    return fd.astype(np.float32)
+
+
 def _load_confounds(path: Path | str | None) -> dict[str, np.ndarray]:
     if path is None:
         return {}
@@ -173,6 +226,8 @@ def _load_confounds(path: Path | str | None) -> dict[str, np.ndarray]:
         "framewise_displacement",
         "dvars",
         "std_dvars",
+        "trans_x", "trans_y", "trans_z",
+        "rot_x", "rot_y", "rot_z",
     }
     columns: dict[str, list[float]] = {key: [] for key in wanted}
     try:
@@ -380,6 +435,44 @@ class _LazyNIfTI:
             frame = np.asarray(self._proxy[..., t]).astype(np.float32)
             signal[i] = float(frame[brain_mask].mean())
         return signal
+
+    def dvars(self, max_frames: int | None = None) -> np.ndarray:
+        """Compute DVARS — RMS of the frame-to-frame intensity derivative.
+
+        DVARS_t = sqrt(mean_over_brain_voxels((I_t - I_{t-1})^2)), the
+        standard QC metric (Power et al., 2012). Unlike other streaming
+        stats here, frames must be consecutive (adjacency is the signal),
+        so this reads frames 0..max_frames-1 in order rather than
+        subsampling. Memory cost: 2 frames at a time.
+        """
+        shape = self._proxy.shape
+        if len(shape) == 3:
+            return np.zeros(0, dtype=np.float32)
+
+        n_t = shape[3]
+        n_use = min(n_t, max_frames) if max_frames else n_t
+        if n_use < 2:
+            return np.zeros(0, dtype=np.float32)
+
+        mask_step = max(1, n_use // 20)
+        mean_vol = np.zeros(shape[:3], dtype=np.float64)
+        count = 0
+        for t in range(0, n_use, mask_step):
+            mean_vol += np.asarray(self._proxy[..., t]).astype(np.float64)
+            count += 1
+        mean_vol /= max(1, count)
+        brain_mask = mean_vol > (mean_vol.max() * 0.15)
+        if not brain_mask.any():
+            brain_mask = np.ones(shape[:3], dtype=bool)
+
+        values = np.zeros(n_use - 1, dtype=np.float32)
+        prev = np.asarray(self._proxy[..., 0]).astype(np.float32)
+        for t in range(1, n_use):
+            curr = np.asarray(self._proxy[..., t]).astype(np.float32)
+            diff = (curr - prev)[brain_mask].astype(np.float64)
+            values[t - 1] = float(np.sqrt(np.mean(diff * diff)))
+            prev = curr
+        return values
 
     def framewise_intensity_map(
         self,
@@ -690,15 +783,18 @@ class VolumeViewer:
     ):
         """Return a 3-panel plotly Figure showing orthogonal slices.
 
-        For nibabel-backed sources reads exactly 3 slices from disk — the full
-        volume is never loaded into RAM.  For 4D data the display timepoint
-        defaults to the midpoint and can be overridden with ``t``.
+        For nibabel-backed sources reads at most 3 + 9 slices from disk — the
+        full volume is never loaded into RAM.  For 4D data the display
+        timepoint defaults to the midpoint and can be overridden with ``t``.
         Voxel-size-aware aspect ratios are applied automatically.
 
         Parameters
         ----------
         x, y, z : int, optional
-            Slice indices along each axis.  Defaults to the volume centre.
+            Slice indices along each axis. ``x``/``y`` default to the volume
+            centre; ``z`` defaults to the axial slice with the highest
+            brain-tissue coverage among a handful of sampled candidates
+            (see ``_best_axial_index``), not a blind midpoint.
         t : int, optional
             Timepoint index for 4D data.  Defaults to n_volumes // 2.
         title : str, optional
@@ -721,7 +817,13 @@ class VolumeViewer:
         nx, ny, nz = shape3
         cx = x if x is not None else nx // 2
         cy = y if y is not None else ny // 2
-        cz = z if z is not None else nz // 2
+        if z is not None:
+            cz = z
+        elif self._lazy is not None:
+            cz = _best_axial_index(nz, lambda idx: self._lazy.slice_along(2, idx))
+        else:
+            vol3d_probe = self._vol3d()
+            cz = _best_axial_index(nz, lambda idx: vol3d_probe[:, :, idx])
 
         # ── Read exactly 3 slices ─────────────────────────────────────────
         if self._lazy is not None:
@@ -1191,14 +1293,33 @@ class VolumeViewer:
 
         events = _load_events(events_path or _find_bold_companion(lazy, "events"))
         confounds = _load_confounds(confounds_path or _find_bold_companion(lazy, "confounds"))
-        has_confounds = bool(confounds)
-        n_rows = 3 if has_confounds else 2
+
+        fd = confounds.get("framewise_displacement")
+        fd_source = "confounds"
+        if fd is None:
+            fd = _framewise_displacement_from_motion(confounds)
+            fd_source = "motion params"
+
+        dvars = confounds.get("dvars")
+        if dvars is None:
+            dvars = confounds.get("std_dvars")
+        dvars_source = "confounds"
+        if dvars is None:
+            dvars = lazy.dvars(max_frames=min(n_t, 200))
+            dvars_source = "computed"
+            if dvars.size == 0:
+                dvars = None
+
+        has_qc = fd is not None or dvars is not None
+        n_rows = 3 if has_qc else 2
         titles = (
             "Mean EPI", f"Middle Frame (t={mid_t})", "Temporal Std",
             "tSNR", "Global Signal", "Slice × Time",
         )
-        if has_confounds:
-            titles = titles + ("Framewise Displacement", "DVARS", "")
+        if has_qc:
+            fd_title = f"Framewise Displacement ({fd_source})" if fd is not None else "Framewise Displacement (unavailable)"
+            dvars_title = f"DVARS ({dvars_source})" if dvars is not None else "DVARS"
+            titles = titles + (fd_title, dvars_title, "")
 
         fig = make_subplots(
             rows=n_rows, cols=3,
@@ -1270,11 +1391,7 @@ class VolumeViewer:
             row=2, col=3,
         )
 
-        if has_confounds:
-            fd = confounds.get("framewise_displacement")
-            dvars = confounds.get("dvars")
-            if dvars is None:
-                dvars = confounds.get("std_dvars")
+        if has_qc:
             if fd is not None:
                 fd_t = np.arange(len(fd), dtype=np.float32) * tr
                 fig.add_trace(
@@ -1310,7 +1427,7 @@ class VolumeViewer:
         fig.update_yaxes(title_text="Slice", row=2, col=3, showgrid=False, showticklabels=False)
         fig.update_xaxes(showticklabels=False, showgrid=False, zeroline=False, row=2, col=1)
         fig.update_yaxes(showticklabels=False, showgrid=False, zeroline=False, row=2, col=1)
-        if has_confounds:
+        if has_qc:
             fig.update_xaxes(title_text="Time (s)", row=3, col=1, showgrid=False)
             fig.update_yaxes(title_text="FD", row=3, col=1, showgrid=False, color="#888")
             fig.update_xaxes(title_text="Time (s)", row=3, col=2, showgrid=False)
@@ -1325,8 +1442,8 @@ class VolumeViewer:
             paper_bgcolor="#111", plot_bgcolor="#111",
             font_color="#888",
             margin=dict(l=5, r=60, t=80, b=30),
-            height=760 if has_confounds else 560,
-            showlegend=bool(events or has_confounds),
+            height=760 if has_qc else 560,
+            showlegend=bool(events or has_qc),
         )
         return fig
 

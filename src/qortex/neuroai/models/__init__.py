@@ -4,6 +4,9 @@ from qortex.neuroai.models._contracts import (
     ModelContractEntry,
     lookup as lookup_model_contract,
     list_entries as list_model_contracts,
+    list_models,
+    get_model_card,
+    register_model,
 )
 
 __all__ = [
@@ -14,7 +17,10 @@ __all__ = [
     "ModelContractEntry",
     "lookup_model_contract",
     "list_model_contracts",
+    "list_models",
+    "get_model_card",
+    "register_model",
     # Concrete adapters available on demand:
-    # HuggingFaceAdapter, ONNXModelAdapter, TorchModelAdapter,
-    # MONAIBundleAdapter, BrainDecodeAdapter, UltralyticsAdapter, CustomPluginAdapter
+    # HuggingFaceAdapter, ONNXModelAdapter, TorchModelAdapter, MONAIBundleAdapter,
+    # BrainDecodeAdapter, UltralyticsAdapter, TorchvisionAdapter, KerasAdapter, CustomPluginAdapter
 ]

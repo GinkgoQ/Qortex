@@ -109,6 +109,12 @@ __all__ = [
     # Audit helpers
     "VisualAuditReport", "run_visual_audit", "run_visual_audit_with_manifest",
     "select_visual_files", "select_visual_file_records",
+    # Connectivity
+    "connectivity_figure",
+    # Reproducibility
+    "reproducibility_figure", "environment_snapshot", "artifact_hash_table",
+    # PSD group comparison
+    "psd_band_comparison",
 ]
 
 # ── Lazy imports — keep module load time minimal ──────────────────────────────
@@ -196,6 +202,18 @@ def __getattr__(name: str):
     }:
         from qortex.visualize import _audit
         return getattr(_audit, name)
+
+    if name == "connectivity_figure":
+        from qortex.visualize.connectivity import connectivity_figure
+        return connectivity_figure
+
+    if name in {"reproducibility_figure", "environment_snapshot", "artifact_hash_table"}:
+        from qortex.visualize import reproducibility as _repro
+        return getattr(_repro, name)
+
+    if name == "psd_band_comparison":
+        from qortex.visualize.psd import psd_band_comparison
+        return psd_band_comparison
 
     raise AttributeError(f"module 'qortex.visualize' has no attribute {name!r}")
 

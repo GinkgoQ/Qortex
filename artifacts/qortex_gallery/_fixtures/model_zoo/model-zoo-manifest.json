@@ -1,0 +1,123 @@
+{
+  "created_at": "2026-07-07T17:07:14.368081+00:00",
+  "backends": {
+    "torch": true,
+    "torchvision": true,
+    "keras": true,
+    "huggingface": true,
+    "monai": false,
+    "onnxruntime": true,
+    "braindecode": false,
+    "ultralytics": true
+  },
+  "models": [
+    {
+      "model_id": "braindecode/EEGNet_8_2",
+      "provider": "braindecode",
+      "task": "eeg_classification",
+      "estimated_memory_mb": 120.0
+    },
+    {
+      "model_id": "braindecode/ShallowFBCSPNet",
+      "provider": "braindecode",
+      "task": "eeg_classification",
+      "estimated_memory_mb": 80.0
+    },
+    {
+      "model_id": "braindecode/Deep4Net",
+      "provider": "braindecode",
+      "task": "eeg_classification",
+      "estimated_memory_mb": 200.0
+    },
+    {
+      "model_id": "braindecode/EEGConformer",
+      "provider": "braindecode",
+      "task": "eeg_classification",
+      "estimated_memory_mb": 350.0
+    },
+    {
+      "model_id": "google/vit-base-patch16-224",
+      "provider": "huggingface",
+      "task": "image_classification",
+      "estimated_memory_mb": 340.0
+    },
+    {
+      "model_id": "microsoft/resnet-50",
+      "provider": "huggingface",
+      "task": "image_classification",
+      "estimated_memory_mb": 100.0
+    },
+    {
+      "model_id": "facebook/deit-base-patch16-224",
+      "provider": "huggingface",
+      "task": "image_classification",
+      "estimated_memory_mb": 340.0
+    },
+    {
+      "model_id": "openai/whisper-base",
+      "provider": "huggingface",
+      "task": "audio_transcription",
+      "estimated_memory_mb": 290.0
+    },
+    {
+      "model_id": "wholeBody_ct_segmentation",
+      "provider": "monai",
+      "task": "segmentation",
+      "estimated_memory_mb": 4096.0
+    },
+    {
+      "model_id": "msd_brain_tumor",
+      "provider": "monai",
+      "task": "segmentation",
+      "estimated_memory_mb": 8000.0
+    },
+    {
+      "model_id": "ultralytics/yolov8n",
+      "provider": "ultralytics",
+      "task": "detection",
+      "estimated_memory_mb": 14.0
+    },
+    {
+      "model_id": "resnet18",
+      "provider": "torchvision",
+      "task": "image_classification",
+      "estimated_memory_mb": 45.0
+    },
+    {
+      "model_id": "fasterrcnn_resnet50_fpn",
+      "provider": "torchvision",
+      "task": "detection",
+      "estimated_memory_mb": 160.0
+    },
+    {
+      "model_id": "EfficientNetB0",
+      "provider": "keras",
+      "task": "image_classification",
+      "estimated_memory_mb": 21.0
+    }
+  ],
+  "example_model": "resnet18",
+  "pretrained": false,
+  "top5": [
+    [
+      "class_996",
+      0.00353240966796875
+    ],
+    [
+      "class_371",
+      0.0030593005940318108
+    ],
+    [
+      "class_379",
+      0.002807601122185588
+    ],
+    [
+      "class_952",
+      0.0027907907497137785
+    ],
+    [
+      "class_695",
+      0.0026940160896629095
+    ]
+  ]
+}

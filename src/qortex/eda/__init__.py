@@ -21,6 +21,11 @@ __all__ = [
     "subject_coverage_heatmap",
     "size_distribution",
     "task_event_coverage",
+    "parse_participants_tsv",
+    "summarize_categorical",
+    "numeric_by_group",
+    "participants_metadata_figure",
+    "dataset_readiness_figure",
 ]
 
 _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
@@ -35,6 +40,11 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "subject_coverage_heatmap": ("qortex.eda.plots", "subject_coverage_heatmap"),
     "size_distribution": ("qortex.eda.plots", "size_distribution"),
     "task_event_coverage": ("qortex.eda.plots", "task_event_coverage"),
+    "parse_participants_tsv": ("qortex.eda.participants", "parse_participants_tsv"),
+    "summarize_categorical": ("qortex.eda.participants", "summarize_categorical"),
+    "numeric_by_group": ("qortex.eda.participants", "numeric_by_group"),
+    "participants_metadata_figure": ("qortex.eda.participants", "participants_metadata_figure"),
+    "dataset_readiness_figure": ("qortex.eda.dataset_readiness", "dataset_readiness_figure"),
 }
 
 

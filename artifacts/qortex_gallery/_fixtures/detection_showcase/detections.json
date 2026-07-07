@@ -1,0 +1,42 @@
+[
+  {
+    "bbox": [
+      18,
+      70,
+      44,
+      110
+    ],
+    "class_name": "ventricle",
+    "confidence": 0.97
+  },
+  {
+    "bbox": [
+      48,
+      32,
+      92,
+      76
+    ],
+    "class_name": "tumor",
+    "confidence": 0.92
+  },
+  {
+    "bbox": [
+      30,
+      40,
+      96,
+      108
+    ],
+    "class_name": "edema",
+    "confidence": 0.86
+  },
+  {
+    "bbox": [
+      86,
+      96,
+      112,
+      122
+    ],
+    "class_name": "hemorrhage",
+    "confidence": 0.74
+  }
+]

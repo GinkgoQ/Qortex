@@ -22,6 +22,7 @@ Current coverage (13 models):
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from qortex.neuroai.contracts import (
     AxisConvention,
@@ -307,6 +308,48 @@ _REGISTRY: list[ModelContractEntry] = [
         estimated_memory_mb=14.0,
         notes="YOLOv8 nano (3.2M params). 640×640 RGB. COCO 80 classes.",
     ),
+
+    # ── Image classification (torchvision / Keras) ────────────────────────────
+
+    ModelContractEntry(
+        model_id="resnet18",
+        provider="torchvision",
+        aliases=("torchvision/resnet18",),
+        **(lambda ic, oc: {"input_contract": ic, "output_contract": oc})(
+            *_image_contract(spatial_shape=(224, 224), n_channels=3, n_classes=1000,
+                             intensity_range=(0.0, 1.0))
+        ),
+        estimated_memory_mb=45.0,
+        notes="torchvision.models.resnet18. 11.7M params. Weights downloaded only when pretrained=True.",
+    ),
+
+    ModelContractEntry(
+        model_id="fasterrcnn_resnet50_fpn",
+        provider="torchvision",
+        aliases=("torchvision/fasterrcnn_resnet50_fpn",),
+        input_contract=(lambda ic, oc: ic)(
+            *_image_contract(spatial_shape=None, n_channels=3, intensity_range=(0.0, 1.0))
+        ),
+        output_contract=OutputContract(
+            output_type="detection",
+            n_classes=91,
+            produces_probabilities=True,
+        ),
+        estimated_memory_mb=160.0,
+        notes="torchvision Faster R-CNN, ResNet-50-FPN backbone. 41.8M params. COCO 91 classes.",
+    ),
+
+    ModelContractEntry(
+        model_id="EfficientNetB0",
+        provider="keras",
+        aliases=("keras/EfficientNetB0", "efficientnet_b0"),
+        **(lambda ic, oc: {"input_contract": ic, "output_contract": oc})(
+            *_image_contract(spatial_shape=(224, 224), n_channels=3, n_classes=1000,
+                             intensity_range=(0.0, 1.0))
+        ),
+        estimated_memory_mb=21.0,
+        notes="tf.keras.applications.EfficientNetB0. 5.3M params. Weights downloaded only when pretrained=True.",
+    ),
 ]
 
 
@@ -367,3 +410,50 @@ def list_entries(
             if str(getattr(e.input_contract, "modality", "") or "").lower() == m
         ]
     return results
+
+
+def register(entry: ModelContractEntry) -> None:
+    """Add a custom entry to the curated registry at runtime."""
+    _REGISTRY.append(entry)
+
+
+# ── Friendly public aliases ────────────────────────────────────────────────────
+# list_models()/get_model_card()/register_model() give the same registry a
+# quick-lookup surface for example galleries, on top of the curated
+# ModelContractEntry data above — no separate catalog is maintained.
+
+list_models = list_entries
+register_model = register
+
+
+def get_model_card(model_id: str, *, load: bool = False) -> dict[str, Any]:
+    """Return a model card (metadata dict) for a curated registry entry.
+
+    By default this is metadata only — no weights loaded, no network access.
+    Pass ``load=True`` to additionally construct the model via its real
+    adapter and include its live ``ModelProfile`` in ``card["profile"]``
+    (architecture-only instantiation; pretrained weights still require the
+    adapter's own explicit ``pretrained=True`` opt-in).
+    """
+    entry = lookup(model_id)
+    if entry is None:
+        raise KeyError(f"Unknown model {model_id!r}. See list_models() for available entries.")
+
+    card: dict[str, Any] = {
+        "model_id": entry.model_id,
+        "provider": entry.provider,
+        "task": entry.output_contract.output_type if entry.output_contract else None,
+        "modality": getattr(entry.input_contract, "modality", None),
+        "input_shape": getattr(entry.input_contract, "spatial_shape", None),
+        "n_classes": getattr(entry.output_contract, "n_classes", None),
+        "estimated_memory_mb": entry.estimated_memory_mb,
+        "notes": entry.notes,
+        "aliases": entry.aliases,
+    }
+    if load:
+        from qortex.neuroai.models._registry import make_model_adapter
+        from qortex.neuroai.spec import ModelSpec
+
+        adapter = make_model_adapter(ModelSpec(provider=entry.provider, id=entry.model_id))
+        card["profile"] = adapter.inspect()
+    return card

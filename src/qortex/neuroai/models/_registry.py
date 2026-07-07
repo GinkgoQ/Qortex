@@ -51,8 +51,16 @@ def make_model_adapter(spec: ModelSpec) -> ModelAdapter:
         from qortex.neuroai.models.plugin import CustomPluginAdapter
         return CustomPluginAdapter(spec)
 
+    if provider in ("torchvision", "tv"):
+        from qortex.neuroai.models.torchvision_adapter import TorchvisionAdapter
+        return TorchvisionAdapter(spec)
+
+    if provider in ("keras", "tensorflow", "tf"):
+        from qortex.neuroai.models.keras_adapter import KerasAdapter
+        return KerasAdapter(spec)
+
     raise ValueError(
         f"Unknown model provider: {provider!r}. "
         f"Supported: 'huggingface', 'onnx', 'torch', 'torchscript', "
-        f"'monai', 'braindecode', 'ultralytics', 'plugin'."
+        f"'monai', 'braindecode', 'ultralytics', 'torchvision', 'keras', 'plugin'."
     )

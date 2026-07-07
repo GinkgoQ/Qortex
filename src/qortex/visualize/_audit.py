@@ -2,7 +2,7 @@
 
 Produces a self-contained HTML gallery — one thumbnail per file, grouped by
 BIDS suffix — without loading any full volume into RAM.  The thumbnail for
-each NIfTI reads exactly one center slice via the nibabel ArrayProxy.
+each NIfTI reads a bounded, quality-selected slice via the nibabel ArrayProxy.
 """
 
 from __future__ import annotations
@@ -941,7 +941,7 @@ def run_visual_audit(
 ) -> VisualAuditReport:
     """Inspect and thumbnail-render up to *max_files* local NIfTI/EEG files.
 
-    Each NIfTI reads exactly one center slice from the nibabel ArrayProxy —
+    Each NIfTI reads a handful of candidate slices from the nibabel ArrayProxy —
     the full volume is never loaded.
     """
     from qortex.visualize._dispatch import inspect_file
@@ -1014,18 +1014,19 @@ def _make_thumbnail(asset: Any, local_path: Path) -> str | None:
 
 
 def _nifti_thumbnail(asset: Any, local_path: Path) -> str | None:
-    """Center-slice PNG for a NIfTI file — single slice read, no full load."""
+    """Quality-selected slice PNG for a NIfTI file — bounded slice reads, no full load."""
     try:
-        from qortex.visualize.volume import VolumeViewer
+        from qortex.visualize.volume import VolumeViewer, _best_axial_index
         from qortex.visualize._html import array_to_b64png
 
         viewer = VolumeViewer(local_path, modality=getattr(asset, "modality", "mri"))
         if viewer._lazy is not None:
-            cz = viewer._lazy.shape[2] // 2
+            nz = viewer._lazy.shape[2]
+            cz = _best_axial_index(nz, lambda idx: viewer._lazy.slice_along(2, idx))
             slc = viewer._lazy.slice_along(2, cz).T[::-1, :]
         else:
             vol3d = viewer._vol3d()
-            cz = vol3d.shape[2] // 2
+            cz = _best_axial_index(vol3d.shape[2], lambda idx: vol3d[:, :, idx])
             slc = vol3d[:, :, cz].T[::-1, :]
         return array_to_b64png(slc, viewer._vmin, viewer._vmax, viewer.colormap)
     except Exception as exc:
