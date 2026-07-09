@@ -47,3 +47,15 @@ def test_synced_entry_preserves_original_contracts():
 
     assert entry.input_contract.modality == "eeg"
     assert entry.provider == "braindecode"
+
+
+def test_sync_skips_model_already_present_under_its_legacy_bundle_name():
+    # wholeBody_ct_segmentation is already a curated legacy entry (registered
+    # under the un-namespaced bundle name before the zoo package existed).
+    # The zoo entry for the same real model is "monai.wholeBody_ct_segmentation"
+    # — the bridge must not register a second, duplicate legacy entry for it.
+    assert legacy_lookup("wholeBody_ct_segmentation") is not None
+
+    sync_into_legacy_registry()
+
+    assert legacy_lookup("monai.wholeBody_ct_segmentation") is None

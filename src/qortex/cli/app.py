@@ -2132,8 +2132,9 @@ def neuroai_suggest_models(
         typer.echo(f"Error importing NeuroAI modules: {exc}", err=True)
         raise typer.Exit(2)
 
-    # Pull in the model zoo's fully-contracted entries so suggest-models
-    # ranks them alongside the original curated registry.
+    # Pull in the model zoo's entries (including unknown-shape ones, which
+    # the compatibility engine ranks as low-confidence "uncertain") so
+    # suggest-models ranks them alongside the original curated registry.
     from qortex.neuroai.models import zoo as _zoo  # noqa: F401  (triggers zoo registration)
     from qortex.neuroai.models.zoo.bridge import sync_into_legacy_registry
     sync_into_legacy_registry()
