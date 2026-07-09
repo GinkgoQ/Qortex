@@ -54,15 +54,28 @@ def test_list_entries_filters_by_provider_and_sorts():
     # "braindecode.EEGNet" is a zoo seed entry (pre-registered by the
     # autouse conftest fixture) with provider="braindecode", so it is
     # expected in this filter's results alongside the entries below.
-    register(_entry("braindecode.Deep4Net", provider="braindecode"))
+    register(_entry("braindecode.CustomNet", provider="braindecode"))
     register(_entry("test.bundle_model", provider="test_bundle"))
     register(_entry("braindecode.ATCNet", provider="braindecode"))
 
     bd = list_entries(provider="braindecode")
+    # All braindecode entries from seed_examples (EEGNet) + braindecode_eeg (11 entries)
+    # + the two we register here (ATCNet, CustomNet), sorted alphabetically
     assert [e.id for e in bd] == [
         "braindecode.ATCNet",
+        "braindecode.AttnSleep",
+        "braindecode.BENDR",
+        "braindecode.BIOT",
+        "braindecode.CustomNet",
         "braindecode.Deep4Net",
+        "braindecode.DeepSleepNet",
+        "braindecode.EEGConformer",
         "braindecode.EEGNet",
+        "braindecode.Labram",
+        "braindecode.REVE",
+        "braindecode.ShallowFBCSPNet",
+        "braindecode.SignalJEPA",
+        "braindecode.USleep",
     ]
 
 

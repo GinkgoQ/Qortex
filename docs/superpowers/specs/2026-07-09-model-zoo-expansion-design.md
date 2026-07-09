@@ -32,7 +32,7 @@ same commit as the code it tracks.
 
 ### Phase 3 — Braindecode expansion
 - [ ] Braindecode extractor (`extractors/braindecode_model.py`)
-- [ ] Expanded Braindecode entries (§12.3 — list grows below)
+- [x] Expanded Braindecode entries (§12.3 — list grows below)
 - [ ] Architecture vs. pretrained separation
 - [ ] HF pretrained registry support
 - [ ] EEG shape/channel/sampling contract validation
@@ -90,6 +90,17 @@ _(append one line per entry the moment it's registered and offline-validated —
 - `monai.cxr_image_synthesis_latent_diffusion_model` — provider `monai`, entry_type `generative_model` (Phase 2 Task 3)
 - `monai.mednist_ddpm` — provider `monai`, entry_type `generative_model` (Phase 2 Task 3)
 - `monai.mednist_gan` — provider `monai`, entry_type `generative_model` (Phase 2 Task 3)
+- `braindecode.Deep4Net` — provider `braindecode`, entry_type `model` (Phase 3 Task 2)
+- `braindecode.ShallowFBCSPNet` — provider `braindecode`, entry_type `model` (Phase 3 Task 2)
+- `braindecode.EEGConformer` — provider `braindecode`, entry_type `model` (Phase 3 Task 2)
+- `braindecode.BENDR` — provider `braindecode`, entry_type `model` (Phase 3 Task 2)
+- `braindecode.BIOT` — provider `braindecode`, entry_type `model` (Phase 3 Task 2)
+- `braindecode.Labram` — provider `braindecode`, entry_type `model` (Phase 3 Task 2)
+- `braindecode.REVE` — provider `braindecode`, entry_type `model` (Phase 3 Task 2)
+- `braindecode.USleep` — provider `braindecode`, entry_type `model` (Phase 3 Task 2)
+- `braindecode.AttnSleep` — provider `braindecode`, entry_type `model` (Phase 3 Task 2)
+- `braindecode.DeepSleepNet` — provider `braindecode`, entry_type `model` (Phase 3 Task 2)
+- `braindecode.SignalJEPA` — provider `braindecode`, entry_type `model` (Phase 3 Task 2)
 
 ---
 
