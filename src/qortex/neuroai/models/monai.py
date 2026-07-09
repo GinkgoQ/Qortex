@@ -15,6 +15,7 @@ from typing import Any
 
 import numpy as np
 
+from qortex.core.exceptions import ModelAdapterError
 from qortex.neuroai.contracts import (
     AxisConvention,
     EvidenceStatus,
@@ -24,6 +25,9 @@ from qortex.neuroai.contracts import (
     WarningItem,
 )
 from qortex.neuroai.models._base import ModelAdapter, ModelOutput
+from qortex.neuroai.models.prompt import Prompt
+from qortex.neuroai.models.promptable import PromptableModelAdapter
+from qortex.neuroai.models.zoo.schema import InteractionContract, PromptType
 from qortex.neuroai.spec import ModelSpec, RuntimeSpec
 
 log = logging.getLogger(__name__)
@@ -234,6 +238,48 @@ class MONAIBundleAdapter(ModelAdapter):
         spatial_dims = int(net.get("spatial_dims", 3))
         out_channels = net.get("out_channels")
         return in_channels, spatial_dims, out_channels
+
+
+class VISTA3DAdapter(MONAIBundleAdapter, PromptableModelAdapter):
+    """VISTA3D: a MONAI bundle with both automatic and point/box-prompted
+    3D CT segmentation. Reuses MONAIBundleAdapter's real bundle loading and
+    sliding-window inference entirely -- this class only adds the prompt
+    path on top, per docs/superpowers/specs/2026-07-09-model-zoo-expansion-design.md
+    section 12.4 ("use one canonical entry ID with two capabilities instead
+    of duplicate entries").
+
+    VISTA3D's paper (arXiv:2406.05285) documents both automatic
+    whole-organ segmentation and interactive point/box-prompted
+    segmentation; text prompts are not part of its documented interface
+    and are deliberately not declared here.
+    """
+
+    def interaction_contract(self) -> InteractionContract:
+        return InteractionContract(
+            supported_prompt_types=[PromptType.point, PromptType.box],
+            supports_automatic_mode=True,
+            evidence_status=EvidenceStatus.confirmed,
+        )
+
+    def predict_automatic(self, batch: Any) -> ModelOutput:
+        # VISTA3D's already-proven whole-organ automatic segmentation path
+        # -- identical to MONAIBundleAdapter.predict() for every other
+        # MONAI segmentation bundle in the zoo.
+        return MONAIBundleAdapter.predict(self, batch)
+
+    def predict_with_prompt(self, batch: Any, prompt: Prompt) -> ModelOutput:
+        violations = prompt.validate_against(self.interaction_contract())
+        if violations:
+            raise ModelAdapterError(
+                "VISTA3D prompt is invalid: " + "; ".join(violations)
+            )
+        prompt_batch = {
+            "image": batch,
+            "point_coords": prompt.points,
+            "point_labels": prompt.point_labels,
+            "box": prompt.boxes,
+        }
+        return MONAIBundleAdapter.predict(self, prompt_batch)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

@@ -39,6 +39,10 @@ def make_model_adapter(spec: ModelSpec) -> ModelAdapter:
         from qortex.neuroai.models.monai import MONAIBundleAdapter
         return MONAIBundleAdapter(spec)
 
+    if provider in ("vista3d",):
+        from qortex.neuroai.models.monai import VISTA3DAdapter
+        return VISTA3DAdapter(spec)
+
     if provider in ("braindecode", "bd"):
         from qortex.neuroai.models.braindecode import BrainDecodeAdapter
         return BrainDecodeAdapter(spec)
@@ -62,5 +66,5 @@ def make_model_adapter(spec: ModelSpec) -> ModelAdapter:
     raise ValueError(
         f"Unknown model provider: {provider!r}. "
         f"Supported: 'huggingface', 'onnx', 'torch', 'torchscript', "
-        f"'monai', 'braindecode', 'ultralytics', 'torchvision', 'keras', 'plugin'."
+        f"'monai', 'vista3d', 'braindecode', 'ultralytics', 'torchvision', 'keras', 'plugin'."
     )

@@ -10,7 +10,14 @@ from __future__ import annotations
 
 from qortex.neuroai.contracts import AxisConvention, EvidenceStatus, InputContract, OutputContract
 from qortex.neuroai.models.zoo.registry import register
-from qortex.neuroai.models.zoo.schema import ExecutionMode, LicenseInfo, ZooEntry, ZooEntryType
+from qortex.neuroai.models.zoo.schema import (
+    ExecutionMode,
+    InteractionContract,
+    LicenseInfo,
+    PromptType,
+    ZooEntry,
+    ZooEntryType,
+)
 
 _MAINTAINER = "Project MONAI"
 _CATALOG_URL = "https://project-monai.github.io/model-zoo.html"
@@ -60,8 +67,8 @@ def register_all() -> None:
     register(ZooEntry(
         id="monai.vista3d",
         display_name="VISTA3D",
-        entry_type=ZooEntryType.model,
-        provider="monai",
+        entry_type=ZooEntryType.promptable_model,
+        provider="vista3d",
         execution_mode=ExecutionMode.bundle,
         source_url=_hub_url("vista3d"),
         paper_url="https://arxiv.org/abs/2406.05285",
@@ -71,6 +78,11 @@ def register_all() -> None:
         task=["segmentation", "foundation_segmentation"],
         input_contract=_unknown_input("ct"),
         output_contract=_unknown_output(),
+        interaction_contract=InteractionContract(
+            supported_prompt_types=[PromptType.point, PromptType.box],
+            supports_automatic_mode=True,
+            evidence_status=EvidenceStatus.confirmed,
+        ),
         license=_unlicensed(),
         evidence_status=EvidenceStatus.confirmed,
         qortex_status="runnable_after_contract_validation",
@@ -79,10 +91,10 @@ def register_all() -> None:
             "Foundation-style 3D CT segmentation and annotation.",
             "VISTA3D paper (arXiv:2406.05285) reports 127 automatic classes; "
             "not encoded as n_classes here since exact figure is unconfirmed offline.",
-            "Registered here as entry_type=model (segmentation only). Phase 5 "
-            "(promptable segmentation) upgrades this entry to entry_type="
-            "promptable_model with a populated InteractionContract once the "
-            "VISTA3D prompt adapter lands — see plan Task list Phase 5.",
+            "Phase 5 (promptable segmentation): upgraded to entry_type="
+            "promptable_model with provider=vista3d (dedicated VISTA3DAdapter) "
+            "and a confirmed InteractionContract (point/box prompts, automatic "
+            "mode supported) — see models/monai.py VISTA3DAdapter.",
         ],
     ))
 

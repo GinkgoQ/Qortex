@@ -47,10 +47,10 @@ same commit as the code it tracks.
 - [x] External command provenance
 
 ### Phase 5 — Promptable segmentation
-- [ ] `Prompt` (`prompt.py`)
-- [ ] `InteractionContract` wired into adapters
-- [ ] `PromptableModelAdapter` (`promptable.py`)
-- [ ] VISTA3D prompt path
+- [x] `Prompt` (`prompt.py`)
+- [x] `InteractionContract` wired into adapters
+- [x] `PromptableModelAdapter` (`promptable.py`)
+- [x] VISTA3D prompt path
 - [ ] MedSAM adapter
 - [ ] SAM-Med3D adapter
 - [ ] `prompt-predict` CLI
@@ -71,7 +71,7 @@ _(append one line per entry the moment it's registered and offline-validated —
 - `braindecode.EEGNet` — provider `braindecode`, entry_type `model` (Phase 1 seed)
 - `external.totalsegmentator` — provider `external_cli`, entry_type `external_engine` (Phase 1 seed)
 - `monai.wholeBrainSeg_Large_UNEST_segmentation` — provider `monai`, entry_type `model` (Phase 2)
-- `monai.vista3d` — provider `monai`, entry_type `model` (Phase 2)
+- `monai.vista3d` — provider `vista3d`, entry_type `promptable_model` (Phase 2, upgraded Phase 5 with `VISTA3DAdapter` and a confirmed `InteractionContract` for point/box prompts + automatic mode)
 - `monai.swin_unetr_btcv_segmentation` — provider `monai`, entry_type `model` (Phase 2)
 - `monai.wholeBody_ct_segmentation` — provider `monai`, entry_type `model` (Phase 2)
 - `monai.spleen_ct_segmentation` — provider `monai`, entry_type `model` (Phase 2)

@@ -7,6 +7,7 @@ from qortex.neuroai.models.zoo.registry import (
     lookup,
     list_entries,
     register,
+    replace,
 )
 from qortex.neuroai.models.zoo.schema import (
     ExecutionMode,
@@ -99,3 +100,20 @@ def test_list_entries_filters_by_entry_type():
         "external.fastsurfer",
         "external.tractseg",
     }
+
+
+def test_replace_updates_an_existing_entry():
+    # "braindecode.EEGNet" is already registered by the autouse conftest
+    # seed fixture, so it is used as-is as the pre-existing entry to
+    # replace (register()-ing it again would raise a duplicate-id error).
+    updated = _entry("braindecode.EEGNet", entry_type=ZooEntryType.promptable_model)
+
+    replace(updated)
+
+    found = lookup("braindecode.EEGNet")
+    assert found.entry_type == ZooEntryType.promptable_model
+
+
+def test_replace_raises_if_entry_does_not_exist():
+    with pytest.raises(ValueError):
+        replace(_entry("nonexistent.model"))

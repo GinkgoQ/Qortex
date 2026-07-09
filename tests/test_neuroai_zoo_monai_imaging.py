@@ -22,10 +22,16 @@ _EXPECTED_IDS = {
 
 
 def test_all_13_monai_imaging_entries_registered():
+    # monai.vista3d's provider is "vista3d" (Phase 5 promptable upgrade), not
+    # "monai", so registration is checked by id via lookup() rather than by
+    # filtering list_entries(provider="monai").
+    assert all(lookup(entry_id) is not None for entry_id in _EXPECTED_IDS)
     registered_ids = {e.id for e in list_entries(provider="monai")}
-    # brats_mri_segmentation (Phase 1 seed) + these 13 imaging = 14 + 7 generative (Task 3) = 21 monai-provider entries
-    assert _EXPECTED_IDS.issubset(registered_ids)
-    assert len(registered_ids) == 21
+    # brats_mri_segmentation (Phase 1 seed) + 12 other imaging entries (vista3d
+    # now provider="vista3d") = 13 + 7 generative (Task 3) = 20 monai-provider
+    # entries, plus 1 vista3d-provider entry = 21 total imaging+generative+seed.
+    assert len(registered_ids) == 20
+    assert lookup("monai.vista3d").provider == "vista3d"
 
 
 def test_monai_imaging_entries_pass_offline_validation():

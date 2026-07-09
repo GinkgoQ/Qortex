@@ -18,6 +18,14 @@ def register(entry: ZooEntry) -> None:
     _REGISTRY[entry.id] = entry
 
 
+def replace(entry: ZooEntry) -> None:
+    """Overwrite an existing entry. Raises ValueError if entry.id is not
+    already registered -- use register() to add a genuinely new entry."""
+    if entry.id not in _REGISTRY:
+        raise ValueError(f"Cannot replace unregistered ZooEntry id: {entry.id!r}")
+    _REGISTRY[entry.id] = entry
+
+
 def lookup(entry_id: str) -> ZooEntry | None:
     return _REGISTRY.get(entry_id)
 
@@ -50,4 +58,4 @@ def clear_registry() -> None:
     _REGISTRY.clear()
 
 
-__all__ = ["register", "lookup", "list_entries", "clear_registry"]
+__all__ = ["register", "replace", "lookup", "list_entries", "clear_registry"]
