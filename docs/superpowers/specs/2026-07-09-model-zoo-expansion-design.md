@@ -38,13 +38,13 @@ same commit as the code it tracks.
 - [x] EEG shape/channel/sampling contract validation
 
 ### Phase 4 — External engines
-- [ ] SynthSeg wrapper
-- [ ] SynthStrip wrapper
-- [ ] HD-BET wrapper
-- [ ] FastSurfer wrapper
-- [ ] TractSeg wrapper
-- [ ] TotalSegmentator task discovery integration
-- [ ] External command provenance
+- [x] SynthSeg wrapper
+- [x] SynthStrip wrapper
+- [x] HD-BET wrapper
+- [x] FastSurfer wrapper
+- [x] TractSeg wrapper
+- [ ] TotalSegmentator task discovery integration — Deferred; requires a `--json` output parser to extract tasks from `totalseg_info --json`, not just a command builder
+- [x] External command provenance
 
 ### Phase 5 — Promptable segmentation
 - [ ] `Prompt` (`prompt.py`)
@@ -101,6 +101,11 @@ _(append one line per entry the moment it's registered and offline-validated —
 - `braindecode.AttnSleep` — provider `braindecode`, entry_type `model` (Phase 3 Task 2)
 - `braindecode.DeepSleepNet` — provider `braindecode`, entry_type `model` (Phase 3 Task 2)
 - `braindecode.SignalJEPA` — provider `braindecode`, entry_type `model` (Phase 3 Task 2)
+- `external.synthseg` — provider `external_cli`, entry_type `external_engine` (Phase 4)
+- `external.synthstrip` — provider `external_cli`, entry_type `external_engine` (Phase 4)
+- `external.hdbet` — provider `external_cli`, entry_type `external_engine` (Phase 4)
+- `external.fastsurfer` — provider `external_cli`, entry_type `external_engine` (Phase 4)
+- `external.tractseg` — provider `external_cli`, entry_type `external_engine` (Phase 4)
 
 ---
 

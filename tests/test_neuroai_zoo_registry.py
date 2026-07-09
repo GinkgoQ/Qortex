@@ -81,10 +81,21 @@ def test_list_entries_filters_by_provider_and_sorts():
 
 def test_list_entries_filters_by_entry_type():
     # "external.totalsegmentator" is a zoo seed entry_type=external_engine
-    # entry (pre-registered by the autouse conftest fixture), so it is
-    # expected in this filter's results alongside the entry below.
+    # entry (pre-registered by the autouse conftest fixture), along with
+    # 5 new external engine entries from Phase 4, so they are all expected
+    # in this filter's results alongside the entry below.
     register(_entry("external.freesurfer", entry_type=ZooEntryType.external_engine, provider="external_cli"))
     register(_entry("braindecode.ATCNet"))
 
     engines = list_entries(entry_type=ZooEntryType.external_engine)
-    assert [e.id for e in engines] == ["external.freesurfer", "external.totalsegmentator"]
+    engine_ids = {e.id for e in engines}
+    # external.totalsegmentator (seed) + 5 Phase 4 entries + 1 test entry = 7 total
+    assert engine_ids == {
+        "external.freesurfer",
+        "external.totalsegmentator",
+        "external.synthseg",
+        "external.synthstrip",
+        "external.hdbet",
+        "external.fastsurfer",
+        "external.tractseg",
+    }
