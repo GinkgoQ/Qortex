@@ -12,13 +12,13 @@ Live checklist — check an item the moment its code lands and is verified
 same commit as the code it tracks.
 
 ### Phase 1 — Registry hardening
-- [ ] `ZooEntry` schema (`zoo/schema.py`)
-- [ ] `LicenseInfo`
-- [ ] `SecurityPolicy`
-- [ ] `InteractionContract`
-- [ ] `ExternalEngineContract`
-- [ ] `zoo/registry.py` (register/list/lookup)
-- [ ] `zoo/validate.py` offline self-checks
+- [x] `ZooEntry` schema (`zoo/schema.py`)
+- [x] `LicenseInfo`
+- [x] `SecurityPolicy`
+- [x] `InteractionContract`
+- [x] `ExternalEngineContract`
+- [x] `zoo/registry.py` (register/list/lookup)
+- [x] `zoo/validate.py` offline self-checks
 - [ ] CLI: `zoo list`
 - [ ] CLI: `zoo show`
 - [ ] CLI: `zoo validate`
@@ -67,7 +67,9 @@ same commit as the code it tracks.
 
 _(append one line per entry the moment it's registered and offline-validated — id, provider, phase)_
 
-- (none yet)
+- `monai.brats_mri_segmentation` — provider `monai`, entry_type `model` (Phase 1 seed)
+- `braindecode.EEGNet` — provider `braindecode`, entry_type `model` (Phase 1 seed)
+- `external.totalsegmentator` — provider `external_cli`, entry_type `external_engine` (Phase 1 seed)
 
 ---
 
