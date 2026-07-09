@@ -24,11 +24,11 @@ same commit as the code it tracks.
 - [x] CLI: `zoo validate`
 
 ### Phase 2 — MONAI integration
-- [ ] MONAI bundle extractor (`extractors/monai_bundle.py`)
+- [x] MONAI bundle extractor (`extractors/monai_bundle.py`)
 - [x] P0 MONAI imaging entries (see §12.1 — list grows below as each lands)
 - [x] MONAI generative entries (§12.5)
-- [ ] MONAI model cache recording
-- [ ] Compatibility bridge into `suggest-models`
+- [x] MONAI model cache recording
+- [x] Compatibility bridge into `suggest-models`
 
 ### Phase 3 — Braindecode expansion
 - [ ] Braindecode extractor (`extractors/braindecode_model.py`)
