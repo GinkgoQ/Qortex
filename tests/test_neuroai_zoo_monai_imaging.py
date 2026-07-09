@@ -23,9 +23,9 @@ _EXPECTED_IDS = {
 
 def test_all_13_monai_imaging_entries_registered():
     registered_ids = {e.id for e in list_entries(provider="monai")}
-    # brats_mri_segmentation (Phase 1 seed) + these 13 = 14 monai-provider entries
+    # brats_mri_segmentation (Phase 1 seed) + these 13 imaging = 14 + 7 generative (Task 3) = 21 monai-provider entries
     assert _EXPECTED_IDS.issubset(registered_ids)
-    assert len(registered_ids) == 14
+    assert len(registered_ids) == 21
 
 
 def test_monai_imaging_entries_pass_offline_validation():

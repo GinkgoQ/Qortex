@@ -26,7 +26,7 @@ same commit as the code it tracks.
 ### Phase 2 — MONAI integration
 - [ ] MONAI bundle extractor (`extractors/monai_bundle.py`)
 - [x] P0 MONAI imaging entries (see §12.1 — list grows below as each lands)
-- [ ] MONAI generative entries (§12.5)
+- [x] MONAI generative entries (§12.5)
 - [ ] MONAI model cache recording
 - [ ] Compatibility bridge into `suggest-models`
 
@@ -83,6 +83,13 @@ _(append one line per entry the moment it's registered and offline-validated —
 - `monai.ventricular_short_axis_3label` — provider `monai`, entry_type `model` (Phase 2)
 - `monai.valve_landmarks` — provider `monai`, entry_type `model` (Phase 2)
 - `monai.retinalOCT_RPD_segmentation` — provider `monai`, entry_type `model` (Phase 2)
+- `monai.brain_image_synthesis_latent_diffusion_model` — provider `monai`, entry_type `generative_model` (Phase 2 Task 3)
+- `monai.brats_mri_generative_diffusion` — provider `monai`, entry_type `generative_model` (Phase 2 Task 3)
+- `monai.brats_mri_axial_slices_generative_diffusion` — provider `monai`, entry_type `generative_model` (Phase 2 Task 3)
+- `monai.maisi_ct_generative` — provider `monai`, entry_type `generative_model` (Phase 2 Task 3)
+- `monai.cxr_image_synthesis_latent_diffusion_model` — provider `monai`, entry_type `generative_model` (Phase 2 Task 3)
+- `monai.mednist_ddpm` — provider `monai`, entry_type `generative_model` (Phase 2 Task 3)
+- `monai.mednist_gan` — provider `monai`, entry_type `generative_model` (Phase 2 Task 3)
 
 ---
 
