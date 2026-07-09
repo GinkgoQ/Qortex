@@ -51,20 +51,24 @@ def _extract_input_contract(inputs: dict) -> InputContract | None:
     _, spec = next(iter(inputs.items()))
     n_channels = spec.get("num_channels")
     spatial_shape = spec.get("spatial_shape")
-    dtype = spec.get("dtype", "float32")
+    dtype = spec.get("dtype")
 
     confirmed = n_channels is not None and spatial_shape is not None
-    return InputContract(
+    kwargs = dict(
         modality="mri",  # MONAI bundle inputs are volumetric medical images;
                           # the specific modality (mri/ct) is not encoded in
                           # network_data_format and must come from the zoo
                           # entry's own modality field, not this extractor.
-        axis_convention=AxisConvention.channels_first,
+        axis_convention=AxisConvention.channels_first,  # MONAI bundles conventionally use channels-first tensors,
+                                                          # but this value is not derived from network_data_format
+                                                          # and is therefore an assumption, not confirmed by evidence_status.
         n_channels=n_channels,
         spatial_shape=tuple(spatial_shape) if spatial_shape else None,
-        dtype=dtype,
         evidence_status=EvidenceStatus.confirmed if confirmed else EvidenceStatus.inferred,
     )
+    if dtype is not None:
+        kwargs["dtype"] = dtype
+    return InputContract(**kwargs)
 
 
 def _extract_output_contract(outputs: dict) -> OutputContract | None:
