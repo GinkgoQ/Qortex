@@ -13,6 +13,7 @@ from qortex.neuroai.models.zoo.schema import (
     ExecutionMode,
     ExternalEngineContract,
     LicenseInfo,
+    SecurityPolicy,
     ZooEntry,
     ZooEntryType,
 )
@@ -52,6 +53,7 @@ def _engine_entry(
             evidence_status=EvidenceStatus.confirmed,
         ),
         license=_unlicensed(),
+        security=SecurityPolicy(executable_names=[executable]),
         evidence_status=EvidenceStatus.confirmed,
         qortex_status="runnable_if_executable_available",
         priority="P0",

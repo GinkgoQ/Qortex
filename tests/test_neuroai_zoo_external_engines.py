@@ -47,3 +47,19 @@ def test_command_builder_names_match_external_py_function_names():
         assert hasattr(external_module, builder_name), (
             f"{entry_id}'s command_builder={builder_name!r} does not exist in external.py"
         )
+
+
+def test_security_policy_declares_the_engine_executable_name():
+    # Matches the Phase 1 external.totalsegmentator seed precedent, which
+    # sets executable_names so the entry's declared trust boundary matches
+    # what run_external_segmentation actually shells out to.
+    expected_executable = {
+        "external.synthseg": "mri_synthseg",
+        "external.synthstrip": "mri_synthstrip",
+        "external.hdbet": "hd-bet",
+        "external.fastsurfer": "run_fastsurfer.sh",
+        "external.tractseg": "TractSeg",
+    }
+    for entry_id, executable in expected_executable.items():
+        entry = lookup(entry_id)
+        assert entry.security.executable_names == [executable]
