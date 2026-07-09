@@ -4,7 +4,6 @@ import pytest
 
 from qortex.neuroai.contracts import EvidenceStatus
 from qortex.neuroai.models.zoo.registry import (
-    clear_registry,
     lookup,
     list_entries,
     register,
@@ -34,18 +33,11 @@ def _entry(entry_id: str, entry_type=ZooEntryType.model, provider="braindecode")
     )
 
 
-@pytest.fixture(autouse=True)
-def _reset_registry():
-    clear_registry()
-    yield
-    clear_registry()
-
-
 def test_register_and_lookup():
-    register(_entry("braindecode.EEGNet"))
-    found = lookup("braindecode.EEGNet")
+    register(_entry("braindecode.ATCNet"))
+    found = lookup("braindecode.ATCNet")
     assert found is not None
-    assert found.id == "braindecode.EEGNet"
+    assert found.id == "braindecode.ATCNet"
 
 
 def test_lookup_missing_returns_none():
@@ -53,23 +45,33 @@ def test_lookup_missing_returns_none():
 
 
 def test_register_duplicate_id_raises():
-    register(_entry("braindecode.EEGNet"))
+    register(_entry("braindecode.ATCNet"))
     with pytest.raises(ValueError):
-        register(_entry("braindecode.EEGNet"))
+        register(_entry("braindecode.ATCNet"))
 
 
 def test_list_entries_filters_by_provider_and_sorts():
+    # "braindecode.EEGNet" is a zoo seed entry (pre-registered by the
+    # autouse conftest fixture) with provider="braindecode", so it is
+    # expected in this filter's results alongside the entries below.
     register(_entry("braindecode.Deep4Net", provider="braindecode"))
     register(_entry("monai.vista3d", provider="monai_bundle"))
-    register(_entry("braindecode.EEGNet", provider="braindecode"))
+    register(_entry("braindecode.ATCNet", provider="braindecode"))
 
     bd = list_entries(provider="braindecode")
-    assert [e.id for e in bd] == ["braindecode.Deep4Net", "braindecode.EEGNet"]
+    assert [e.id for e in bd] == [
+        "braindecode.ATCNet",
+        "braindecode.Deep4Net",
+        "braindecode.EEGNet",
+    ]
 
 
 def test_list_entries_filters_by_entry_type():
-    register(_entry("external.totalsegmentator", entry_type=ZooEntryType.external_engine, provider="external_cli"))
-    register(_entry("braindecode.EEGNet"))
+    # "external.totalsegmentator" is a zoo seed entry_type=external_engine
+    # entry (pre-registered by the autouse conftest fixture), so it is
+    # expected in this filter's results alongside the entry below.
+    register(_entry("external.freesurfer", entry_type=ZooEntryType.external_engine, provider="external_cli"))
+    register(_entry("braindecode.ATCNet"))
 
     engines = list_entries(entry_type=ZooEntryType.external_engine)
-    assert [e.id for e in engines] == ["external.totalsegmentator"]
+    assert [e.id for e in engines] == ["external.freesurfer", "external.totalsegmentator"]

@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import pytest
-
 from qortex.neuroai.contracts import EvidenceStatus
-from qortex.neuroai.models.zoo.registry import clear_registry, register
+from qortex.neuroai.models.zoo.registry import register
 from qortex.neuroai.models.zoo.schema import (
     ExecutionMode,
     ExternalEngineContract,
@@ -14,13 +12,6 @@ from qortex.neuroai.models.zoo.schema import (
     ZooEntryType,
 )
 from qortex.neuroai.models.zoo.validate import validate_registry
-
-
-@pytest.fixture(autouse=True)
-def _reset_registry():
-    clear_registry()
-    yield
-    clear_registry()
 
 
 def _base_kwargs(entry_id: str) -> dict:
@@ -40,7 +31,9 @@ def _base_kwargs(entry_id: str) -> dict:
 
 
 def test_valid_registry_has_no_issues():
-    register(ZooEntry(entry_type=ZooEntryType.model, **_base_kwargs("braindecode.EEGNet")))
+    # "braindecode.EEGNet" is already a zoo seed entry id (pre-registered by
+    # the autouse conftest fixture); use a distinct id to avoid colliding.
+    register(ZooEntry(entry_type=ZooEntryType.model, **_base_kwargs("braindecode.TestOK")))
     assert validate_registry() == []
 
 

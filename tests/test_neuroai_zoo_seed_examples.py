@@ -1,21 +1,17 @@
 from __future__ import annotations
 
-import pytest
-
 from qortex.neuroai.models.zoo.registry import clear_registry, lookup
 from qortex.neuroai.models.zoo.validate import validate_registry
-
-
-@pytest.fixture(autouse=True)
-def _reset_registry():
-    clear_registry()
-    yield
-    clear_registry()
 
 
 def test_importing_zoo_package_registers_seed_examples():
     import importlib
     import qortex.neuroai.models.zoo as zoo_pkg
+
+    # The conftest fixture already pre-seeds the registry; clear it first so
+    # this reload's own register_all() call (triggered by zoo/__init__.py)
+    # doesn't collide with duplicate ids.
+    clear_registry()
     importlib.reload(zoo_pkg)
 
     assert lookup("monai.brats_mri_segmentation") is not None
@@ -26,6 +22,8 @@ def test_importing_zoo_package_registers_seed_examples():
 def test_seed_examples_pass_offline_validation():
     import importlib
     import qortex.neuroai.models.zoo as zoo_pkg
+
+    clear_registry()
     importlib.reload(zoo_pkg)
 
     issues = validate_registry()

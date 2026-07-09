@@ -1,24 +1,11 @@
 # tests/test_neuroai_zoo_cli.py
 from __future__ import annotations
 
-import pytest
 from typer.testing import CliRunner
 
 from qortex.cli.app import app
-from qortex.neuroai.models.zoo import seed_examples
-from qortex.neuroai.models.zoo.registry import clear_registry
 
 runner = CliRunner()
-
-
-@pytest.fixture(autouse=True)
-def _seeded_registry():
-    # Other zoo test modules clear the shared in-memory registry in their own
-    # autouse fixtures without restoring it, so re-seed deterministically here
-    # regardless of what ran before this module.
-    clear_registry()
-    seed_examples.register_all()
-    yield
 
 
 def test_zoo_list_shows_seed_entries():
