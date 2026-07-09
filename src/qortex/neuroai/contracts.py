@@ -36,11 +36,12 @@ except ImportError:
 # ── Enums ─────────────────────────────────────────────────────────────────────
 
 class EvidenceStatus(str, Enum):
-    confirmed  = "confirmed"
-    inferred   = "inferred"
-    missing    = "missing"
-    unknown    = "unknown"
-    blocked    = "blocked"
+    confirmed    = "confirmed"
+    inferred     = "inferred"
+    missing      = "missing"
+    unknown      = "unknown"
+    blocked      = "blocked"
+    contradicted = "contradicted"
 
 class CompatibilityStatus(str, Enum):
     compatible              = "compatible"
