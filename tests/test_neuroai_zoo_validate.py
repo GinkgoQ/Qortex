@@ -4,7 +4,6 @@ from qortex.neuroai.contracts import EvidenceStatus
 from qortex.neuroai.models.zoo.registry import register
 from qortex.neuroai.models.zoo.schema import (
     ExecutionMode,
-    ExternalEngineContract,
     InteractionContract,
     LicenseInfo,
     PromptType,
