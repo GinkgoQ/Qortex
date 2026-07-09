@@ -2025,12 +2025,13 @@ def neuroai_render_segmentation_showcase(
 
 @neuroai_app.command("run-external-segmentation")
 def neuroai_run_external_segmentation(
-    engine: str = typer.Argument(..., help="External engine: totalsegmentator or nnunet"),
+    engine: str = typer.Argument(..., help="External engine: totalsegmentator, nnunet, synthseg, synthstrip, hdbet, fastsurfer, or tractseg"),
     image: Path = typer.Argument(..., help="Input NIfTI image or nnU-Net input case file"),
     output: Path = typer.Argument(..., help="Expected output file or directory"),
     task: str | None = typer.Option(None, "--task", help="TotalSegmentator task"),
     model_folder: Path | None = typer.Option(None, "--model-folder", help="nnU-Net results folder; exported as nnUNet_results"),
     dataset_id: int | None = typer.Option(None, "--dataset-id", help="nnU-Net dataset id"),
+    subject_id: str | None = typer.Option(None, "--subject-id", help="FastSurfer subject id (required for engine=fastsurfer)"),
     configuration: str | None = typer.Option(None, "--configuration", help="nnU-Net configuration, e.g. 3d_fullres"),
     trainer: str | None = typer.Option(None, "--trainer", help="nnU-Net trainer name"),
     plans: str | None = typer.Option(None, "--plans", help="nnU-Net plans name"),
@@ -2048,8 +2049,15 @@ def neuroai_run_external_segmentation(
         typer.echo(f"[ERROR] Could not import external segmentation runner: {exc}", err=True)
         raise typer.Exit(2)
 
-    if engine not in {"totalsegmentator", "nnunet"}:
-        typer.echo("[ERROR] engine must be 'totalsegmentator' or 'nnunet'", err=True)
+    if engine not in {
+        "totalsegmentator", "nnunet", "synthseg", "synthstrip",
+        "hdbet", "fastsurfer", "tractseg",
+    }:
+        typer.echo(
+            "[ERROR] engine must be one of: totalsegmentator, nnunet, "
+            "synthseg, synthstrip, hdbet, fastsurfer, tractseg",
+            err=True,
+        )
         raise typer.Exit(1)
 
     try:
@@ -2065,6 +2073,7 @@ def neuroai_run_external_segmentation(
                 trainer=trainer,
                 plans=plans,
                 folds=tuple(fold or ("all",)),
+                subject_id=subject_id,
                 device=device,
                 timeout_s=timeout_s,
                 extra_args=tuple(extra_arg or ()),

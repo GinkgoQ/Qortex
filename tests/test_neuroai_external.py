@@ -294,3 +294,33 @@ def test_unsupported_engine_still_raises():
                 output_path="y.nii.gz",
             )
         )
+
+
+def test_cli_rejects_unknown_engine_name():
+    from typer.testing import CliRunner
+    from qortex.cli.app import app
+
+    result = CliRunner().invoke(
+        app,
+        ["neuroai", "run-external-segmentation", "not_a_real_engine", "x.nii.gz", "y.nii.gz"],
+    )
+
+    assert result.exit_code != 0
+
+
+def test_cli_accepts_synthseg_engine_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from typer.testing import CliRunner
+    from qortex.cli.app import app
+
+    _write_executable(tmp_path / "mri_synthseg", "#!/usr/bin/env bash\nprintf 'seg' > \"${@: -1}\"\n")
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ.get('PATH', '')}")
+    image = tmp_path / "t1.nii.gz"
+    image.write_text("image", encoding="utf-8")
+    output = tmp_path / "seg.nii.gz"
+
+    result = CliRunner().invoke(
+        app,
+        ["neuroai", "run-external-segmentation", "synthseg", str(image), str(output)],
+    )
+
+    assert result.exit_code == 0, result.output
