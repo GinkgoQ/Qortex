@@ -19,9 +19,9 @@ same commit as the code it tracks.
 - [x] `ExternalEngineContract`
 - [x] `zoo/registry.py` (register/list/lookup)
 - [x] `zoo/validate.py` offline self-checks
-- [ ] CLI: `zoo list`
-- [ ] CLI: `zoo show`
-- [ ] CLI: `zoo validate`
+- [x] CLI: `zoo list`
+- [x] CLI: `zoo show`
+- [x] CLI: `zoo validate`
 
 ### Phase 2 — MONAI integration
 - [ ] MONAI bundle extractor (`extractors/monai_bundle.py`)

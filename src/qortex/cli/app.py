@@ -1477,6 +1477,79 @@ neuroai_app = typer.Typer(
 )
 app.add_typer(neuroai_app, name="neuroai")
 
+zoo_app = typer.Typer(
+    name="zoo",
+    help="Model zoo — contract-validated capability registry.",
+    no_args_is_help=True,
+)
+neuroai_app.add_typer(zoo_app, name="zoo")
+
+
+@zoo_app.command("list")
+def neuroai_zoo_list(
+    provider: str = typer.Option(None, "--provider", help="Filter by provider string"),
+    modality: str = typer.Option(None, "--modality", help="Filter by modality"),
+    task: str = typer.Option(None, "--task", help="Filter by task"),
+    entry_type: str = typer.Option(None, "--entry-type", help="Filter by entry type"),
+    priority: str = typer.Option(None, "--priority", help="Filter by priority (P0/P1/P2)"),
+) -> None:
+    """List model zoo entries, optionally filtered."""
+    from qortex.neuroai.models import zoo as _zoo  # noqa: F401  (triggers registration)
+    from qortex.neuroai.models.zoo.registry import list_entries
+
+    entries = list_entries(
+        provider=provider, modality=modality, task=task,
+        entry_type=entry_type, priority=priority,
+    )
+    if not entries:
+        typer.echo("No matching entries.")
+        return
+    for entry in entries:
+        typer.echo(
+            f"{entry.id:<40} {entry.provider:<14} {entry.entry_type.value:<18} "
+            f"{','.join(entry.modality):<12} {entry.priority}"
+        )
+
+
+@zoo_app.command("show")
+def neuroai_zoo_show(entry_id: str = typer.Argument(..., help="Zoo entry id")) -> None:
+    """Show full detail for one model zoo entry."""
+    from qortex.neuroai.models import zoo as _zoo  # noqa: F401
+    from qortex.neuroai.models.zoo.registry import lookup
+
+    entry = lookup(entry_id)
+    if entry is None:
+        typer.echo(f"Unknown zoo entry: {entry_id!r}", err=True)
+        raise typer.Exit(1)
+
+    typer.echo(f"id:              {entry.id}")
+    typer.echo(f"display_name:    {entry.display_name}")
+    typer.echo(f"entry_type:      {entry.entry_type.value}")
+    typer.echo(f"provider:        {entry.provider}")
+    typer.echo(f"execution_mode:  {entry.execution_mode.value}")
+    typer.echo(f"source_url:      {entry.source_url}")
+    typer.echo(f"modality:        {', '.join(entry.modality)}")
+    typer.echo(f"task:            {', '.join(entry.task)}")
+    typer.echo(f"evidence_status: {entry.evidence_status.value}")
+    typer.echo(f"license:         {entry.license.evidence_status.value}")
+    typer.echo(f"qortex_status:   {entry.qortex_status}")
+
+
+@zoo_app.command("validate")
+def neuroai_zoo_validate() -> None:
+    """Run offline self-checks across the whole zoo registry. No network."""
+    from qortex.neuroai.models import zoo as _zoo  # noqa: F401
+    from qortex.neuroai.models.zoo.validate import validate_registry
+
+    issues = validate_registry()
+    if not issues:
+        typer.echo("0 issues — registry is valid.")
+        return
+    for issue in issues:
+        typer.echo(f"[{issue.severity.upper()}] {issue.entry_id}: {issue.message}")
+    if any(i.severity == "error" for i in issues):
+        raise typer.Exit(1)
+
 
 @neuroai_app.command("check")
 def neuroai_check(
