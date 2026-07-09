@@ -152,3 +152,145 @@ printf 'mask' > "$out"
     assert result.exit_code == 0, result.output
     assert output.exists()
     assert '"success": true' in result.output
+
+
+def test_external_segmentation_reports_all_7_engines(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("PATH", str(tmp_path))
+
+    engines = available_external_segmentation_engines()
+
+    assert set(engines.keys()) == {
+        "totalsegmentator", "nnunet", "synthseg", "synthstrip",
+        "hdbet", "fastsurfer", "tractseg",
+    }
+    assert all(v is False for v in engines.values())
+
+
+def test_build_synthseg_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _write_executable(tmp_path / "mri_synthseg", "#!/usr/bin/env bash\nexit 0\n")
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ.get('PATH', '')}")
+    image = tmp_path / "t1.nii.gz"
+    image.write_text("image", encoding="utf-8")
+
+    command = build_external_segmentation_command(
+        ExternalSegmentationRequest(
+            engine="synthseg",
+            image_path=image,
+            output_path=tmp_path / "seg.nii.gz",
+            device="cpu",
+        )
+    )
+
+    assert command[0].endswith("mri_synthseg")
+    assert "--i" in command and str(image) in command
+    assert "--o" in command
+    assert "--cpu" in command
+
+
+def test_build_synthstrip_command_gpu_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _write_executable(tmp_path / "mri_synthstrip", "#!/usr/bin/env bash\nexit 0\n")
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ.get('PATH', '')}")
+    image = tmp_path / "t1.nii.gz"
+    image.write_text("image", encoding="utf-8")
+
+    command = build_external_segmentation_command(
+        ExternalSegmentationRequest(
+            engine="synthstrip",
+            image_path=image,
+            output_path=tmp_path / "brain.nii.gz",
+            device="cuda",
+        )
+    )
+
+    assert command[0].endswith("mri_synthstrip")
+    assert "-i" in command and str(image) in command
+    assert "-o" in command
+    assert "--gpu" in command
+
+
+def test_build_hdbet_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _write_executable(tmp_path / "hd-bet", "#!/usr/bin/env bash\nexit 0\n")
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ.get('PATH', '')}")
+    image = tmp_path / "t1.nii.gz"
+    image.write_text("image", encoding="utf-8")
+
+    command = build_external_segmentation_command(
+        ExternalSegmentationRequest(
+            engine="hdbet",
+            image_path=image,
+            output_path=tmp_path / "brain.nii.gz",
+            device="cpu",
+        )
+    )
+
+    assert command[0].endswith("hd-bet")
+    assert "-i" in command and str(image) in command
+    assert "-o" in command
+    assert "-device" in command and "cpu" in command
+
+
+def test_build_fastsurfer_command_requires_subject_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _write_executable(tmp_path / "run_fastsurfer.sh", "#!/usr/bin/env bash\nexit 0\n")
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ.get('PATH', '')}")
+    image = tmp_path / "t1.nii.gz"
+    image.write_text("image", encoding="utf-8")
+
+    with pytest.raises(ExternalSegmentationError, match="subject_id"):
+        build_external_segmentation_command(
+            ExternalSegmentationRequest(
+                engine="fastsurfer",
+                image_path=image,
+                output_path=tmp_path / "subjects",
+            )
+        )
+
+
+def test_build_fastsurfer_command_with_subject_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _write_executable(tmp_path / "run_fastsurfer.sh", "#!/usr/bin/env bash\nexit 0\n")
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ.get('PATH', '')}")
+    image = tmp_path / "t1.nii.gz"
+    image.write_text("image", encoding="utf-8")
+
+    command = build_external_segmentation_command(
+        ExternalSegmentationRequest(
+            engine="fastsurfer",
+            image_path=image,
+            output_path=tmp_path / "subjects",
+            subject_id="sub-01",
+        )
+    )
+
+    assert command[0].endswith("run_fastsurfer.sh")
+    assert "--t1" in command and str(image) in command
+    assert "--sid" in command and "sub-01" in command
+    assert "--sd" in command
+
+
+def test_build_tractseg_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _write_executable(tmp_path / "TractSeg", "#!/usr/bin/env bash\nexit 0\n")
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ.get('PATH', '')}")
+    image = tmp_path / "dwi.nii.gz"
+    image.write_text("image", encoding="utf-8")
+
+    command = build_external_segmentation_command(
+        ExternalSegmentationRequest(
+            engine="tractseg",
+            image_path=image,
+            output_path=tmp_path / "bundles",
+        )
+    )
+
+    assert command[0].endswith("TractSeg")
+    assert "-i" in command and str(image) in command
+    assert "-o" in command
+
+
+def test_unsupported_engine_still_raises():
+    with pytest.raises(ExternalSegmentationError):
+        build_external_segmentation_command(
+            ExternalSegmentationRequest(
+                engine="not_a_real_engine",  # type: ignore[arg-type]
+                image_path="x.nii.gz",
+                output_path="y.nii.gz",
+            )
+        )

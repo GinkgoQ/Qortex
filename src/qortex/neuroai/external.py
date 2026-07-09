@@ -20,7 +20,10 @@ from typing import Any, Literal, Sequence
 
 from qortex.core.exceptions import QortexError
 
-ExternalSegmentationEngine = Literal["totalsegmentator", "nnunet"]
+ExternalSegmentationEngine = Literal[
+    "totalsegmentator", "nnunet", "synthseg", "synthstrip", "hdbet",
+    "fastsurfer", "tractseg",
+]
 
 
 @dataclass(frozen=True)
@@ -37,6 +40,7 @@ class ExternalSegmentationRequest:
     trainer: str | None = None
     plans: str | None = None
     folds: tuple[int | str, ...] = ("all",)
+    subject_id: str | None = None  # required only for engine="fastsurfer"
     device: str | None = None
     timeout_s: float | None = None
     extra_args: tuple[str, ...] = ()
@@ -157,7 +161,18 @@ def available_external_segmentation_engines() -> dict[str, bool]:
     return {
         "totalsegmentator": shutil.which("TotalSegmentator") is not None,
         "nnunet": shutil.which("nnUNetv2_predict") is not None,
+        "synthseg": shutil.which("mri_synthseg") is not None,
+        "synthstrip": shutil.which("mri_synthstrip") is not None,
+        "hdbet": shutil.which("hd-bet") is not None,
+        "fastsurfer": shutil.which("run_fastsurfer.sh") is not None,
+        "tractseg": shutil.which("TractSeg") is not None,
     }
+
+
+_SUPPORTED_ENGINES = (
+    "totalsegmentator", "nnunet", "synthseg", "synthstrip", "hdbet",
+    "fastsurfer", "tractseg",
+)
 
 
 def _validate_external_request(
@@ -167,7 +182,7 @@ def _validate_external_request(
     *,
     check_image_exists: bool = True,
 ) -> None:
-    if request.engine not in ("totalsegmentator", "nnunet"):
+    if request.engine not in _SUPPORTED_ENGINES:
         raise ExternalSegmentationError(f"Unsupported external segmentation engine: {request.engine!r}")
     if check_image_exists and not image_path.exists():
         raise ExternalSegmentationError(f"Input image does not exist: {image_path}")
@@ -181,6 +196,10 @@ def _validate_external_request(
             raise ExternalSegmentationError(
                 f"nnU-Net request is missing required fields: {', '.join(missing)}"
             )
+    if request.engine == "fastsurfer" and request.subject_id is None:
+        raise ExternalSegmentationError(
+            "FastSurfer request is missing required field: subject_id"
+        )
 
 
 def _build_external_command(
@@ -188,9 +207,16 @@ def _build_external_command(
     image_path: Path,
     output_path: Path,
 ) -> list[str]:
-    if request.engine == "totalsegmentator":
-        return _build_totalsegmentator_command(request, image_path, output_path)
-    return _build_nnunet_command(request, image_path, output_path)
+    builders = {
+        "totalsegmentator": _build_totalsegmentator_command,
+        "nnunet": _build_nnunet_command,
+        "synthseg": _build_synthseg_command,
+        "synthstrip": _build_synthstrip_command,
+        "hdbet": _build_hdbet_command,
+        "fastsurfer": _build_fastsurfer_command,
+        "tractseg": _build_tractseg_command,
+    }
+    return builders[request.engine](request, image_path, output_path)
 
 
 def _build_totalsegmentator_command(
@@ -233,6 +259,78 @@ def _build_nnunet_command(
         command.extend(["-p", request.plans])
     if request.device:
         command.extend(["-device", request.device])
+    command.extend(_clean_extra_args(request.extra_args))
+    return command
+
+
+def _build_synthseg_command(
+    request: ExternalSegmentationRequest,
+    image_path: Path,
+    output_path: Path,
+) -> list[str]:
+    executable = _require_executable("mri_synthseg")
+    command = [executable, "--i", str(image_path), "--o", str(output_path)]
+    if request.device == "cpu":
+        command.append("--cpu")
+    command.extend(_clean_extra_args(request.extra_args))
+    return command
+
+
+def _build_synthstrip_command(
+    request: ExternalSegmentationRequest,
+    image_path: Path,
+    output_path: Path,
+) -> list[str]:
+    executable = _require_executable("mri_synthstrip")
+    command = [executable, "-i", str(image_path), "-o", str(output_path)]
+    if request.device and request.device != "cpu":
+        command.append("--gpu")
+    command.extend(_clean_extra_args(request.extra_args))
+    return command
+
+
+def _build_hdbet_command(
+    request: ExternalSegmentationRequest,
+    image_path: Path,
+    output_path: Path,
+) -> list[str]:
+    executable = _require_executable("hd-bet")
+    command = [executable, "-i", str(image_path), "-o", str(output_path)]
+    if request.device:
+        command.extend(["-device", request.device])
+    command.extend(_clean_extra_args(request.extra_args))
+    return command
+
+
+def _build_fastsurfer_command(
+    request: ExternalSegmentationRequest,
+    image_path: Path,
+    output_path: Path,
+) -> list[str]:
+    # FastSurfer's CLI shape differs from the others: it writes into a
+    # subjects-directory layout keyed by subject_id, not a single output
+    # file/dir. subject_id is validated as required in
+    # _validate_external_request before this builder ever runs.
+    executable = _require_executable("run_fastsurfer.sh")
+    command = [
+        executable,
+        "--t1", str(image_path),
+        "--sid", str(request.subject_id),
+        "--sd", str(output_path),
+    ]
+    if request.device:
+        command.extend(["--device", request.device])
+    command.extend(_clean_extra_args(request.extra_args))
+    return command
+
+
+def _build_tractseg_command(
+    request: ExternalSegmentationRequest,
+    image_path: Path,
+    output_path: Path,
+) -> list[str]:
+    executable = _require_executable("TractSeg")
+    command = [executable, "-i", str(image_path), "-o", str(output_path)]
     command.extend(_clean_extra_args(request.extra_args))
     return command
 
