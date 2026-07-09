@@ -31,11 +31,11 @@ same commit as the code it tracks.
 - [x] Compatibility bridge into `suggest-models`
 
 ### Phase 3 — Braindecode expansion
-- [ ] Braindecode extractor (`extractors/braindecode_model.py`)
+- [x] Braindecode extractor (`extractors/braindecode_model.py`)
 - [x] Expanded Braindecode entries (§12.3 — list grows below)
-- [ ] Architecture vs. pretrained separation
-- [ ] HF pretrained registry support
-- [ ] EEG shape/channel/sampling contract validation
+- [x] Architecture vs. pretrained separation
+- [ ] HF pretrained registry support — Deferred; requires confirmed HF repo IDs per model, not available offline (see zoo/braindecode_eeg.py module docstring)
+- [x] EEG shape/channel/sampling contract validation
 
 ### Phase 4 — External engines
 - [ ] SynthSeg wrapper

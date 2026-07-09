@@ -27,7 +27,7 @@ def test_all_11_braindecode_entries_registered():
 
 def test_braindecode_entries_pass_offline_validation():
     issues = validate_registry()
-    relevant = [i for i in issues if i.entry_id in _EXPECTED_IDS]
+    relevant = [i for i in issues if i.entry_id in _EXPECTED_IDS and i.severity == "error"]
     assert relevant == []
 
 

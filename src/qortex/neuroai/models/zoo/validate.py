@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
+from qortex.neuroai.contracts import EvidenceStatus
 from qortex.neuroai.models.zoo.registry import list_entries
 from qortex.neuroai.models.zoo.schema import ZooEntry, ZooEntryType
 
@@ -103,6 +104,23 @@ def _check_provider_dispatch(entry: ZooEntry) -> list[ValidationIssue]:
     return []
 
 
+def _check_eeg_contract_consistency(entry: ZooEntry) -> list[ValidationIssue]:
+    ic = entry.input_contract
+    if ic is None or str(ic.modality).lower() != "eeg":
+        return []
+    if entry.evidence_status != EvidenceStatus.confirmed:
+        return []
+    has_confirmed_shape = ic.n_channels is not None or ic.sampling_rate_hz is not None
+    if has_confirmed_shape:
+        return []
+    return [ValidationIssue(
+        entry.id, "warning",
+        "entry.evidence_status=confirmed but input_contract has no "
+        "confirmed n_channels or sampling_rate_hz -- confirm this is "
+        "intentional (metadata confirmed, tensor shape architecture-only)",
+    )]
+
+
 def validate_registry() -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     for entry in list_entries():
@@ -111,6 +129,7 @@ def validate_registry() -> list[ValidationIssue]:
         issues.extend(_check_interaction_contract(entry))
         issues.extend(_check_external_engine_contract(entry))
         issues.extend(_check_provider_dispatch(entry))
+        issues.extend(_check_eeg_contract_consistency(entry))
     return issues
 
 
