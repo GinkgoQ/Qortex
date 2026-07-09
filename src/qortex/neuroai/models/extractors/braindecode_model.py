@@ -34,15 +34,21 @@ def _extract_input_contract(config: dict) -> InputContract | None:
     n_channels = config.get("n_chans", config.get("n_channels"))
     n_times = config.get("n_times")
     sfreq = config.get("sfreq")
+    input_window_seconds = config.get("input_window_seconds")
 
-    if n_channels is None and n_times is None and sfreq is None:
+    if n_channels is None and n_times is None and sfreq is None and input_window_seconds is None:
         return None
 
     window_duration_s = None
     if n_times is not None and sfreq:
         window_duration_s = n_times / sfreq
+    elif input_window_seconds is not None:
+        # Some Braindecode configs express window length directly in
+        # seconds rather than as a sample count -- use it as-is when
+        # n_times/sfreq aren't both present.
+        window_duration_s = input_window_seconds
 
-    confirmed = n_channels is not None and sfreq is not None and n_times is not None
+    confirmed = n_channels is not None and bool(sfreq) and n_times is not None
     return InputContract(
         modality="eeg",
         axis_convention=AxisConvention.batch_channels_time,

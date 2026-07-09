@@ -64,3 +64,24 @@ def test_extract_without_id2label_still_populates_n_classes():
 
     assert extracted.output_contract.n_classes == 4
     assert extracted.output_contract.classes == []
+
+
+def test_extract_uses_input_window_seconds_when_n_times_absent():
+    config = {"n_chans": 22, "sfreq": 250.0, "input_window_seconds": 4.0}
+
+    extracted = extract_braindecode_contract("window_seconds/model", config)
+
+    assert extracted.input_contract.window_duration_s == 4.0
+    # n_times was never given, so this cannot be "confirmed" even though
+    # window_duration_s is populated via input_window_seconds.
+    assert extracted.input_contract.evidence_status == EvidenceStatus.inferred
+
+
+def test_extract_sfreq_zero_is_never_confirmed_and_never_divides():
+    config = {"n_chans": 22, "n_times": 1000, "sfreq": 0}
+
+    extracted = extract_braindecode_contract("zero_sfreq/model", config)
+
+    assert extracted.input_contract.sampling_rate_hz == 0
+    assert extracted.input_contract.window_duration_s is None
+    assert extracted.input_contract.evidence_status == EvidenceStatus.inferred
