@@ -55,7 +55,7 @@ def test_list_entries_filters_by_provider_and_sorts():
     # autouse conftest fixture) with provider="braindecode", so it is
     # expected in this filter's results alongside the entries below.
     register(_entry("braindecode.Deep4Net", provider="braindecode"))
-    register(_entry("monai.vista3d", provider="monai_bundle"))
+    register(_entry("test.bundle_model", provider="test_bundle"))
     register(_entry("braindecode.ATCNet", provider="braindecode"))
 
     bd = list_entries(provider="braindecode")

@@ -25,7 +25,7 @@ same commit as the code it tracks.
 
 ### Phase 2 — MONAI integration
 - [ ] MONAI bundle extractor (`extractors/monai_bundle.py`)
-- [ ] P0 MONAI imaging entries (see §12.1 — list grows below as each lands)
+- [x] P0 MONAI imaging entries (see §12.1 — list grows below as each lands)
 - [ ] MONAI generative entries (§12.5)
 - [ ] MONAI model cache recording
 - [ ] Compatibility bridge into `suggest-models`
@@ -70,6 +70,19 @@ _(append one line per entry the moment it's registered and offline-validated —
 - `monai.brats_mri_segmentation` — provider `monai`, entry_type `model` (Phase 1 seed)
 - `braindecode.EEGNet` — provider `braindecode`, entry_type `model` (Phase 1 seed)
 - `external.totalsegmentator` — provider `external_cli`, entry_type `external_engine` (Phase 1 seed)
+- `monai.wholeBrainSeg_Large_UNEST_segmentation` — provider `monai`, entry_type `model` (Phase 2)
+- `monai.vista3d` — provider `monai`, entry_type `model` (Phase 2)
+- `monai.swin_unetr_btcv_segmentation` — provider `monai`, entry_type `model` (Phase 2)
+- `monai.wholeBody_ct_segmentation` — provider `monai`, entry_type `model` (Phase 2)
+- `monai.spleen_ct_segmentation` — provider `monai`, entry_type `model` (Phase 2)
+- `monai.multi_organ_segmentation` — provider `monai`, entry_type `model` (Phase 2)
+- `monai.pancreas_ct_dints_segmentation` — provider `monai`, entry_type `model` (Phase 2)
+- `monai.prostate_mri_anatomy` — provider `monai`, entry_type `model` (Phase 2)
+- `monai.renalStructures_CECT_segmentation` — provider `monai`, entry_type `model` (Phase 2)
+- `monai.renalStructures_UNEST_segmentation` — provider `monai`, entry_type `model` (Phase 2)
+- `monai.ventricular_short_axis_3label` — provider `monai`, entry_type `model` (Phase 2)
+- `monai.valve_landmarks` — provider `monai`, entry_type `model` (Phase 2)
+- `monai.retinalOCT_RPD_segmentation` — provider `monai`, entry_type `model` (Phase 2)
 
 ---
 
