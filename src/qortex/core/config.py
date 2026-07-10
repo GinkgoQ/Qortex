@@ -13,6 +13,7 @@ Environment variables:
     QORTEX_VERIFY_SIZE            "true" / "false"
     QORTEX_GQL_ENDPOINT
     QORTEX_OPENNEURO_ENDPOINT
+    QORTEX_TOTALSEGMENTATOR_LICENSE
 """
 
 from __future__ import annotations
@@ -77,6 +78,10 @@ class QortexConfig(BaseSettings):
 
     # ── Auth ──────────────────────────────────────────────────────────────
     api_token: str | None = Field(default=None, alias="QORTEX_API_TOKEN")
+    totalsegmentator_license: str | None = Field(
+        default=None,
+        alias="QORTEX_TOTALSEGMENTATOR_LICENSE",
+    )
 
     @field_validator("cache_dir", mode="before")
     @classmethod
@@ -88,6 +93,8 @@ class QortexConfig(BaseSettings):
         data = self.model_dump(mode="python")
         if data.get("api_token"):
             data["api_token"] = "***"
+        if data.get("totalsegmentator_license"):
+            data["totalsegmentator_license"] = "***"
         return data
 
     def with_overrides(self, **kwargs) -> "QortexConfig":
@@ -151,6 +158,11 @@ def reset_config() -> None:
 def _redact_mapping(values: dict[str, Any]) -> dict[str, Any]:
     redacted = dict(values)
     for key in list(redacted):
-        if "token" in key.lower() or "password" in key.lower() or "secret" in key.lower():
+        if (
+            "token" in key.lower()
+            or "password" in key.lower()
+            or "secret" in key.lower()
+            or "license" in key.lower()
+        ):
             redacted[key] = "***"
     return redacted

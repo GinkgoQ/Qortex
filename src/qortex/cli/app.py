@@ -2135,6 +2135,11 @@ def neuroai_run_external_segmentation(
     device: str | None = typer.Option(None, "--device", help="Device string passed to the external engine"),
     timeout_s: float | None = typer.Option(None, "--timeout-s", help="Subprocess timeout in seconds"),
     extra_arg: list[str] | None = typer.Option(None, "--extra-arg", help="Extra argument forwarded to the external engine; repeat as needed"),
+    totalsegmentator_license: str | None = typer.Option(
+        None,
+        "--totalsegmentator-license",
+        help="TotalSegmentator license key. Prefer QORTEX_TOTALSEGMENTATOR_LICENSE in .env for local use.",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Print run metadata as JSON"),
 ) -> None:
     """Run a supported external segmentation CLI and capture provenance."""
@@ -2173,6 +2178,7 @@ def neuroai_run_external_segmentation(
                 device=device,
                 timeout_s=timeout_s,
                 extra_args=tuple(extra_arg or ()),
+                license_key=totalsegmentator_license,
             )
         )
     except Exception as exc:

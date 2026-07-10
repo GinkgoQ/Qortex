@@ -1,6 +1,9 @@
 openneuro-py/
 prompt.md
 AGENT.md
+.env
+.env.*
+!.env.example
 .*/
 .claude/
 temp/

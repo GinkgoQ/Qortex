@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
+from qortex.core.config import get_config
 from qortex.core.exceptions import ModelAdapterError, QortexError
 
 ExternalSegmentationEngine = Literal[
@@ -49,6 +50,7 @@ class ExternalSegmentationRequest:
     timeout_s: float | None = None
     extra_args: tuple[str, ...] = ()
     env: dict[str, str] = field(default_factory=dict)
+    license_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -137,6 +139,7 @@ def run_external_segmentation(request: ExternalSegmentationRequest) -> ExternalS
     env.update(request.env)
     if request.engine == "nnunet" and request.model_folder is not None:
         env["nnUNet_results"] = str(Path(request.model_folder).expanduser().resolve())
+    _activate_external_auth_if_configured(request, env, executable_path=executable_path)
 
     try:
         completed = subprocess.run(
@@ -403,6 +406,79 @@ def _require_executable(name: str) -> str:
             suggestion=f"Install {name} and confirm it is available in the active environment.",
         )
     return resolved
+
+
+def _activate_external_auth_if_configured(
+    request: ExternalSegmentationRequest,
+    env: dict[str, str],
+    *,
+    executable_path: str,
+) -> None:
+    if request.engine != "totalsegmentator":
+        return
+    license_key = _resolve_totalsegmentator_license(request, env)
+    if license_key is None:
+        return
+    setter = _resolve_totalsegmentator_license_setter(executable_path)
+    if setter is None:
+        raise ExternalSegmentationError(
+            "TotalSegmentator license key was provided, but totalseg_set_license is not on PATH.",
+            suggestion="Install TotalSegmentator in the active environment and confirm totalseg_set_license is available.",
+        )
+    completed = subprocess.run(
+        [setter, "-l", license_key],
+        text=True,
+        capture_output=True,
+        timeout=60,
+        env=env,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise ExternalSegmentationError(
+            "TotalSegmentator license activation failed.",
+            context={
+                "command": [setter, "-l", "***"],
+                "stdout": completed.stdout[-2000:],
+                "stderr": completed.stderr[-2000:],
+            },
+            suggestion="Verify QORTEX_TOTALSEGMENTATOR_LICENSE or pass --totalsegmentator-license with a valid key.",
+        )
+
+
+def _resolve_totalsegmentator_license_setter(executable_path: str) -> str | None:
+    setter = shutil.which("totalseg_set_license")
+    if setter is not None:
+        return setter
+    try:
+        sibling = Path(executable_path).resolve().with_name("totalseg_set_license")
+    except OSError:
+        return None
+    if sibling.exists() and os.access(sibling, os.X_OK):
+        return str(sibling)
+    return None
+
+
+def _resolve_totalsegmentator_license(
+    request: ExternalSegmentationRequest,
+    env: dict[str, str],
+) -> str | None:
+    candidates = (
+        request.license_key,
+        request.env.get("QORTEX_TOTALSEGMENTATOR_LICENSE"),
+        env.get("QORTEX_TOTALSEGMENTATOR_LICENSE"),
+        env.get("TOTALSEGMENTATOR_LICENSE"),
+        get_config().totalsegmentator_license,
+    )
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        value = str(candidate).strip()
+        if not value:
+            continue
+        if "\x00" in value:
+            raise ExternalSegmentationError("TotalSegmentator license key must not contain NUL bytes.")
+        return value
+    return None
 
 
 def _clean_extra_args(args: Sequence[str]) -> list[str]:
