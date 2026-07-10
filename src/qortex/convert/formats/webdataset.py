@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from qortex.core.entities import SampleRecord
+from qortex.convert.formats.parquet import _numeric_array_or_none
 
 
 class WebDatasetWriter:
@@ -78,12 +79,15 @@ class WebDatasetWriter:
                     "duration": sample.duration,
                     "split": sample.split,
                 }
+                arr = _numeric_array_or_none(sample.data, np)
+                if arr is None and sample.data is not None:
+                    meta["data_json"] = sample.data
                 meta_bytes = json.dumps(meta, default=str).encode()
                 self._add_bytes(tf, f"{key}.json", meta_bytes)
 
-                if sample.data is not None:
+                if arr is not None:
                     buf = io.BytesIO()
-                    np.save(buf, np.asarray(sample.data).astype(np.float32))
+                    np.save(buf, arr.astype(np.float32))
                     self._add_bytes(tf, f"{key}.npy", buf.getvalue())
 
     @staticmethod

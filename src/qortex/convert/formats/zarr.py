@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from qortex.core.entities import SampleRecord
+from qortex.convert.formats.parquet import _numeric_array_or_none
 
 
 class ZarrWriter:
@@ -32,7 +33,22 @@ class ZarrWriter:
         store = zarr.open(str(store_path), mode="w")
 
         all_samples = list(samples)
-        signals = [np.asarray(s.data) for s in all_samples if s.data is not None]
+        signal_indices: list[int] = []
+        signals = []
+        data_json_values: list[str] = []
+        for s in all_samples:
+            arr = _numeric_array_or_none(s.data, np)
+            if arr is not None:
+                signal_indices.append(len(signals))
+                signals.append(arr.astype(np.float32))
+                data_json_values.append("")
+            elif s.data is not None:
+                import json
+                signal_indices.append(-1)
+                data_json_values.append(json.dumps(s.data, default=str, sort_keys=True))
+            else:
+                signal_indices.append(-1)
+                data_json_values.append("")
 
         if signals:
             shapes = [sig.shape for sig in signals]
@@ -62,8 +78,10 @@ class ZarrWriter:
                 "onset": s.onset or 0.0,
                 "duration": s.duration or 0.0,
                 "split": s.split or "",
+                "data_json": data_json_values[i],
+                "signal_index": signal_indices[i],
             }
-            for s in all_samples
+            for i, s in enumerate(all_samples)
         ]
         pl.DataFrame(meta_rows).write_parquet(output_dir / "metadata.parquet")
 

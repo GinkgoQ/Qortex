@@ -37,13 +37,18 @@ class SklearnAdapter:
 
         Xs: list[np.ndarray] = []
         ys: list[int] = []
-        n_skipped = 0
+        n_skipped_non_signal = 0
+        n_skipped_unlabeled = 0
 
         for row in df.iter_rows(named=True):
             raw = row.get("signal_bytes")
             if raw is None:
                 # Table-only row — skip to preserve X/y alignment.
-                n_skipped += 1
+                n_skipped_non_signal += 1
+                continue
+            label = row.get("label")
+            if label is None:
+                n_skipped_unlabeled += 1
                 continue
             dtype = row.get("signal_dtype", "float32")
             shape = row.get("signal_shape")
@@ -51,13 +56,15 @@ class SklearnAdapter:
             if shape:
                 arr = arr.reshape(shape)
             Xs.append(arr.flatten())
-            ys.append(int(row.get("label") or -1))
+            ys.append(int(label))
 
         if not Xs:
             raise ValueError(
-                "No signal data found in shards. "
-                "For event/table artifacts use as_dataframe() instead of from_dir(). "
-                f"({n_skipped} non-signal row(s) were skipped.)"
+                "No labeled signal data found in shards. "
+                "For event/table artifacts use as_dataframe(); for unlabeled imaging "
+                "artifacts use an inference adapter instead of supervised sklearn data. "
+                f"({n_skipped_non_signal} non-signal row(s), "
+                f"{n_skipped_unlabeled} unlabeled signal row(s) skipped.)"
             )
 
         X = np.stack(Xs, axis=0)

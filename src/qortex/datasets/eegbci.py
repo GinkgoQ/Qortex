@@ -113,6 +113,13 @@ def _label_map_for_runs(runs: list[int]) -> dict[int, str]:
     }
 
 
+def _annotation_to_class_for_runs(runs: list[int]) -> dict[str, int] | None:
+    sets = set(runs)
+    if sets <= {1, 2}:
+        return None
+    return {"T0": 0, "T1": 1, "T2": 2}
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def describe() -> DatasetCard:
@@ -158,11 +165,13 @@ def load_data(
         runs = [4, 8, 12]
 
     label_map = _label_map_for_runs(runs)
+    annotation_to_class = _annotation_to_class_for_runs(runs)
     local_paths: list[Path] = []
     raws = []
     channel_names: list[str] | None = None
     sfreq: float | None = None
     metadata: dict[str, Any] = {}
+    failures: list[str] = []
 
     for subject in subjects:
         try:
@@ -174,6 +183,7 @@ def load_data(
             )
         except Exception as exc:
             import warnings
+            failures.append(f"subject {subject}: {exc}")
             warnings.warn(f"Could not load subject {subject}: {exc}", RuntimeWarning, stacklevel=2)
             continue
 
@@ -190,9 +200,18 @@ def load_data(
                     sfreq = raw.info["sfreq"]
             except Exception as exc:
                 import warnings
+                failures.append(f"{p}: {exc}")
                 warnings.warn(f"Could not read {p}: {exc}", RuntimeWarning, stacklevel=2)
 
         metadata[str(subject)] = {"subject": subject, "runs": runs, "n_files": len(fnames)}
+
+    if not raws:
+        detail = "; ".join(failures[:5]) or "no files were returned"
+        raise RuntimeError(
+            "No EEGBCI raw files were loaded. "
+            f"Requested subjects={subjects}, runs={runs}. "
+            f"Failures: {detail}"
+        )
 
     if sfreq is None:
         sfreq = 160.0
@@ -209,4 +228,5 @@ def load_data(
         local_paths=local_paths,
         raws=raws,
         metadata=metadata,
+        annotation_to_class=annotation_to_class,
     )

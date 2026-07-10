@@ -12,7 +12,7 @@ def _load_shards(data_dir: Path, split: str | None) -> list[dict[str, Any]]:
     """Load all parquet shards in data_dir, filter by split if given."""
     import polars as pl
 
-    shards = sorted(data_dir.glob("shard_*.parquet"))
+    shards = _parquet_shards(data_dir, split=split)
     if not shards:
         raise FileNotFoundError(f"No parquet shards found in {data_dir}")
 
@@ -48,7 +48,7 @@ class QortexTorchDataset:
             "task": row.get("task"),
             "run": row.get("run"),
             "modality": row.get("modality"),
-            "label": row.get("label", -1),
+            "label": row.get("label") if row.get("label") is not None else -1,
             "label_name": row.get("label_name"),
             "sfreq": row.get("sfreq"),
         }
@@ -84,7 +84,7 @@ class QortexIterableTorchDataset:
     def __init__(self, data_dir: Path, split: str | None = None) -> None:
         self._data_dir = data_dir
         self._split = split
-        self._shards = sorted(data_dir.glob("shard_*.parquet"))
+        self._shards = _parquet_shards(data_dir, split=split)
 
     def __iter__(self):
         import polars as pl
@@ -103,7 +103,7 @@ class QortexIterableTorchDataset:
                     "subject": row.get("subject"),
                     "session": row.get("session"),
                     "task": row.get("task"),
-                    "label": row.get("label", -1),
+                    "label": row.get("label") if row.get("label") is not None else -1,
                     "label_name": row.get("label_name"),
                     "sfreq": row.get("sfreq"),
                 }
@@ -128,3 +128,13 @@ class QortexIterableTorchDataset:
         cls, data_dir: Path, split: str | None = None
     ) -> "QortexIterableTorchDataset":
         return cls(data_dir, split)
+
+
+def _parquet_shards(data_dir: Path, split: str | None = None) -> list[Path]:
+    if split:
+        split_dir = data_dir / split
+        if split_dir.exists():
+            shards = sorted(split_dir.glob("*.parquet"))
+            if shards:
+                return shards
+    return sorted(data_dir.glob("shard_*.parquet")) or sorted(data_dir.glob("**/*.parquet"))

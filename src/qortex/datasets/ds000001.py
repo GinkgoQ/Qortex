@@ -86,6 +86,30 @@ def _events_path(root: Path, sub: str) -> Path:
     return root / f"sub-{sub}" / "func" / f"sub-{sub}_task-{_TASK_NAME}_events.tsv"
 
 
+def _find_bold_path(root: Path, sub: str) -> Path:
+    legacy = _bold_path(root, sub)
+    if legacy.exists():
+        return legacy
+    matches = sorted(
+        (root / f"sub-{sub}" / "func").glob(
+            f"sub-{sub}_task-{_TASK_NAME}*_bold.nii.gz"
+        )
+    )
+    return matches[0] if matches else legacy
+
+
+def _find_events_path(root: Path, sub: str) -> Path:
+    legacy = _events_path(root, sub)
+    if legacy.exists():
+        return legacy
+    matches = sorted(
+        (root / f"sub-{sub}" / "func").glob(
+            f"sub-{sub}_task-{_TASK_NAME}*_events.tsv"
+        )
+    )
+    return matches[0] if matches else legacy
+
+
 def _discover_subjects(root: Path) -> list[str]:
     """Return sorted 2-digit subject IDs from BIDS sub-XX directories."""
     subs = []
@@ -150,8 +174,8 @@ def load_data(
     missing: list[str] = []
 
     for sub in subjects:
-        bp = _bold_path(local_root, sub)
-        ep = _events_path(local_root, sub)
+        bp = _find_bold_path(local_root, sub)
+        ep = _find_events_path(local_root, sub)
         bold_paths.append(bp)
         event_paths.append(ep)
         if not bp.exists() or not ep.exists():

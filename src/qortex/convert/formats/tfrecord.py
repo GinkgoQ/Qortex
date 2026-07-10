@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from qortex.core.entities import SampleRecord
+from qortex.convert.formats.parquet import _numeric_array_or_none
 
 
 class TFRecordWriter:
@@ -90,14 +91,17 @@ class TFRecordWriter:
             "split": _bytes(sample.split or ""),
         }
 
-        if sample.data is not None:
-            arr = np.asarray(sample.data).astype(np.float32)
+        arr = _numeric_array_or_none(sample.data, np)
+        if arr is not None:
+            arr = arr.astype(np.float32)
             feat["signal_bytes"] = tf.train.Feature(
                 bytes_list=tf.train.BytesList(value=[arr.tobytes()])
             )
             feat["signal_shape"] = tf.train.Feature(
                 int64_list=tf.train.Int64List(value=list(arr.shape))
             )
+        elif sample.data is not None:
+            feat["data_json"] = _bytes(json.dumps(sample.data, default=str, sort_keys=True))
 
         return tf.train.Example(features=tf.train.Features(feature=feat))
 

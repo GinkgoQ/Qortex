@@ -8,6 +8,7 @@ parallel routing system and make uncertainty explicit.
 from __future__ import annotations
 
 import json
+import hashlib
 import tempfile
 from pathlib import Path
 from typing import Any, Literal
@@ -579,7 +580,7 @@ def _training_leakage_risks(manifest: Manifest) -> list[str]:
 def _first_batch_from_artifact(path: Path, *, limit: int) -> FirstBatchReport:
     Artifact.open(path)
     rows = _read_artifact_rows(path)
-    preview = rows[:limit]
+    preview = [_preview_row(row) for row in rows[:limit]]
     columns = list(preview[0]) if preview else []
     return FirstBatchReport(
         status="possible" if preview else "not_possible",
@@ -589,6 +590,33 @@ def _first_batch_from_artifact(path: Path, *, limit: int) -> FirstBatchReport:
         rows=preview,
         message=None if preview else "Artifact contains no rows.",
     )
+
+
+def _preview_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {key: _preview_value(value) for key, value in row.items()}
+
+
+def _preview_value(value: Any) -> Any:
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        raw = bytes(value)
+        return {
+            "type": "bytes",
+            "n_bytes": len(raw),
+            "sha256": hashlib.sha256(raw).hexdigest(),
+        }
+    if isinstance(value, str) and len(value) > 500:
+        return {
+            "type": "str",
+            "n_chars": len(value),
+            "preview": value[:500],
+        }
+    if isinstance(value, list) and len(value) > 20:
+        return {
+            "type": "list",
+            "n_items": len(value),
+            "preview": value[:20],
+        }
+    return value
 
 
 def _read_artifact_rows(path: Path) -> list[dict[str, Any]]:

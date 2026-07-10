@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from qortex.core.entities import SampleRecord
+from qortex.convert.formats.parquet import _numeric_array_or_none
 
 
 class HuggingFaceWriter:
@@ -43,6 +44,7 @@ class HuggingFaceWriter:
             "duration": [],
             "split": [],
             "signal": [],
+            "data_json": [],
         }
 
         for s in all_samples:
@@ -57,12 +59,16 @@ class HuggingFaceWriter:
             rows["onset"].append(s.onset or 0.0)
             rows["duration"].append(s.duration or 0.0)
             rows["split"].append(s.split or "")
-            if s.data is not None:
-                rows["signal"].append(
-                    np.asarray(s.data).astype(np.float32).tolist()
-                )
+            arr = _numeric_array_or_none(s.data, np)
+            if arr is not None:
+                rows["signal"].append(arr.astype(np.float32).tolist())
+                rows["data_json"].append("")
+            elif s.data is not None:
+                rows["signal"].append(None)
+                rows["data_json"].append(json.dumps(s.data, default=str, sort_keys=True))
             else:
                 rows["signal"].append(None)
+                rows["data_json"].append("")
 
         ds = datasets.Dataset.from_dict(rows)
         output_dir.mkdir(parents=True, exist_ok=True)
