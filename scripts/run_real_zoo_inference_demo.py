@@ -117,6 +117,12 @@ def main(bids_root: str, subject: str, task: str, results_dir: str) -> None:
             extra={
                 "input": {"n_channels": n_channels, "n_times": n_times},
                 "output": {"n_classes": 4},
+                # These architecture-only zoo entries carry
+                # license.evidence_status=unknown (never verified) -- this
+                # script is a deliberate, informed verification run, so it
+                # makes the same explicit opt-in any real caller would need
+                # to pass, rather than being silently blocked.
+                "accept_unknown_license_risk": True,
             },
         )
         adapter = make_model_adapter(spec)
