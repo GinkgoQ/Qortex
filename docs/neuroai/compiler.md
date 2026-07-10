@@ -198,21 +198,44 @@ declares the requested task, in this order:
    executable is resolved with `shutil.which`; if missing, the candidate is
    blocked with a named `install_external_executable` repair. Covered by
    `test_compile_external_engine_records_missing_executable_requirement`.
-4. **Compatibility** (`_compatibility`). Compares source modality against the
-   model's declared modalities (`compatible` / `incompatible` / `uncertain`),
-   and records the real header-geometry evidence (`spatial_shape`,
-   `voxel_sizes_mm`, `orientation`, `n_channels`, `sampling_rate_hz`,
-   `duration_s`) when present. `uncertain` — not `compatible` — is the result
-   whenever the model's input contract evidence status is `unknown`, even if
-   modality matches.
+4. **Compatibility** (`_compatibility`). Beyond modality, this now evaluates
+   the **real collected header/signal evidence against the model's
+   `InputContract`** and emits specific `required_transforms`:
+   - **channel count** — source with *fewer* channels than the model requires
+     is a hard `incompatible` blocker (missing channels can't be synthesized);
+     *more* channels yields a `select_channels` transform;
+   - **sampling rate** mismatch → a `resample` transform;
+   - **anatomical orientation** mismatch (only when the model axis convention
+     is a 3-letter code like `RAS`/`LAS`, not `channels_first`) → a `reorient`
+     transform;
+   - **voxel spacing** mismatch → a `resample_spatial` transform.
+
+   A source that matches natively is `compatible`; one that matches *after*
+   these known transforms is `compatible_with_transforms` (with the concrete
+   transform list attached — each `{transform, reason, from, to}`); a hard
+   mismatch is `incompatible`; an unprovable case (unknown source modality or
+   `input_contract.evidence_status == unknown`) is `uncertain`. Covered by
+   `tests/test_neuroai_compiler_compatibility.py`. A `compatible_with_transforms`
+   candidate is deliberately **not** `runnable` as-is — the transforms are a
+   real preprocessing prerequisite, so it never becomes `selected_model` until
+   they are applied.
 5. **Geometry plan** (`_geometry_plan`). Notes the confirmed source geometry
    and blocks if an external engine explicitly declares
    `geometry_preservation_known=False`.
-6. **Resource plan** (`estimate_resource_plan`, in `resources.py`). Estimates
-   VRAM from the model's declared `input_contract.spatial_shape` when every
-   dimension is resolved and positive; otherwise falls back to the local file
-   size as an `inferred`-evidence proxy. Blocks if the estimate exceeds
-   `--max-vram-gb`.
+6. **Resource plan** (`estimate_resource_plan`, in `resources.py`). A
+   sliding-window-aware VRAM model, not a flat multiplier: it estimates the
+   working set from the **ROI patch** the model actually processes per forward
+   pass (a 512³ volume scanned with a 96³ ROI never materializes 512³
+   activations), separates channel from spatial dimensions, adds an
+   input+output patch tensor term, a documented encoder-decoder activation
+   upper-bound factor, a model-provided weights hint (`estimated_memory_mb`)
+   when the registry has one, and a fixed CUDA-context/framework allowance.
+   Every heuristic term is labelled — `evidence_status` is `confirmed` only
+   when the estimate rests on fully-resolved tensor dims. When it must fall
+   back to the local file size, it attaches an explicit caveat that a
+   compressed on-disk size is a poor proxy for in-memory tensor size (rather
+   than silently treating them as equal). Blocks if the estimate exceeds
+   `--max-vram-gb`. Covered by `tests/test_neuroai_compiler_resources.py`.
 
 A candidate's overall `capability_state` is `executable` only when it has no
 blockers and its runtime is truly executable. `runnable` additionally requires
@@ -229,8 +252,9 @@ fields — never a hidden heuristic input:
 
 - **Base tier** by `capability_state`: `executable` 70, `requires_local_executable`
   55, `plan_only` 35, `unavailable` 10, `blocked` 0.
-- **Compatibility adjustment**: `compatible` +20, `uncertain` +0,
-  `incompatible` −40.
+- **Compatibility adjustment**: `compatible` +20,
+  `compatible_with_transforms` +10 (a real match with a concrete preprocessing
+  cost), `uncertain` +0, `incompatible` −40.
 - **Blocker penalty**: −8 per blocker.
 - **Geometry bonus**: +5 when both the source coordinate frame and the model
   axis convention are known.

@@ -42,10 +42,16 @@ class SourceProfileSummary(BaseModel):
 
 
 class CompatibilityProof(BaseModel):
-    status: Literal["compatible", "incompatible", "uncertain"]
+    status: Literal["compatible", "compatible_with_transforms", "incompatible", "uncertain"]
     blockers: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     evidence: list[dict[str, Any]] = Field(default_factory=list)
+    # Concrete, specific transforms that would bridge a
+    # compatible_with_transforms source->model gap (resample, reorient,
+    # select_channels, resample_spatial), each a dict of
+    # {transform, reason, from, to}. Empty when the source already satisfies
+    # the model contract or when status is incompatible/uncertain.
+    required_transforms: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class LicenseReport(BaseModel):

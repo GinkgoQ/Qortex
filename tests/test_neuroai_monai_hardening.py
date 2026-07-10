@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import zipfile
 
@@ -7,6 +8,7 @@ import pytest
 
 from qortex.neuroai.models.monai import (
     MONAIBundleAdapter,
+    _apply_monai_postprocess,
     _load_json,
     _safe_extract_zip,
 )
@@ -150,3 +152,58 @@ def test_generative_bundle_predict_refuses_segmentation_style_inference():
 
     with pytest.raises(ModelAdapterError, match="generative"):
         adapter.predict("fake_batch")
+
+
+def _make_bundle_with_checkpoint(tmp_path, name="bundle_with_ckpt"):
+    import torch
+
+    bundle = tmp_path / name
+    (bundle / "configs").mkdir(parents=True)
+    (bundle / "models").mkdir()
+    (bundle / "configs" / "metadata.json").write_text("{}", encoding="utf-8")
+    (bundle / "configs" / "inference.json").write_text(
+        json.dumps({"network_def": {"spatial_dims": 3, "in_channels": 1, "out_channels": 1}}),
+        encoding="utf-8",
+    )
+    conv = torch.nn.Conv3d(1, 1, kernel_size=1)
+    torch.save(conv.state_dict(), bundle / "models" / "model.pt")
+    return bundle
+
+
+def test_inspect_reports_real_model_hash_when_checkpoint_present(tmp_path, monkeypatch):
+    bundle = _make_bundle_with_checkpoint(tmp_path)
+    fake_monai = type("FakeMonai", (), {})
+    monkeypatch.setattr("qortex.neuroai.models.monai._require_monai", lambda: fake_monai)
+    adapter = MONAIBundleAdapter(ModelSpec(provider="monai", id=str(bundle)))
+
+    profile = adapter.inspect()
+
+    expected = hashlib.sha256((bundle / "models" / "model.pt").read_bytes()).hexdigest()
+    assert profile.model_hash == expected
+    assert len(profile.model_hash) == 64
+
+
+def test_monai_load_fp16_on_cpu_does_not_half_the_model(tmp_path, monkeypatch):
+    bundle = _make_bundle_with_checkpoint(tmp_path, name="bundle_fp16_cpu")
+    _fake_monai_with_conv3d(monkeypatch)
+    adapter = MONAIBundleAdapter(ModelSpec(provider="monai", id=str(bundle)))
+
+    adapter.load(RuntimeSpec(device="cpu", fp16=True))
+
+    # autocast is cuda-only; on cpu no half-casting should ever happen.
+    assert adapter._use_autocast is False
+    for param in adapter._model.parameters():
+        assert param.dtype.__str__() == "torch.float32"
+
+
+def test_monai_postprocess_honors_config_declared_activation():
+    import torch
+
+    logits = torch.tensor([[[[[2.0]]]]])  # shape (1,1,1,1,1)
+
+    sigmoid_out = _apply_monai_postprocess(logits, {"activation": "sigmoid"})
+    softmax_out = _apply_monai_postprocess(logits, {"activation": "softmax", "argmax_axis": 1})
+
+    assert torch.allclose(sigmoid_out, torch.sigmoid(logits))
+    assert torch.allclose(softmax_out, torch.softmax(logits, dim=1))
+    assert not torch.allclose(sigmoid_out, softmax_out)

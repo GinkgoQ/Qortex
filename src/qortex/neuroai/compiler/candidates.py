@@ -280,15 +280,102 @@ def _compatibility(entry: ZooEntry, source_profile: SourceProfileSummary) -> Com
     else:
         status = "compatible"
 
+    # Deep evidence-vs-contract evaluation: the header/signal facts collected
+    # from the real source (channel count, sampling rate, spatial voxel
+    # spacing, orientation) are compared against the model's InputContract
+    # requirements and turned into a real verdict plus SPECIFIC required
+    # transforms -- not left as an unused evidence dict. A hard mismatch that
+    # no transform can bridge (e.g. the source has fewer channels than the
+    # model requires) is a blocker; a soft mismatch a known transform bridges
+    # (resample, reorient, channel-select, resample_spatial) downgrades a
+    # "compatible" verdict to "compatible_with_transforms" and records exactly
+    # what preprocessing would be needed.
+    required_transforms: list[dict[str, Any]] = []
+    ic = entry.input_contract
+    if status == "compatible" and ic is not None:
+        # Channel count
+        model_ch = getattr(ic, "n_channels", None)
+        src_ch = source_profile.n_channels
+        if model_ch is not None and src_ch is not None and src_ch != model_ch:
+            if src_ch < model_ch:
+                blockers.append(
+                    f"Source has {src_ch} channel(s) but model requires {model_ch}; "
+                    "missing channels cannot be synthesized."
+                )
+                status = "incompatible"
+            else:
+                required_transforms.append({
+                    "transform": "select_channels",
+                    "reason": f"source {src_ch} channels > model {model_ch} required",
+                    "from": src_ch,
+                    "to": model_ch,
+                })
+        # Sampling rate
+        model_sr = getattr(ic, "sampling_rate_hz", None)
+        src_sr = source_profile.sampling_rate_hz
+        if model_sr is not None and src_sr is not None and abs(src_sr - model_sr) > 1e-6:
+            required_transforms.append({
+                "transform": "resample",
+                "reason": f"source {src_sr} Hz != model {model_sr} Hz",
+                "from": src_sr,
+                "to": model_sr,
+            })
+        # Orientation (only when the model axis convention is a 3-letter
+        # anatomical orientation code like RAS/LAS/LPS -- not channels_first etc.)
+        model_axis = str(getattr(ic, "axis_convention", "") or "")
+        model_axis = model_axis.split(".")[-1]  # AxisConvention enum -> bare value
+        src_orient = source_profile.orientation
+        if (
+            src_orient is not None
+            and len(model_axis) == 3
+            and model_axis.isalpha()
+            and model_axis.upper() != src_orient.upper()
+        ):
+            required_transforms.append({
+                "transform": "reorient",
+                "reason": f"source {src_orient} != model {model_axis}",
+                "from": src_orient,
+                "to": model_axis,
+            })
+        # Voxel spacing
+        model_vox = getattr(ic, "voxel_sizes_mm", None)
+        src_vox = source_profile.voxel_sizes_mm
+        if (
+            model_vox is not None
+            and src_vox is not None
+            and tuple(round(v, 4) for v in src_vox) != tuple(round(v, 4) for v in model_vox)
+        ):
+            required_transforms.append({
+                "transform": "resample_spatial",
+                "reason": f"source voxel {tuple(src_vox)} != model {tuple(model_vox)}",
+                "from": list(src_vox),
+                "to": list(model_vox),
+            })
+
+        if status == "compatible" and required_transforms:
+            status = "compatible_with_transforms"
+            warnings.append(
+                "Source is compatible after applying required transforms: "
+                + ", ".join(t["transform"] for t in required_transforms)
+                + "."
+            )
+
     if entry.input_contract is not None and entry.input_contract.evidence_status == EvidenceStatus.unknown:
         warnings.append("Input contract evidence is unknown; compatibility cannot be fully proven offline.")
-        status = "uncertain" if status == "compatible" else status
+        if status in ("compatible", "compatible_with_transforms"):
+            status = "uncertain"
 
     if entry.input_contract is None and entry.external_engine_contract is None:
         warnings.append("Entry has no input or external engine contract; compatibility is uncertain.")
         status = "uncertain" if status == "compatible" else status
 
-    return CompatibilityProof(status=status, blockers=blockers, warnings=warnings, evidence=evidence)
+    return CompatibilityProof(
+        status=status,
+        blockers=blockers,
+        warnings=warnings,
+        evidence=evidence,
+        required_transforms=required_transforms,
+    )
 
 
 def _geometry_plan(entry: ZooEntry, source_profile: SourceProfileSummary) -> GeometryPlan:
@@ -387,6 +474,11 @@ _CAPABILITY_BASE_SCORE = {
 
 _COMPAT_ADJUSTMENT = {
     "compatible": 20,
+    # A source that is compatible once specific, known transforms (resample,
+    # reorient, channel-select) are applied is worth less than a native fit
+    # but far more than an unprovable "uncertain" -- it is a real, actionable
+    # match with a concrete preprocessing cost.
+    "compatible_with_transforms": 10,
     "uncertain": 0,
     "incompatible": -40,
 }

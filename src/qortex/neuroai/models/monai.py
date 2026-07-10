@@ -8,6 +8,8 @@ MONAI bundles are self-contained model packages (ZIP or directory) with:
 
 from __future__ import annotations
 
+from contextlib import nullcontext as _nullcontext
+import hashlib
 import json
 import logging
 from pathlib import Path
@@ -54,6 +56,7 @@ class MONAIBundleAdapter(ModelAdapter):
         self._infer_config: dict = {}
         self._inference_settings: dict[str, Any] = {}
         self._device = "cpu"
+        self._use_autocast = False
 
     # ── ModelAdapter interface ────────────────────────────────────────────────
 
@@ -72,11 +75,29 @@ class MONAIBundleAdapter(ModelAdapter):
             provider="monai",
             task=task,
             revision=self._metadata.get("version"),
-            model_hash=None,
+            model_hash=self._compute_model_hash(),
             input_contract=self.required_input(),
             output_contract=self.output_schema(),
-            warnings=_monai_transform_warnings(self._infer_config, self._spec.extra),
+            warnings=(
+                _monai_transform_warnings(self._infer_config, self._spec.extra)
+                + _monai_postprocess_warnings(self._infer_config)
+            ),
         )
+
+    def _compute_model_hash(self) -> str | None:
+        # Provenance: record the exact checkpoint bytes that will run, not
+        # just the bundle id/version, so a run can be traced back to the
+        # weights that actually produced it. Only possible once the bundle
+        # is resolved to a real local path with a models/model.pt on disk --
+        # a bundle id that isn't resolvable offline (e.g. hub download not
+        # yet fetched) has nothing to hash, so this honestly stays None
+        # rather than fabricating a value.
+        if self._bundle_dir is None:
+            return None
+        model_pt = self._bundle_dir / "models" / "model.pt"
+        if not model_pt.exists():
+            return None
+        return _sha256_file(model_pt)
 
     def required_input(self) -> InputContract:
         in_channels, _, _ = self._parse_network_def()
@@ -197,8 +218,11 @@ class MONAIBundleAdapter(ModelAdapter):
                 f"Failed to load MONAI bundle from {self._bundle_dir}: {exc}"
             ) from exc
 
-        if runtime.fp16 and "cuda" in self._device:
-            self._model = self._model.half()
+        # ponytail: full-model .half() is dropped in favor of torch.autocast
+        # in predict() — autocast keeps numerically-sensitive ops (e.g. norm
+        # layers) in fp32 automatically instead of forcing every parameter
+        # to fp16, which is the standard mature mixed-precision pattern.
+        self._use_autocast = bool(runtime.fp16 and "cuda" in self._device)
         self._loaded = True
         log.info("Loaded MONAI bundle: %s on %s", self._spec.id, self._device)
 
@@ -235,7 +259,12 @@ class MONAIBundleAdapter(ModelAdapter):
         elif x.ndim == 4:
             x = x.unsqueeze(0)  # [C,Z,Y,X] → [1,C,Z,Y,X]
 
-        with torch.no_grad():
+        autocast_ctx = (
+            torch.autocast(device_type="cuda", dtype=torch.float16)
+            if self._use_autocast
+            else _nullcontext()
+        )
+        with torch.no_grad(), autocast_ctx:
             out = monai.inferers.sliding_window_inference(
                 x,
                 roi_size=self._inference_settings.get("roi_size"),
@@ -390,6 +419,14 @@ def _detect_modality(metadata: dict) -> str:
     return "mri"
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _load_json(path: Path) -> dict:
     if path.exists():
         try:
@@ -480,6 +517,44 @@ def _monai_transform_warnings(config: dict, extra: dict[str, Any]) -> list[Warni
             "Declare explicit Qortex required_transforms for spacing/orientation/"
             "intensity/crop/pad steps, or use a source already preprocessed exactly "
             "as the MONAI bundle expects."
+        ),
+    )]
+
+
+# Postprocessing transforms Qortex's predict() actually executes today
+# (via activation/argmax/threshold parsed from _parse_inference_settings).
+# Anything else declared in the bundle's postprocessing config runs
+# unexecuted -- e.g. KeepLargestConnectedComponentd, Invertd (undoes
+# resize/orientation back to source space), SaveImaged.
+_HANDLED_POSTPROCESS_TRANSFORMS = {"activationsd", "asdiscreted"}
+
+
+def _monai_postprocess_warnings(config: dict) -> list[WarningItem]:
+    postproc = config.get("postprocessing")
+    if not postproc:
+        return []
+    names = _collect_monai_transform_names(postproc)
+    unexecuted = sorted(
+        name for name in names
+        if name.lower() not in _HANDLED_POSTPROCESS_TRANSFORMS
+    )
+    if not unexecuted:
+        return []
+    return [WarningItem(
+        code="MONAI_POSTPROCESSING_NOT_EXECUTED",
+        message=(
+            "MONAI bundle declares postprocessing transforms Qortex does not "
+            f"execute: {', '.join(unexecuted[:12])}. Only activation "
+            "(softmax/sigmoid) and argmax/threshold from the bundle's "
+            "inference settings are applied -- the output is not guaranteed "
+            "bundle-faithful for steps like connected-component filtering or "
+            "inverse resampling to source space."
+        ),
+        severity="warning",
+        evidence={"monai_postprocess_transforms": unexecuted[:32]},
+        suggestion=(
+            "Apply any remaining bundle postprocessing steps downstream "
+            "yourself, or treat the raw/mask output as pre-final."
         ),
     )]
 
