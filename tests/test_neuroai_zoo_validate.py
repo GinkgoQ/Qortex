@@ -48,23 +48,25 @@ def test_malformed_source_url_is_an_error():
 
 
 def test_promptable_entry_without_interaction_contract_is_an_error():
-    register(ZooEntry(entry_type=ZooEntryType.promptable_model, **_base_kwargs("foundation.medsam")))
+    # "foundation.medsam" is now a real registered zoo entry (Phase 5); use
+    # a distinct placeholder id to avoid colliding with it.
+    register(ZooEntry(entry_type=ZooEntryType.promptable_model, **_base_kwargs("foundation.TestPromptable")))
     issues = validate_registry()
     assert any(
-        i.entry_id == "foundation.medsam" and "interaction_contract" in i.message
+        i.entry_id == "foundation.TestPromptable" and "interaction_contract" in i.message
         for i in issues
     )
 
 
 def test_promptable_entry_with_interaction_contract_passes():
-    kwargs = _base_kwargs("foundation.medsam")
+    kwargs = _base_kwargs("foundation.TestPromptableOK")
     kwargs["interaction_contract"] = InteractionContract(
         supported_prompt_types=[PromptType.point, PromptType.box]
     )
     register(ZooEntry(entry_type=ZooEntryType.promptable_model, **kwargs))
     issues = validate_registry()
     # Filter to only issues for the entry we just registered
-    test_entry_issues = [i for i in issues if i.entry_id == "foundation.medsam"]
+    test_entry_issues = [i for i in issues if i.entry_id == "foundation.TestPromptableOK"]
     assert test_entry_issues == []
 
 

@@ -51,8 +51,8 @@ same commit as the code it tracks.
 - [x] `InteractionContract` wired into adapters
 - [x] `PromptableModelAdapter` (`promptable.py`)
 - [x] VISTA3D prompt path
-- [ ] MedSAM adapter
-- [ ] SAM-Med3D adapter
+- [x] MedSAM adapter
+- [x] SAM-Med3D adapter
 - [ ] `prompt-predict` CLI
 
 ### Phase 6 — Security, license, and artifacts
@@ -106,6 +106,8 @@ _(append one line per entry the moment it's registered and offline-validated —
 - `external.hdbet` — provider `external_cli`, entry_type `external_engine` (Phase 4)
 - `external.fastsurfer` — provider `external_cli`, entry_type `external_engine` (Phase 4)
 - `external.tractseg` — provider `external_cli`, entry_type `external_engine` (Phase 4)
+- `foundation.medsam` — provider `medsam`, entry_type `promptable_model` (Phase 5, point/box prompts only, `MedSAMAdapter`)
+- `foundation.sam_med3d` — provider `sam_med3d`, entry_type `promptable_model` (Phase 5, point/box prompts only, `SAMMed3DAdapter`)
 
 ---
 

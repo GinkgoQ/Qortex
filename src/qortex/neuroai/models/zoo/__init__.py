@@ -13,11 +13,13 @@ from qortex.neuroai.models.zoo import monai_imaging as _monai_imaging
 from qortex.neuroai.models.zoo import monai_generative as _monai_generative
 from qortex.neuroai.models.zoo import braindecode_eeg as _braindecode_eeg
 from qortex.neuroai.models.zoo import external_engines as _external_engines
+from qortex.neuroai.models.zoo import foundation_segmentation as _foundation_segmentation
 
 _seed_examples.register_all()
 _monai_imaging.register_all()
 _monai_generative.register_all()
 _braindecode_eeg.register_all()
 _external_engines.register_all()
+_foundation_segmentation.register_all()
 
 __all__ = ["backend_availability"]

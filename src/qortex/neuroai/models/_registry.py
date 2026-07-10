@@ -63,8 +63,17 @@ def make_model_adapter(spec: ModelSpec) -> ModelAdapter:
         from qortex.neuroai.models.keras_adapter import KerasAdapter
         return KerasAdapter(spec)
 
+    if provider in ("medsam",):
+        from qortex.neuroai.models.sam_adapters import MedSAMAdapter
+        return MedSAMAdapter(spec)
+
+    if provider in ("sam_med3d",):
+        from qortex.neuroai.models.sam_adapters import SAMMed3DAdapter
+        return SAMMed3DAdapter(spec)
+
     raise ValueError(
         f"Unknown model provider: {provider!r}. "
         f"Supported: 'huggingface', 'onnx', 'torch', 'torchscript', "
-        f"'monai', 'vista3d', 'braindecode', 'ultralytics', 'torchvision', 'keras', 'plugin'."
+        f"'monai', 'vista3d', 'braindecode', 'ultralytics', 'torchvision', 'keras', "
+        f"'medsam', 'sam_med3d', 'plugin'."
     )
