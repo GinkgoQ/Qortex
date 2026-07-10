@@ -185,6 +185,7 @@ nav:
           - Sources: neuroai/sources.md
           - Outputs: neuroai/outputs.md
           - External Runners: neuroai/external-runners.md
+          - Compiler: neuroai/compiler.md
 
   - Modalities:
       - modalities/index.md
