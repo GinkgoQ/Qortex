@@ -113,6 +113,13 @@ def profile_source(source: str) -> SourceProfileSummary:
     if path.exists():
         if path.is_file():
             size = path.stat().st_size
+            header_fields: dict[str, object] = {}
+            notes: list[str] = []
+            suffix = _suffix(path)
+            if suffix in {"nii", "nii.gz"}:
+                header_fields.update(_read_nifti_header(path, notes))
+            elif suffix in {"edf", "bdf", "set", "vhdr", "fif"}:
+                header_fields.update(_read_eeg_header(path, notes))
             return SourceProfileSummary(
                 source=source,
                 source_type="local_file",
@@ -120,8 +127,10 @@ def profile_source(source: str) -> SourceProfileSummary:
                 size_bytes=size,
                 sha256=_sha256_file(path),
                 modality=_modality_from_path(path),
-                available_suffixes=[_suffix(path)],
+                available_suffixes=[suffix],
                 evidence_status=EvidenceStatus.confirmed,
+                notes=notes,
+                **header_fields,
             )
         size = _directory_size(path)
         suffixes = sorted({_suffix(item) for item in path.rglob("*") if item.is_file()})
@@ -189,6 +198,49 @@ def _modality_from_path(path: Path) -> str | None:
     if suffix in {"edf", "bdf", "fif", "vhdr", "set"}:
         return "eeg"
     return None
+
+
+def _read_nifti_header(path: Path, notes: list[str]) -> dict[str, object]:
+    """Read real NIfTI header geometry evidence without loading the data array."""
+
+    try:
+        import nibabel
+    except ImportError:
+        notes.append("NIfTI header could not be read: nibabel is not installed.")
+        return {}
+    try:
+        img = nibabel.load(path)
+        zooms = img.header.get_zooms()[:3]
+        orientation = "".join(nibabel.aff2axcodes(img.affine))
+        return {
+            "spatial_shape": tuple(int(dim) for dim in img.shape),
+            "voxel_sizes_mm": tuple(float(z) for z in zooms),
+            "orientation": orientation,
+        }
+    except Exception as exc:  # noqa: BLE001 - degrade gracefully on any real parse failure
+        notes.append(f"NIfTI header could not be read: {exc}")
+        return {}
+
+
+def _read_eeg_header(path: Path, notes: list[str]) -> dict[str, object]:
+    """Read real EEG header evidence (channels/sampling rate/duration) via MNE, header-only."""
+
+    try:
+        import mne
+    except ImportError:
+        notes.append("EEG header could not be read: mne is not installed.")
+        return {}
+    try:
+        raw = mne.io.read_raw(path, preload=False, verbose="ERROR")
+        sfreq = float(raw.info["sfreq"])
+        return {
+            "n_channels": len(raw.ch_names),
+            "sampling_rate_hz": sfreq,
+            "duration_s": raw.n_times / sfreq if sfreq else None,
+        }
+    except Exception as exc:  # noqa: BLE001 - degrade gracefully on any real parse failure
+        notes.append(f"EEG header could not be read: {exc}")
+        return {}
 
 
 def _modality_from_suffixes(suffixes: list[str]) -> str | None:

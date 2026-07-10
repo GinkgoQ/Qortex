@@ -87,7 +87,7 @@ def _candidate(
         source_size_bytes=source_profile.size_bytes,
         max_vram_gb=max_vram_gb,
     )
-    geometry_plan = _geometry_plan(entry)
+    geometry_plan = _geometry_plan(entry, source_profile)
     preprocess_plan = PreprocessPlan(
         unknowns=[
             "Model preprocessing contract is unconfirmed."
@@ -256,6 +256,17 @@ def _compatibility(entry: ZooEntry, source_profile: SourceProfileSummary) -> Com
         "source_modality": source_modality,
         "model_modalities": model_modalities,
     })
+    if source_profile.spatial_shape is not None or source_profile.n_channels is not None:
+        evidence.append({
+            "check": "header_geometry",
+            "spatial_shape": source_profile.spatial_shape,
+            "voxel_sizes_mm": source_profile.voxel_sizes_mm,
+            "orientation": source_profile.orientation,
+            "n_channels": source_profile.n_channels,
+            "sampling_rate_hz": source_profile.sampling_rate_hz,
+            "duration_s": source_profile.duration_s,
+        })
+
     if source_modality is None:
         warnings.append("Source modality is unknown; compatibility cannot be proven offline.")
         status = "uncertain"
@@ -278,11 +289,23 @@ def _compatibility(entry: ZooEntry, source_profile: SourceProfileSummary) -> Com
     return CompatibilityProof(status=status, blockers=blockers, warnings=warnings, evidence=evidence)
 
 
-def _geometry_plan(entry: ZooEntry) -> GeometryPlan:
+def _geometry_plan(entry: ZooEntry, source_profile: SourceProfileSummary) -> GeometryPlan:
     input_axis = getattr(entry.input_contract, "axis_convention", None)
     output_axis = getattr(entry.output_contract, "axis_convention", None)
     notes: list[str] = []
     blockers: list[str] = []
+    if source_profile.spatial_shape is not None:
+        notes.append(
+            f"Source spatial_shape={source_profile.spatial_shape}, "
+            f"voxel_sizes_mm={source_profile.voxel_sizes_mm}, "
+            f"orientation={source_profile.orientation} (confirmed from NIfTI header)."
+        )
+    if source_profile.n_channels is not None:
+        notes.append(
+            f"Source n_channels={source_profile.n_channels}, "
+            f"sampling_rate_hz={source_profile.sampling_rate_hz}, "
+            f"duration_s={source_profile.duration_s} (confirmed from EEG header)."
+        )
     if entry.output_contract is not None and output_axis is None:
         notes.append("Output axis convention is not confirmed; downstream artifact must preserve source geometry lineage.")
     if entry.external_engine_contract is not None and entry.external_engine_contract.geometry_preservation_known is False:

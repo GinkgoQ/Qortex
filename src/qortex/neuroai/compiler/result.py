@@ -33,6 +33,12 @@ class SourceProfileSummary(BaseModel):
     available_suffixes: list[str] = Field(default_factory=list)
     evidence_status: EvidenceStatus = EvidenceStatus.unknown
     notes: list[str] = Field(default_factory=list)
+    spatial_shape: tuple[int, ...] | None = None
+    voxel_sizes_mm: tuple[float, ...] | None = None
+    orientation: str | None = None
+    n_channels: int | None = None
+    sampling_rate_hz: float | None = None
+    duration_s: float | None = None
 
 
 class CompatibilityProof(BaseModel):
