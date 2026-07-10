@@ -370,6 +370,55 @@ def run_recipe_cmd(
         typer.echo(result.report())
 
 
+# ── compile ───────────────────────────────────────────────────────────────────
+
+@app.command("compile")
+def compile_cmd(
+    source: str = typer.Argument(..., help="Dataset id, remote source, or local source path"),
+    task: str = typer.Option(..., "--task", help="Required NeuroAI task, e.g. segmentation"),
+    device: str = typer.Option("cpu", "--device", help="Target runtime device label"),
+    max_download_gb: Optional[float] = typer.Option(None, "--max-download-gb"),
+    max_vram_gb: Optional[float] = typer.Option(None, "--max-vram-gb"),
+    output: Path = typer.Option(Path("execution-plan.json"), "--output", "-o"),
+    accept_unknown_license_risk: bool = typer.Option(False, "--accept-unknown-license-risk"),
+    allow_remote_code: bool = typer.Option(False, "--allow-remote-code"),
+    require_open_license: bool = typer.Option(
+        True,
+        "--require-open-license/--allow-restricted-license",
+        help="Block non-commercial, registration-only, or otherwise restricted licenses.",
+    ),
+    include_plan_only: bool = typer.Option(
+        True,
+        "--include-plan-only/--runnable-only",
+        help="Include blocked and non-runnable candidates with repair evidence.",
+    ),
+) -> None:
+    """Compile a truthful NeuroAI execution plan without downloads or model execution."""
+    from qortex.neuroai.compiler import CompilationRequest, compile_neuroai
+
+    request = CompilationRequest(
+        source=source,
+        task=task,
+        device=device,
+        max_download_gb=max_download_gb,
+        max_vram_gb=max_vram_gb,
+        accept_unknown_license_risk=accept_unknown_license_risk,
+        allow_remote_code=allow_remote_code,
+        require_open_license=require_open_license,
+        include_plan_only=include_plan_only,
+    )
+    result = compile_neuroai(request)
+    result.save(output)
+    runnable_count = sum(1 for candidate in result.candidates if candidate.runnable)
+    typer.echo(
+        f"Compiled {len(result.candidates)} candidate(s); "
+        f"runnable={str(result.runnable).lower()} "
+        f"runnable_candidates={runnable_count} "
+        f"plan_hash={result.plan_hash}"
+    )
+    typer.echo(f"Plan saved to {output}")
+
+
 # ── plan ──────────────────────────────────────────────────────────────────────
 
 @app.command()

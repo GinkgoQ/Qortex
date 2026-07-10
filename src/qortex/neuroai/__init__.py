@@ -116,6 +116,13 @@ from qortex.neuroai.validate import (
     ArtifactValidationReport,
     validate_artifact,
 )
+from qortex.neuroai.compiler import (
+    CapabilityState,
+    CompilationRequest,
+    CompilationResult,
+    NeuroAICompiler,
+    compile_neuroai,
+)
 from qortex.core.exceptions import ContractValidationError
 
 
@@ -178,6 +185,11 @@ __all__ = [
     # Top-level
     "Pipeline",
     "check",
+    "NeuroAICompiler",
+    "compile_neuroai",
+    "CompilationRequest",
+    "CompilationResult",
+    "CapabilityState",
     # Spec
     "PipelineSpec",
     "SourceSpec",

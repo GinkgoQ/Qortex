@@ -76,6 +76,30 @@ Post-review hardening completed after the MONAI comparison:
   state-dict mismatches, and sliding-window inference failures instead of
   silently falling back.
 
+### NeuroAI Compiler — offline execution-plan compiler
+
+- [x] Public compiler package: `qortex.neuroai.compiler`
+- [x] Typed request/result models: `CompilationRequest`,
+  `CompilationResult`, `ModelCandidate`, `CapabilityState`,
+  `CompatibilityProof`, `LicenseReport`, `SecurityReport`, `ResourcePlan`,
+  `AcquisitionPlan`, `EvidenceGraph`, and per-candidate artifact contracts.
+- [x] CLI: `qortex compile <source> --task <task> --device <device>
+  --max-download-gb <gb> --max-vram-gb <gb> --output execution-plan.json`
+- [x] Truthful runtime states: `checkpoint_unresolved` and
+  `architecture_available` entries compile as unavailable, not runnable.
+- [x] License/security/resource/acquisition blockers are reflected in
+  candidate `blockers`, `repair_options`, and result-level `runnable`.
+- [x] Deterministic plan hashing over canonical JSON, excluding wall-clock
+  timestamps from the hash.
+
+Compiler boundary: compile is an offline planner. It inspects local source
+paths, source file hashes, registry contracts, license metadata, security
+policies, executable availability, runtime status, and coarse resource limits.
+It does not download OpenNeuro manifests, fetch model weights, run model
+inference, or invent missing compatibility facts. Remote/catalog sources are
+therefore emitted with unknown acquisition evidence until a manifest layer is
+explicitly invoked.
+
 ### Registry entries implemented so far
 
 _(append one line per entry the moment it's registered and offline-validated — id, provider, phase)_

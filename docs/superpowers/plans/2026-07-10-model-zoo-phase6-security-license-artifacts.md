@@ -894,3 +894,30 @@ This is the final phase. Once merged, the Model Zoo expansion (design spec
 `2026-07-09-model-zoo-expansion-design.md`) is complete end to end:
 registry hardening, MONAI integration, Braindecode expansion, external CLI
 engines, promptable segmentation, and security/license/artifact gates.
+
+---
+
+## NeuroAI Compiler addendum
+
+Implemented after Phase 6 as an offline planner, not a new adapter layer.
+
+Completed:
+
+- `src/qortex/neuroai/compiler/` package with typed request/result models,
+  acquisition, resource, evidence, repair, candidate construction, and
+  deterministic serialization.
+- Public API exports from `qortex.neuroai` and `qortex.neuroai.compiler`.
+- CLI: `qortex compile <source> --task <task> --device <device>
+  --max-download-gb <gb> --max-vram-gb <gb> --output execution-plan.json`.
+- Truthful `CapabilityState` reporting:
+  `checkpoint_unresolved` and `architecture_available` are non-runnable;
+  external CLI engines require a real executable on `PATH`; license/security
+  blockers prevent result-level runnable claims.
+- Deterministic `plan_hash` over canonical plan JSON.
+
+Non-goals intentionally preserved:
+
+- No additional model adapters.
+- No fake checkpoint resolution.
+- No remote manifest or weight download inside compile.
+- No model inference during compile.
