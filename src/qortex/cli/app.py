@@ -1624,9 +1624,29 @@ def neuroai_zoo_show(entry_id: str = typer.Argument(..., help="Zoo entry id")) -
     typer.echo(f"evidence_status: {entry.evidence_status.value}")
     typer.echo(f"license:         {entry.license.evidence_status.value}")
     typer.echo(f"qortex_status:   {entry.qortex_status}")
+    artifact_status = _standardized_artifact_status(entry.id)
+    if artifact_status is not None:
+        typer.echo(f"artifact_state:  {artifact_status.state}")
+        typer.echo(f"artifact_ready:  {str(artifact_status.ready).lower()}")
+        if artifact_status.path:
+            typer.echo(f"artifact_path:   {artifact_status.path}")
+        if artifact_status.weight_path:
+            typer.echo(f"artifact_weight: {artifact_status.weight_path}")
     if entry.entry_type.value == "generative_model":
         from qortex.neuroai.models.zoo.monai_generative import synthetic_data_notice
         typer.echo(f"synthetic_data_notice: {synthetic_data_notice(entry)}")
+
+
+def _standardized_artifact_status(entry_id: str):
+    if entry_id == "foundation.medsam":
+        from qortex.neuroai.models.artifacts import medsam_artifact_status
+
+        return medsam_artifact_status()
+    if entry_id == "monai.vista3d":
+        from qortex.neuroai.models.artifacts import vista3d_artifact_status
+
+        return vista3d_artifact_status()
+    return None
 
 
 @zoo_app.command("validate")
@@ -1643,6 +1663,65 @@ def neuroai_zoo_validate() -> None:
         typer.echo(f"[{issue.severity.upper()}] {issue.entry_id}: {issue.message}")
     if any(i.severity == "error" for i in issues):
         raise typer.Exit(1)
+
+
+@zoo_app.command("artifact-status")
+def neuroai_zoo_artifact_status(
+    entry_id: str = typer.Argument(..., help="Zoo entry id"),
+    path: Optional[Path] = typer.Option(None, "--path", help="Explicit checkpoint or bundle path"),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON"),
+) -> None:
+    """Report whether model runtime artifacts are installed and loadable."""
+    from qortex.neuroai.models.artifacts import medsam_artifact_status, vista3d_artifact_status
+
+    if entry_id == "foundation.medsam":
+        status = medsam_artifact_status(path)
+    elif entry_id == "monai.vista3d":
+        status = vista3d_artifact_status(path)
+    else:
+        typer.echo(f"No standardized artifact resolver for {entry_id!r}.", err=True)
+        raise typer.Exit(2)
+    payload = status.__dict__
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        typer.echo(f"model_id:    {status.model_id}")
+        typer.echo(f"installed:   {str(status.installed).lower()}")
+        typer.echo(f"ready:       {str(status.ready).lower()}")
+        typer.echo(f"state:       {status.state}")
+        if status.path:
+            typer.echo(f"path:        {status.path}")
+        if status.weight_path:
+            typer.echo(f"weight_path: {status.weight_path}")
+        typer.echo(f"message:     {status.message}")
+    if not status.ready:
+        raise typer.Exit(1)
+
+
+@zoo_app.command("download-artifact")
+def neuroai_zoo_download_artifact(
+    entry_id: str = typer.Argument(..., help="Zoo entry id"),
+    target: Optional[Path] = typer.Option(None, "--target", help="Checkpoint file or bundle directory target"),
+    revision: Optional[str] = typer.Option(None, "--revision", help="Model repository revision"),
+    token: Optional[str] = typer.Option(None, "--token", help="Hugging Face token for gated/private downloads"),
+) -> None:
+    """Explicitly download standardized model runtime artifacts."""
+    from qortex.neuroai.models.artifacts import download_medsam_checkpoint, download_vista3d_bundle
+
+    try:
+        if entry_id == "foundation.medsam":
+            path = download_medsam_checkpoint(target=target)
+        elif entry_id == "monai.vista3d":
+            path = download_vista3d_bundle(cache_dir=target, revision=revision, token=token)
+        else:
+            typer.echo(f"No standardized artifact downloader for {entry_id!r}.", err=True)
+            raise typer.Exit(2)
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        typer.echo(f"[ERROR] artifact download failed: {exc}", err=True)
+        raise typer.Exit(1)
+    typer.echo(f"Downloaded and validated: {path}")
 
 
 @neuroai_app.command("check")
@@ -2360,6 +2439,9 @@ def neuroai_prompt_predict(
         help="Optional .npy path for a generated mask when the adapter returns one",
     ),
     device: str = typer.Option("cpu", "--device", help="Runtime device for real model loading"),
+    checkpoint: Optional[Path] = typer.Option(None, "--checkpoint", help="Explicit checkpoint path for checkpoint-backed promptable models"),
+    bundle: Optional[Path] = typer.Option(None, "--bundle", help="Explicit bundle directory for bundle-backed promptable models"),
+    download_artifacts: bool = typer.Option(False, "--download-artifacts", help="Explicitly download missing standardized model artifacts before loading"),
     accept_unknown_license_risk: bool = typer.Option(
         False,
         "--accept-unknown-license-risk",
@@ -2404,13 +2486,21 @@ def neuroai_prompt_predict(
         text=text,
     )
 
+    model_extra = {
+        "accept_unknown_license_risk": accept_unknown_license_risk,
+        "allow_remote_code": allow_remote_code,
+    }
+    if checkpoint is not None:
+        model_extra["checkpoint"] = str(checkpoint)
+    if bundle is not None:
+        model_extra["bundle"] = str(bundle)
+    if download_artifacts:
+        model_extra["download_artifacts"] = True
+
     adapter = make_model_adapter(ModelSpec(
         provider=entry.provider,
         id=entry.id,
-        extra={
-            "accept_unknown_license_risk": accept_unknown_license_risk,
-            "allow_remote_code": allow_remote_code,
-        },
+        extra=model_extra,
     ))
     if not isinstance(adapter, PromptableModelAdapter):
         typer.echo(f"[ERROR] {model!r}'s adapter does not implement PromptableModelAdapter", err=True)
@@ -2429,7 +2519,7 @@ def neuroai_prompt_predict(
     typer.echo(f"Input    : {input_path}")
     typer.echo(f"Prompt   : points={prompt.points} boxes={prompt.boxes} text={prompt.text}")
     try:
-        batch = _load_prompt_input(input_path)
+        batch = str(input_path.resolve()) if model == "monai.vista3d" else _load_prompt_input(input_path)
         adapter.load(RuntimeSpec(device=device))
         output_record = adapter.predict_with_prompt(batch, prompt)
     except ModelAdapterError as exc:

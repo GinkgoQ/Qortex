@@ -70,7 +70,7 @@ def register_all() -> None:
         entry_type=ZooEntryType.promptable_model,
         provider="vista3d",
         execution_mode=ExecutionMode.bundle,
-        source_url=_hub_url("vista3d"),
+        source_url="https://huggingface.co/MONAI/VISTA3D-HF",
         paper_url="https://arxiv.org/abs/2406.05285",
         docs_url=_CATALOG_URL,
         maintainer=_MAINTAINER,
@@ -95,8 +95,8 @@ def register_all() -> None:
             "promptable_model with provider=vista3d (dedicated VISTA3DAdapter) "
             "and a confirmed InteractionContract (point/box prompts, automatic "
             "mode supported) — see models/monai.py VISTA3DAdapter. Runtime "
-            "prompted inference remains checkpoint/workflow-unresolved and is "
-            "not production-executable yet.",
+            "artifact readiness is reported by the standardized artifact "
+            "resolver and the `qortex neuroai zoo artifact-status` command.",
         ],
     ))
 

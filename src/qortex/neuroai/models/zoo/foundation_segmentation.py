@@ -3,13 +3,10 @@
 real, documented interface supports text prompts or automatic
 (promptless) mode, per section 8.1.
 
-Pretrained checkpoint ids are not registered here (same deferral
-rationale as zoo/braindecode_eeg.py): no specific, confirmed HF/GitHub
-checkpoint download URL is verified offline in this environment. These
-entries therefore stay ``qortex_status="checkpoint_unresolved"`` and must
-not be treated as production-executable models until a checkpoint resolver,
-hash verification, preprocessing path, and end-to-end inference fixture are
-wired.
+The static zoo entry keeps ``qortex_status="checkpoint_unresolved"``
+because checkpoints are local runtime artifacts, not bundled registry data.
+Installed artifact readiness is reported by the standardized resolver and
+the ``qortex neuroai zoo artifact-status`` command.
 """
 
 from __future__ import annotations

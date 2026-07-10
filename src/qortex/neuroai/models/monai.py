@@ -10,9 +10,11 @@ from __future__ import annotations
 
 from contextlib import nullcontext as _nullcontext
 import hashlib
+import importlib
 import json
 import logging
 from pathlib import Path
+import sys
 import tempfile
 from typing import Any
 import zipfile
@@ -29,6 +31,11 @@ from qortex.neuroai.contracts import (
     WarningItem,
 )
 from qortex.neuroai.models._base import ModelAdapter, ModelOutput
+from qortex.neuroai.models.artifacts import (
+    download_vista3d_bundle,
+    resolve_vista3d_bundle,
+    resolve_vista3d_weights,
+)
 from qortex.neuroai.models.prompt import Prompt
 from qortex.neuroai.models.promptable import PromptableModelAdapter
 from qortex.neuroai.models.zoo.schema import InteractionContract, PromptType
@@ -94,8 +101,8 @@ class MONAIBundleAdapter(ModelAdapter):
         # rather than fabricating a value.
         if self._bundle_dir is None:
             return None
-        model_pt = self._bundle_dir / "models" / "model.pt"
-        if not model_pt.exists():
+        model_pt = self._resolve_weight_path()
+        if model_pt is None:
             return None
         return _sha256_file(model_pt)
 
@@ -185,13 +192,13 @@ class MONAIBundleAdapter(ModelAdapter):
             # Bypass only via an explicit opt-in (mirrors the trust_remote_code
             # explicit-opt-in pattern in models/plugin.py), for genuine
             # architecture-only smoke testing.
-            model_pt = self._bundle_dir / "models" / "model.pt"
+            model_pt = self._resolve_weight_path()
             allow_missing_weights = bool(self._spec.extra.get("allow_missing_weights", False))
-            if not model_pt.exists():
+            if model_pt is None:
                 if not allow_missing_weights:
                     raise ModelAdapterError(
-                        f"MONAI bundle {self._spec.id!r} has no models/model.pt checkpoint "
-                        f"at {model_pt}. Refusing to run with randomly-initialized weights. "
+                        f"MONAI bundle {self._spec.id!r} has no valid checkpoint. "
+                        f"Bundle path: {self._bundle_dir}. Refusing to run with randomly-initialized weights. "
                         "Pass model.allow_missing_weights: true only for deliberate "
                         "architecture-only testing."
                     )
@@ -213,6 +220,8 @@ class MONAIBundleAdapter(ModelAdapter):
                     )
             self._model.eval()
             self._model.to(self._device)
+        except ModelAdapterError:
+            raise
         except Exception as exc:
             raise RuntimeError(
                 f"Failed to load MONAI bundle from {self._bundle_dir}: {exc}"
@@ -304,6 +313,21 @@ class MONAIBundleAdapter(ModelAdapter):
         if self._bundle_dir is not None:
             return
         monai = _require_monai()
+        if self._is_vista3d_spec():
+            explicit_bundle = self._spec.extra.get("bundle") or self._spec.extra.get("bundle_dir")
+            if self._spec.extra.get("download_artifacts") or self._spec.extra.get("download_bundle"):
+                self._bundle_dir = download_vista3d_bundle(
+                    revision=self._spec.revision,
+                    cache_dir=explicit_bundle,
+                    token=self._spec.extra.get("hf_token"),
+                )
+            else:
+                self._bundle_dir = resolve_vista3d_bundle(explicit_bundle)
+            self._metadata = _load_json(self._bundle_dir / "configs" / "metadata.json")
+            if not self._metadata:
+                self._metadata = _load_json(self._bundle_dir / "metadata.json")
+            self._infer_config = _load_json(self._bundle_dir / "configs" / "inference.json")
+            return
         candidate = Path(self._spec.id)
 
         if candidate.exists() and candidate.is_dir():
@@ -331,6 +355,19 @@ class MONAIBundleAdapter(ModelAdapter):
 
         self._metadata = _load_json(self._bundle_dir / "configs" / "metadata.json")
         self._infer_config = _load_json(self._bundle_dir / "configs" / "inference.json")
+
+    def _is_vista3d_spec(self) -> bool:
+        provider = str(getattr(self._spec, "provider", "") or "").lower()
+        model_id = str(getattr(self._spec, "id", "") or "").lower()
+        return provider == "vista3d" or model_id in {"monai.vista3d", "vista3d"}
+
+    def _resolve_weight_path(self) -> Path | None:
+        if self._bundle_dir is None:
+            return None
+        if self._is_vista3d_spec():
+            return resolve_vista3d_weights(self._bundle_dir)
+        model_pt = self._bundle_dir / "models" / "model.pt"
+        return model_pt if model_pt.exists() else None
 
     def _parse_network_def(self) -> tuple[int | None, int, int | None]:
         cfg = self._infer_config
@@ -362,6 +399,32 @@ class VISTA3DAdapter(MONAIBundleAdapter, PromptableModelAdapter):
             evidence_status=EvidenceStatus.confirmed,
         )
 
+    def load(self, runtime: RuntimeSpec) -> None:
+        _require_monai()
+        self._device = _resolve_device(runtime.device)
+        self._resolve_bundle()
+        if self._is_hf_bundle():
+            try:
+                import torch
+                bundle_dir = str(self._bundle_dir)
+                if bundle_dir not in sys.path:
+                    sys.path.insert(0, bundle_dir)
+                vista_model_mod = importlib.import_module("vista3d_model")
+                if not hasattr(vista_model_mod.VISTA3DModel, "all_tied_weights_keys"):
+                    vista_model_mod.VISTA3DModel.all_tied_weights_keys = {}
+                helper_mod = importlib.import_module("hugging_face_pipeline")
+                helper = helper_mod.HuggingFacePipelineHelper("vista3d")
+                model_dir = self._bundle_dir / "vista3d_pretrained_model"
+                device = torch.device(self._device)
+                self._model = helper.init_pipeline(str(model_dir), device=device)
+                self._loaded = True
+                return
+            except Exception as exc:
+                raise ModelAdapterError(
+                    f"Failed to load VISTA3D-HF pipeline from {self._bundle_dir}: {exc}"
+                ) from exc
+        super().load(runtime)
+
     def predict(self, batch: Any) -> ModelOutput:
         # MRO would otherwise resolve predict() to MONAIBundleAdapter's
         # implementation (it comes first in the base list), silently
@@ -383,12 +446,60 @@ class VISTA3DAdapter(MONAIBundleAdapter, PromptableModelAdapter):
             raise ModelAdapterError(
                 "VISTA3D prompt is invalid: " + "; ".join(violations)
             )
+        if self._is_hf_bundle():
+            return self._predict_hf_with_prompt(batch, prompt)
         raise ModelAdapterError(
-            "VISTA3D prompted inference is not executable in Qortex yet: "
-            "the MONAI bundle-specific prompt transforms and coordinate "
-            "restoration path are not wired. Use automatic mode only after "
-            "the bundle has passed compatibility validation."
+            "VISTA3D prompted inference requires the MONAI/VISTA3D-HF artifact. "
+            "Run `qortex neuroai zoo download-artifact monai.vista3d` and pass "
+            "--bundle if using a custom path."
         )
+
+    def _is_hf_bundle(self) -> bool:
+        return (
+            self._bundle_dir is not None
+            and (self._bundle_dir / "hugging_face_pipeline.py").is_file()
+            and (self._bundle_dir / "vista3d_pretrained_model" / "config.json").is_file()
+        )
+
+    def _predict_hf_with_prompt(self, batch: Any, prompt: Prompt) -> ModelOutput:
+        if self._model is None:
+            raise ModelAdapterError("VISTA3D-HF pipeline is not loaded.")
+        image_path = _coerce_image_path(batch)
+        inputs: dict[str, Any] = {"image": image_path}
+        if prompt.points is not None:
+            inputs["points"] = [list(point[:3]) for point in prompt.points]
+            inputs["point_labels"] = list(prompt.point_labels or [1] * len(prompt.points))
+        output_dir = Path(tempfile.mkdtemp(prefix="qortex_vista3d_hf_"))
+        try:
+            result = self._model(
+                inputs,
+                output_dir=str(output_dir),
+                amp=False,
+                save_output=True,
+                separate_folder=False,
+            )
+            mask_path = _find_first_nifti(output_dir)
+            if mask_path is None:
+                raise ModelAdapterError(
+                    f"VISTA3D-HF completed without writing a NIfTI mask under {output_dir}."
+                )
+            import nibabel as nib
+            mask = np.asarray(nib.load(str(mask_path)).get_fdata()).astype(np.uint8)
+            return ModelOutput(
+                output_type="segmentation",
+                raw=result,
+                mask=mask,
+                metadata={
+                    "provider": "vista3d",
+                    "artifact": "MONAI/VISTA3D-HF",
+                    "mask_path": str(mask_path),
+                    "output_dir": str(output_dir),
+                },
+            )
+        except ModelAdapterError:
+            raise
+        except Exception as exc:
+            raise ModelAdapterError(f"VISTA3D-HF prompted inference failed: {exc}") from exc
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -420,6 +531,31 @@ def _detect_modality(metadata: dict) -> str:
         if m in desc:
             return m
     return "mri"
+
+
+def _coerce_image_path(batch: Any) -> str:
+    if isinstance(batch, (str, Path)):
+        path = Path(batch).expanduser().resolve()
+        if not path.is_file():
+            raise ModelAdapterError(f"VISTA3D-HF image path does not exist: {path}")
+        return str(path)
+    source_path = getattr(batch, "path", None) or getattr(batch, "source_path", None)
+    if source_path:
+        path = Path(source_path).expanduser().resolve()
+        if path.is_file():
+            return str(path)
+    raise ModelAdapterError(
+        "VISTA3D-HF requires a real NIfTI file path so its official preprocessing "
+        "pipeline can preserve affine/original image metadata."
+    )
+
+
+def _find_first_nifti(root: Path) -> Path | None:
+    for path in sorted(root.rglob("*")):
+        name = path.name.lower()
+        if path.is_file() and (name.endswith(".nii") or name.endswith(".nii.gz")):
+            return path
+    return None
 
 
 def _sha256_file(path: Path) -> str:
