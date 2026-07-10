@@ -261,6 +261,15 @@ class VISTA3DAdapter(MONAIBundleAdapter, PromptableModelAdapter):
             evidence_status=EvidenceStatus.confirmed,
         )
 
+    def predict(self, batch: Any) -> ModelOutput:
+        # MRO would otherwise resolve predict() to MONAIBundleAdapter's
+        # implementation (it comes first in the base list), silently
+        # bypassing PromptableModelAdapter's automatic/prompt-required
+        # dispatch. Routing through it explicitly means a future change to
+        # supports_automatic_mode is respected rather than silently
+        # ignored.
+        return PromptableModelAdapter.predict(self, batch)
+
     def predict_automatic(self, batch: Any) -> ModelOutput:
         # VISTA3D's already-proven whole-organ automatic segmentation path
         # -- identical to MONAIBundleAdapter.predict() for every other

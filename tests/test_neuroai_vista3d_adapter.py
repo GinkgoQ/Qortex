@@ -47,3 +47,24 @@ def test_zoo_vista3d_entry_is_promptable_with_confirmed_contract():
     assert entry.entry_type.value == "promptable_model"
     assert entry.interaction_contract is not None
     assert set(entry.interaction_contract.supported_prompt_types) == {"point", "box"}
+
+
+def test_vista3d_predict_routes_through_promptable_dispatch_not_mro_shadow(monkeypatch: pytest.MonkeyPatch):
+    # VISTA3DAdapter(MONAIBundleAdapter, PromptableModelAdapter) would let
+    # MRO resolve predict() to MONAIBundleAdapter's implementation (it's
+    # first in the base list) unless VISTA3DAdapter explicitly routes
+    # predict() through PromptableModelAdapter's own automatic/prompt-
+    # required dispatch. Prove this by monkeypatching predict_automatic to
+    # a sentinel and confirming adapter.predict() actually calls it,
+    # rather than falling straight into MONAIBundleAdapter.predict (which
+    # would try to load a real bundle and fail differently).
+    from qortex.neuroai.models.monai import VISTA3DAdapter
+    from qortex.neuroai.spec import ModelSpec
+
+    adapter = VISTA3DAdapter(ModelSpec(provider="vista3d", id="vista3d"))
+    sentinel = object()
+    monkeypatch.setattr(VISTA3DAdapter, "predict_automatic", lambda self, batch: sentinel)
+
+    result = adapter.predict("fake_batch")
+
+    assert result is sentinel
