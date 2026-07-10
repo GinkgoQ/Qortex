@@ -604,6 +604,8 @@ class LatencyReport(BaseModel if _PYDANTIC else object):
     """End-to-end timing breakdown per AGENT.md §17."""
 
     n_windows: int = 0
+    requested_windows: int | None = None
+    source_exhausted: bool = False
     n_dropped: int = 0
     budget_ms: float | None = None
     p50_ms: float = 0.0
@@ -621,6 +623,8 @@ class LatencyReport(BaseModel if _PYDANTIC else object):
     if not _PYDANTIC:
         def __init__(self, **kwargs):
             self.n_windows = 0
+            self.requested_windows = None
+            self.source_exhausted = False
             self.n_dropped = 0
             self.budget_ms = None
             self.p50_ms = 0.0
@@ -655,6 +659,10 @@ class LatencyReport(BaseModel if _PYDANTIC else object):
         if self.budget_ms is not None:
             lines.append(f"Latency budget:         {self.budget_ms:>8.1f} ms")
         lines.append(f"Windows / dropped:      {self.n_windows} / {self.n_dropped}")
+        if self.requested_windows is not None:
+            lines.append(f"Requested windows:      {self.requested_windows}")
+        if self.source_exhausted:
+            lines.append("Source exhausted:       yes")
         if self.n_batches:
             lines.append(f"Batches:                {self.n_batches}")
             lines.append(f"Batch p50 / p95 / p99:  {self.batch_p50_ms:.1f} / {self.batch_p95_ms:.1f} / {self.batch_p99_ms:.1f} ms")

@@ -16,7 +16,7 @@ from typing import Any
 import numpy as np
 
 from qortex.neuroai.models._base import ModelOutput
-from qortex.neuroai.outputs._base import OutputAdapter
+from qortex.neuroai.outputs._base import OutputAdapter, OutputAdapterError
 
 log = logging.getLogger(__name__)
 
@@ -66,13 +66,16 @@ class NIfTIOutputAdapter(OutputAdapter):
         # Get mask
         mask = output.mask
         if mask is None:
-            log.warning("NIfTIOutputAdapter.write(): output has no mask — skipping")
-            return
+            raise OutputAdapterError(
+                "NIfTI output requires a segmentation mask; "
+                f"received output_type={output.output_type!r} without output.mask."
+            )
 
         mask_arr = np.array(mask)
         if mask_arr.ndim < 2:
-            log.warning("NIfTIOutputAdapter.write(): mask is not 2D/3D — skipping")
-            return
+            raise OutputAdapterError(
+                f"NIfTI output requires a 2D or 3D mask; received shape={mask_arr.shape!r}."
+            )
 
         # Force 3D
         if mask_arr.ndim == 2:

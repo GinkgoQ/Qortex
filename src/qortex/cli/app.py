@@ -1972,6 +1972,16 @@ def neuroai_inspect_model(
     model_id: str = typer.Argument(..., help="Model ID or path (e.g. hf://org/model or model.onnx)"),
     provider: str = typer.Option("huggingface", "--provider", "-p"),
     task: Optional[str] = typer.Option(None, "--task"),
+    accept_unknown_license_risk: bool = typer.Option(
+        False,
+        "--accept-unknown-license-risk",
+        help="Proceed even if the model's license has not been verified.",
+    ),
+    allow_remote_code: bool = typer.Option(
+        False,
+        "--allow-remote-code",
+        help="Allow remote-code model adapters when inspection requires them.",
+    ),
     input_contract: Optional[Path] = typer.Option(
         None,
         "--input-contract",
@@ -2004,12 +2014,25 @@ def neuroai_inspect_model(
         typer.echo(f"[ERROR] contract file could not be read: {exc}", err=True)
         raise typer.Exit(1)
 
+    if input_contract_data is None and output_contract_data is None:
+        profile = _neuroai_profile_from_registry(model_path, provider=provider, task=task)
+        if profile is not None:
+            typer.echo(_format_neuroai_model_profile(profile))
+            return
+        if _try_print_external_zoo_entry(model_path):
+            return
+
     spec = ModelSpec(
         provider=provider,
         id=model_path,
         task=task,
         input_contract=input_contract_data,
         output_contract=output_contract_data,
+        trust_remote_code=allow_remote_code,
+        extra={
+            "accept_unknown_license_risk": accept_unknown_license_risk,
+            "allow_remote_code": allow_remote_code,
+        },
     )
     try:
         adapter = make_model_adapter(spec)
@@ -2018,6 +2041,10 @@ def neuroai_inspect_model(
         typer.echo(f"[ERROR] {exc}", err=True)
         raise typer.Exit(1)
 
+    typer.echo(_format_neuroai_model_profile(profile))
+
+
+def _format_neuroai_model_profile(profile: Any) -> str:
     lines = [
         f"Model       : {profile.model_id}",
         f"Provider    : {profile.provider}",
@@ -2045,7 +2072,78 @@ def neuroai_inspect_model(
     if profile.warnings:
         for w in profile.warnings:
             lines.append(f"  ⚠ [{w.severity}] {w.message}")
-    typer.echo("\n".join(lines))
+    return "\n".join(lines)
+
+
+def _neuroai_profile_from_registry(
+    model_id: str,
+    *,
+    provider: str,
+    task: str | None,
+) -> Any | None:
+    try:
+        from qortex.neuroai.contracts import ModelProfile
+        from qortex.neuroai.models import zoo as _zoo  # noqa: F401
+        from qortex.neuroai.models.zoo.registry import lookup as zoo_lookup
+        from qortex.neuroai.models import _contracts
+    except Exception:
+        return None
+
+    zoo_entry = zoo_lookup(model_id)
+    if (
+        zoo_entry is not None
+        and zoo_entry.input_contract is not None
+        and zoo_entry.output_contract is not None
+    ):
+        return ModelProfile(
+            model_id=zoo_entry.id,
+            provider=zoo_entry.provider,
+            task=task or ",".join(zoo_entry.task),
+            license=getattr(getattr(zoo_entry, "license", None), "evidence_status", None),
+            input_contract=zoo_entry.input_contract,
+            output_contract=zoo_entry.output_contract,
+            estimated_memory_mb=None,
+        )
+
+    legacy_entry = _contracts.lookup(model_id)
+    if legacy_entry is not None:
+        return ModelProfile(
+            model_id=legacy_entry.model_id,
+            provider=legacy_entry.provider or provider,
+            task=task,
+            license=None,
+            input_contract=legacy_entry.input_contract,
+            output_contract=legacy_entry.output_contract,
+            estimated_memory_mb=legacy_entry.estimated_memory_mb,
+        )
+    return None
+
+
+def _try_print_external_zoo_entry(model_id: str) -> bool:
+    try:
+        from qortex.neuroai.models import zoo as _zoo  # noqa: F401
+        from qortex.neuroai.models.zoo.registry import lookup
+    except Exception:
+        return False
+    entry = lookup(model_id)
+    if entry is None or entry.external_engine_contract is None:
+        return False
+    contract = entry.external_engine_contract
+    typer.echo("\n".join([
+        f"Model       : {entry.id}",
+        f"Provider    : {entry.provider}",
+        f"Task        : {', '.join(entry.task)}",
+        f"License     : {entry.license.evidence_status}",
+        f"Entry type  : {entry.entry_type.value}",
+        f"Engine      : {contract.engine}",
+        f"Executable  : {contract.executable}",
+        f"Input files : {', '.join(contract.input_file_types)}",
+        f"Output files: {', '.join(contract.output_file_types)}",
+        f"Modalities  : {', '.join(contract.supported_modalities)}",
+        f"Tasks       : {', '.join(contract.supported_tasks)}",
+        f"Evidence    : {contract.evidence_status}",
+    ]))
+    return True
 
 
 def _load_neuroai_contract_file(path: Path | None) -> dict[str, Any] | None:
@@ -2256,6 +2354,12 @@ def neuroai_prompt_predict(
     point_label: list[int] = typer.Option(None, "--point-label", help="1=foreground, 0=background; repeat to match --point count"),
     box: list[str] = typer.Option(None, "--box", help="Box prompt as x1,y1,z1,x2,y2,z2 (or x1,y1,x2,y2); repeat for multiple"),
     text: str | None = typer.Option(None, "--text", help="Text prompt, only for models that support it"),
+    output: Optional[Path] = typer.Option(
+        None,
+        "--output",
+        help="Optional .npy path for a generated mask when the adapter returns one",
+    ),
+    device: str = typer.Option("cpu", "--device", help="Runtime device for real model loading"),
     accept_unknown_license_risk: bool = typer.Option(
         False,
         "--accept-unknown-license-risk",
@@ -2276,7 +2380,7 @@ def neuroai_prompt_predict(
     from qortex.neuroai.models.promptable import PromptableModelAdapter
     from qortex.neuroai.models.security import check_remote_code_gate
     from qortex.neuroai.models.zoo.registry import lookup as zoo_lookup
-    from qortex.neuroai.spec import ModelSpec
+    from qortex.neuroai.spec import ModelSpec, RuntimeSpec
 
     entry = zoo_lookup(model)
     if entry is None:
@@ -2317,10 +2421,62 @@ def neuroai_prompt_predict(
         typer.echo(f"[ERROR] Invalid prompt for {model!r}: " + "; ".join(violations), err=True)
         raise typer.Exit(1)
 
+    if not input_path.exists():
+        typer.echo(f"[ERROR] Input file does not exist: {input_path}", err=True)
+        raise typer.Exit(1)
+
     typer.echo(f"Model    : {model}")
     typer.echo(f"Input    : {input_path}")
     typer.echo(f"Prompt   : points={prompt.points} boxes={prompt.boxes} text={prompt.text}")
-    typer.echo("Note: actual weight loading/inference requires the model's real checkpoint; this command validates the prompt against the model's declared InteractionContract and reports readiness.")
+    try:
+        batch = _load_prompt_input(input_path)
+        adapter.load(RuntimeSpec(device=device))
+        output_record = adapter.predict_with_prompt(batch, prompt)
+    except ModelAdapterError as exc:
+        typer.echo(f"[BLOCKED] prompt inference could not execute: {exc}", err=True)
+        raise typer.Exit(1)
+    except Exception as exc:
+        typer.echo(f"[ERROR] prompt inference failed: {exc}", err=True)
+        raise typer.Exit(1)
+    finally:
+        try:
+            adapter.unload()
+        except Exception:
+            pass
+
+    typer.echo(f"Output type: {output_record.output_type}")
+    if output_record.mask is not None:
+        mask = output_record.mask
+        shape = getattr(mask, "shape", None)
+        dtype = getattr(mask, "dtype", None)
+        typer.echo(f"Mask      : shape={shape} dtype={dtype}")
+        if output is not None:
+            import numpy as np
+            output.parent.mkdir(parents=True, exist_ok=True)
+            np.save(output, mask)
+            typer.echo(f"Written   : {output}")
+    else:
+        raw = output_record.raw
+        typer.echo(f"Raw       : type={type(raw).__name__} shape={getattr(raw, 'shape', None)}")
+
+
+def _load_prompt_input(path: Path):
+    suffixes = [s.lower() for s in path.suffixes]
+    if suffixes[-2:] == [".nii", ".gz"] or path.suffix.lower() == ".nii":
+        import nibabel as nib
+        return nib.load(str(path)).get_fdata(dtype="float32")
+    if path.suffix.lower() == ".npy":
+        import numpy as np
+        return np.load(path)
+    try:
+        from PIL import Image
+        import numpy as np
+        with Image.open(path) as image:
+            return np.asarray(image.convert("RGB"))
+    except Exception as exc:
+        raise typer.BadParameter(
+            f"Unsupported prompt input format for {path}. Use NIfTI, .npy, or an image readable by Pillow."
+        ) from exc
 
 
 def _parse_class_labels_json(value: str | None) -> dict[int, str] | None:

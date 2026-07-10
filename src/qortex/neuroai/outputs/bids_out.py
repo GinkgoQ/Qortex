@@ -69,8 +69,8 @@ class BIDSDerivativeOutputAdapter(OutputAdapter):
         meta = metadata or {}
         entities = meta.get("bids_entities", {})
 
-        subject = entities.get("subject") or meta.get("subject", "sub-unknown")
-        session = entities.get("session") or meta.get("session")
+        subject = _normalise_bids_entity(entities.get("subject") or meta.get("subject"), "sub", "unknown")
+        session = _normalise_bids_entity(entities.get("session") or meta.get("session"), "ses", None)
         task = entities.get("task") or meta.get("task")
         run = entities.get("run") or meta.get("run")
 
@@ -193,3 +193,13 @@ def _get_qortex_version() -> str:
         return version("qortex")
     except Exception:
         return "unknown"
+
+
+def _normalise_bids_entity(value: Any, prefix: str, default: str | None) -> str | None:
+    if value is None or str(value).strip() == "":
+        return default
+    text = str(value).strip()
+    marker = f"{prefix}-"
+    if text.startswith(marker):
+        return text[len(marker):]
+    return text

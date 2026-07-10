@@ -43,7 +43,8 @@ def list_entries(
         want = entry_type.value if isinstance(entry_type, ZooEntryType) else str(entry_type)
         results = [e for e in results if e.entry_type.value == want]
     if provider is not None:
-        results = [e for e in results if e.provider == provider]
+        want_provider = _normalise_provider_filter(provider)
+        results = [e for e in results if _normalise_provider_filter(e.provider) == want_provider]
     if modality is not None:
         results = [e for e in results if modality in e.modality]
     if task is not None:
@@ -51,6 +52,13 @@ def list_entries(
     if priority is not None:
         results = [e for e in results if e.priority == priority]
     return sorted(results, key=lambda e: e.id)
+
+
+def _normalise_provider_filter(provider: str) -> str:
+    value = str(provider).strip().lower()
+    if value == "external":
+        return "external_cli"
+    return value
 
 
 def clear_registry() -> None:

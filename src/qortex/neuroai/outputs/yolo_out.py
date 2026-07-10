@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from qortex.neuroai.models._base import ModelOutput
-from qortex.neuroai.outputs._base import OutputAdapter
+from qortex.neuroai.outputs._base import OutputAdapter, OutputAdapterError
 
 log = logging.getLogger(__name__)
 
@@ -64,6 +64,11 @@ class YOLOOutputAdapter(OutputAdapter):
                     "class_index": output.class_index or 0,
                 }
             ]
+        if not detections:
+            raise OutputAdapterError(
+                "YOLO output requires detection records or output.bbox; "
+                f"received output_type={output.output_type!r}."
+            )
 
         lines: list[str] = []
         for det in detections:

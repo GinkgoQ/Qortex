@@ -234,6 +234,14 @@ def validate_artifact(
 
     runtime_report = _read_json(root / "runtime_report.json", issues, "runtime_report.json")
     if isinstance(runtime_report, dict):
+        if runtime_report.get("success") is False:
+            issues.append(ArtifactValidationIssue(
+                code="RUNTIME_REPORTED_FAILURE",
+                message="runtime_report.json marks the run as unsuccessful.",
+                severity="error",
+                path="runtime_report.json",
+                observed=False,
+            ))
         n_outputs_reported = runtime_report.get("n_outputs_written")
         if n_outputs_reported is not None and int(n_outputs_reported) < 0:
             issues.append(ArtifactValidationIssue(
@@ -583,7 +591,32 @@ def _inspect_json_output(
             "n_images": len(payload.get("images", [])) if isinstance(payload.get("images"), list) else 0,
             "n_categories": len(payload.get("categories", [])) if isinstance(payload.get("categories"), list) else 0,
         }
+    if _looks_like_prediction_json(payload):
+        return {
+            "path": rel_path,
+            "type": "json_prediction",
+            "prediction_records": 1,
+            "marker_records": 0,
+            "output_types": [str(payload.get("output_type"))],
+        }
     return {"path": rel_path, "type": "json", "records": None, "marker_records": 0}
+
+
+def _looks_like_prediction_json(payload: dict[str, Any]) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    if not payload.get("output_type"):
+        return False
+    prediction_keys = {
+        "class_name",
+        "class_index",
+        "probabilities",
+        "regression_value",
+        "bbox",
+        "mask",
+        "embedding",
+    }
+    return bool(prediction_keys & set(payload))
 
 
 def _inspect_yolo_txt(

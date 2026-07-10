@@ -316,8 +316,11 @@ class MONAIBundleAdapter(ModelAdapter):
         else:
             # Try MONAI Hub download
             try:
+                bundle_name = str(self._spec.extra.get("bundle_name") or self._spec.id.split("/")[-1])
+                if bundle_name.startswith("monai."):
+                    bundle_name = bundle_name.split(".", 1)[1]
                 bundle_dir = monai.bundle.load(
-                    name=self._spec.id.split("/")[-1],
+                    name=bundle_name,
                     version=self._spec.revision,
                 )
                 self._bundle_dir = Path(bundle_dir)

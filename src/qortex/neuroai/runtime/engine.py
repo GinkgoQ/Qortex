@@ -309,13 +309,12 @@ class RuntimeEngine:
                 if stop_after_batch:
                     break
 
-        latency_report = self._profiler.report()
-        artifact_contract = self._make_artifact_contract(latency_report)
-
         n_outputs_written = sum(getattr(o, "n_written", 0) for o in self._outputs)
         if n_ok == 0 and getattr(self._spec.runtime, "fail_on_no_windows", True):
             errors.append("No windows were successfully processed.")
         success = n_ok > 0 and not any(e for e in errors)
+        latency_report = self._profiler.report()
+        artifact_contract = self._make_artifact_contract(latency_report, n_records=n_ok)
         return PipelineRunReport(
             success=success,
             compatibility_report=self._compat,
@@ -383,7 +382,7 @@ class RuntimeEngine:
                 dropped.append((record, exc))
         return ok, dropped
 
-    def _make_artifact_contract(self, latency_report) -> ArtifactContract:
+    def _make_artifact_contract(self, latency_report, *, n_records: int | None = None) -> ArtifactContract:
         from qortex import __version__
         from datetime import datetime, timezone
         return ArtifactContract(
@@ -400,6 +399,7 @@ class RuntimeEngine:
             runtime_backend=self._spec.runtime.device,
             device=self._spec.runtime.device,
             output_type=self._spec.model.task,
+            n_records=n_records,
             compatibility_status=(
                 self._compat.status.value
                 if self._compat and hasattr(self._compat.status, "value")

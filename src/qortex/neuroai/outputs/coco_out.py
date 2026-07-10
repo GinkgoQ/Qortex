@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from qortex.neuroai.models._base import ModelOutput
-from qortex.neuroai.outputs._base import OutputAdapter
+from qortex.neuroai.outputs._base import OutputAdapter, OutputAdapterError
 
 log = logging.getLogger(__name__)
 
@@ -46,6 +46,10 @@ class COCOOutputAdapter(OutputAdapter):
     def n_written(self) -> int:
         return len(self._data.get("images", []))
 
+    @property
+    def n_prediction_records(self) -> int:
+        return len(self._data.get("annotations", []))
+
     def open(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._data = {
@@ -68,6 +72,23 @@ class COCOOutputAdapter(OutputAdapter):
     def write(self, output: ModelOutput, metadata: dict[str, Any] | None = None) -> None:
         meta = metadata or {}
 
+        detections = meta.get("detections") or []
+        if not detections and output.bbox is not None:
+            detections = [
+                {
+                    "x1": output.bbox[0], "y1": output.bbox[1],
+                    "x2": output.bbox[2], "y2": output.bbox[3],
+                    "class_name": output.class_name or "unknown",
+                    "class_index": output.class_index or 0,
+                    "confidence": max(output.probabilities.values()) if output.probabilities else 0.0,
+                }
+            ]
+        if not detections:
+            raise OutputAdapterError(
+                "COCO output requires detection records or output.bbox; "
+                f"received output_type={output.output_type!r}."
+            )
+
         # Image entry
         image_id = meta.get("image_id") or (self._image_id_counter + 1)
         self._image_id_counter = int(image_id)
@@ -81,19 +102,6 @@ class COCOOutputAdapter(OutputAdapter):
             "width": w,
             "height": h,
         })
-
-        # Parse detections
-        detections = meta.get("detections") or []
-        if not detections and output.bbox is not None:
-            detections = [
-                {
-                    "x1": output.bbox[0], "y1": output.bbox[1],
-                    "x2": output.bbox[2], "y2": output.bbox[3],
-                    "class_name": output.class_name or "unknown",
-                    "class_index": output.class_index or 0,
-                    "confidence": max(output.probabilities.values()) if output.probabilities else 0.0,
-                }
-            ]
 
         for det in detections:
             class_name = str(det.get("class_name", "unknown"))

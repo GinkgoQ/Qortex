@@ -344,7 +344,10 @@ class Pipeline:
             output_adapter.close()
             self._model_adapter.unload()
 
-        return profiler.report()
+        report = profiler.report()
+        report.requested_windows = int(n_windows)
+        report.source_exhausted = report.n_windows < int(n_windows)
+        return report
 
     # ── Replay ────────────────────────────────────────────────────────────────
 
