@@ -142,8 +142,9 @@ class CompilationResult:
     source_profile: SourceProfileSummary
     evidence_graph: EvidenceGraph
     acquisition_plan: AcquisitionPlan
-    candidates: list[ModelCandidate]
+    candidates: list[ModelCandidate]   # sorted by fit_score descending
     runnable: bool            # any candidate runnable AND no acquisition blockers
+    selected_model: str | None  # id of highest-scoring runnable candidate, or None
     plan_hash: str             # sha256 of the canonical JSON payload
 ```
 
@@ -167,7 +168,8 @@ sampling_rate_hz: float | None
 duration_s: float | None
 ```
 
-Each `ModelCandidate` carries: `capability_state`, `runnable`, `compatibility`
+Each `ModelCandidate` carries: `capability_state`, `runnable`, `fit_score`
+(0–100), `fit_reasons` (how the score was derived), `compatibility`
 (`CompatibilityProof`), `geometry_plan` (`GeometryPlan`), `resource_plan`
 (`ResourcePlan`), `license_report` (`LicenseReport`), `security_report`
 (`SecurityReport`), `artifact_contract`, `repair_options`, `blockers`, and
@@ -218,19 +220,53 @@ blockers and its runtime is truly executable. `runnable` additionally requires
 still be non-`runnable` if compatibility is only `uncertain` (see the real
 example above).
 
+### Fit score and `selected_model`
+
+Every candidate carries an explainable, deterministic `fit_score` (0–100) and a
+`fit_reasons` list recording exactly how it was computed (`_fit_score` in
+`candidates.py`). The score is a pure function of already-typed candidate
+fields — never a hidden heuristic input:
+
+- **Base tier** by `capability_state`: `executable` 70, `requires_local_executable`
+  55, `plan_only` 35, `unavailable` 10, `blocked` 0.
+- **Compatibility adjustment**: `compatible` +20, `uncertain` +0,
+  `incompatible` −40.
+- **Blocker penalty**: −8 per blocker.
+- **Geometry bonus**: +5 when both the source coordinate frame and the model
+  axis convention are known.
+- Clamped to `[0, 100]`.
+
+Candidates are sorted by `fit_score` descending (ties broken by id). The result
+sets `selected_model` to the id of the highest-scoring **runnable** candidate,
+or `None` when nothing is runnable — it never forces a selection onto a blocked
+candidate. Verified in `tests/test_neuroai_compiler_ranking.py`. A real compile
+against a NIfTI whose header geometry matched a MONAI segmentation bundle
+produced `selected_model=monai.brats_mri_segmentation` at `fit_score=95.0`
+(`70 base + 20 compatible + 5 geometry`).
+
 ## Acquisition plan
 
-`build_acquisition_plan()` (in `acquisition.py`) is intentionally simple today:
+The acquisition plan reflects the real minimum file set a source needs, using
+Qortex's actual manifest machinery — not a reimplementation:
 
-- Local sources (`source_type` starting with `local_`) always report
-  `required_download=False`, `estimated_download_gb=0.0`,
-  `evidence_status="confirmed"`.
-- Any other source type is treated as needing a download, with
-  `estimated_download_gb` left `None` (or based on a locally-known size if one
-  happens to be available) and `evidence_status="unknown"`. A note is always
-  attached: *"Remote source size is not known without manifest inspection; no
-  download is performed by compile."* `--max-download-gb` only blocks when a
-  size estimate actually exists to compare against.
+- **Local BIDS directories** are routed through `build_local_companion_plan()`
+  (in `acquisition.py`), which walks the tree with Qortex's real BIDS parsers,
+  builds a `Manifest`, and runs the real `ManifestGraph` to compute logical
+  recordings and their **companion closure**. The plan reports `n_recordings`,
+  the full `required_files` set (primaries + required companions), and the
+  `companion_files` subset. This correctly pairs EEGLAB `.set` headers with
+  their `.fdt` payload (the `.fdt` is never treated as its own recording, and
+  always appears in `required_files` alongside its `.set`), plus
+  `channels.tsv`, `events.tsv`, and JSON sidecars. Verified in
+  `tests/test_neuroai_compiler_acquisition.py`.
+- **Local single files** report `required_download=False`,
+  `estimated_download_gb=0.0`, `evidence_status="confirmed"`.
+- **Remote / dataset-id sources** are deliberately not fetched — `compile` is
+  an offline planner and does no network I/O. They report
+  `evidence_status="unknown"` with the note *"Remote source size is not known
+  without manifest inspection; no download is performed by compile."*
+  `--max-download-gb` only blocks when a real size estimate exists to compare
+  against.
 
 ## Deterministic plan hash
 
@@ -245,21 +281,53 @@ asserts, and it holds across separate process invocations since nothing
 timestamp-dependent feeds the hash (the payload used for hashing excludes
 `created_at`).
 
+## Executing (verifying) a saved plan
+
+A saved `execution-plan.json` is not just a report — it can be re-verified
+before anything acts on it, with `qortex execute`:
+
+```bash
+qortex execute execution-plan.json          # exits 0 if verified, non-zero otherwise
+qortex execute execution-plan.json --json    # machine-readable ExecutionVerification
+```
+
+`verify_execution_plan()` (in `executor.py`) performs a fail-closed integrity
+pre-flight — it does **not** itself run model inference (there are no verified
+checkpoints in the zoo yet; that remains [Pipeline](pipeline.md)'s job). It
+checks:
+
+- **`plan_hash_matches`** — recomputes the canonical hash from the loaded plan
+  (reusing the compiler's own `serialization.sha256_json`, excluding the
+  self-referential `plan_hash` and the wall-clock `created_at`) and compares it
+  to the recorded hash. A plan tampered with after saving fails here.
+- **`source_integrity`** — if the source is still a local path, re-hashes it
+  and compares to the `source_profile.sha256` captured at compile time; a
+  source that changed since compile fails.
+- **`license_gate` / `remote_code_gate`** — re-runs the real license and
+  remote-code gates for the plan's candidates, honoring the
+  `accept_unknown_license_risk` / `allow_remote_code` flags recorded in the
+  plan's `request`.
+
+`verified` is `True` only when the hash matches and no check failed. Verified in
+`tests/test_neuroai_execute.py` (untampered plan verifies, JSON tamper and
+source drift are both detected, CLI exit codes reflect the verdict).
+
 ## Known limitations
 
 Documented honestly, not aspirationally:
 
-- **Acquisition planning is not connected to real OpenNeuro manifests.**
-  Remote/catalog sources are reported with `evidence_status="unknown"` and no
-  real size; there is no manifest fetch, no companion-file closure, and no
-  actual bytes-to-download computation for anything that isn't already a local
-  path.
-- **There is no model ranking or `selected_model` field.** `candidates` is a
-  sorted list (executable candidates first, then by blocker count, then by id)
-  for readability, but the compiler does not pick or recommend a single model.
-- **There is no `qortex execute` command.** A saved `execution-plan.json` is
-  not consumed by any command yet — running a model still means using
-  [Pipeline](pipeline.md) directly.
+- **Remote / dataset-id acquisition is not connected to OpenNeuro manifests.**
+  The real companion-closure planning above applies to *local* BIDS
+  directories; remote sources are reported with `evidence_status="unknown"` and
+  no size, because `compile` performs no network fetch by design.
+- **`execute` verifies a plan; it does not run inference.** It is the
+  fail-closed integrity gate before execution, not a model runner — the zoo's
+  promptable/generative entries remain `checkpoint_unresolved` until verified
+  checkpoints and end-to-end fixtures exist.
+- **The executable-allowlist re-check is not part of `execute` yet**, because a
+  compiled plan does not record a resolved executable path to re-verify against
+  (the SHA-256 of a resolved executable is captured at external-run time by
+  `run_external_segmentation`, not at compile time).
 - **Compatibility checks stay `uncertain` whenever the model's input contract
   evidence is unknown**, even when header geometry was read successfully from
   the source. The compiler does not infer or guess an unconfirmed contract.
