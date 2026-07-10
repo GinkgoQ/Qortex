@@ -69,7 +69,7 @@ class BIDSDerivativeOutputAdapter(OutputAdapter):
         meta = metadata or {}
         entities = meta.get("bids_entities", {})
 
-        subject = entities.get("subject") or meta.get("subject", f"sub-unknown")
+        subject = entities.get("subject") or meta.get("subject", "sub-unknown")
         session = entities.get("session") or meta.get("session")
         task = entities.get("task") or meta.get("task")
         run = entities.get("run") or meta.get("run")

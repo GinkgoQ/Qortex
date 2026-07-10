@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from qortex.neuroai.outputs._base import OutputAdapter
 from qortex.neuroai.spec import OutputSpec
 

@@ -24,7 +24,6 @@ Dataset facts
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from qortex.datasets._base import DatasetCard, SegmentationBundle, _REGISTRY
 from qortex.datasets._cache import dataset_cache_dir
@@ -124,7 +123,7 @@ def load_data(
 
     # Try MONAI first (preferred path)
     try:
-        return _load_via_monai(local_root, split, max_cases, download)
+        return _load_via_monai(local_root, split, max_cases, download, seed)
     except ImportError:
         pass
 
@@ -137,11 +136,11 @@ def _load_via_monai(
     split: str,
     max_cases: int | None,
     download: bool,
+    seed: int,
 ) -> SegmentationBundle:
     """Load via MONAI DecathlonDataset."""
     try:
         from monai.data import DecathlonDataset  # type: ignore[import]
-        from monai.transforms import LoadImaged, EnsureChannelFirstd  # type: ignore[import]
     except ImportError:
         raise ImportError(
             "msd_brain.load_data() via MONAI requires:\n"
@@ -155,7 +154,7 @@ def _load_via_monai(
         task="Task01_BrainTumour",
         section=monai_split,
         download=download,
-        seed=seed if "seed" in _load_via_monai.__code__.co_varnames else 42,
+        seed=seed,
     )
 
     n = len(dataset)

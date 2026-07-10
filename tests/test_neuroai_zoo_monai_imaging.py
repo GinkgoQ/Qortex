@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from qortex.neuroai.models.zoo.registry import list_entries, lookup
-from qortex.neuroai.models.zoo.schema import ZooEntryType
 from qortex.neuroai.models.zoo.validate import validate_registry
 
 _EXPECTED_IDS = {

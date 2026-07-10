@@ -1326,3 +1326,26 @@ written into the artifact? Can the result be reproduced?
 
 Anything that cannot answer these questions does not belong in the
 production zoo.
+
+## 24. Current validation record — 2026-07-10
+
+The current implementation has been validated beyond registry existence:
+
+- Public API, CLI, and installed wheel import paths work.
+- Real OpenNeuro manifest, metadata, event-table, NIfTI-header, catalog,
+  Dataset facade, conversion, EDA/QC, visualization, and decision-workflow
+  scenarios pass through `python test/run_all.py` with 43/43 projects passing.
+- The NeuroAI runtime scenario writes and validates real artifact files:
+  compatibility report, preprocessing plan, provenance, runtime report,
+  predictions CSV/JSONL, marker records, and artifact manifest.
+- The compiler profiles a real OpenNeuro T1w NIfTI header, writes a deterministic
+  execution plan, and `qortex execute` verifies plan hash and source SHA drift.
+- Focused correctness lint over `src/qortex/neuroai`, `src/qortex/cli/app.py`,
+  and NeuroAI tests passes for `F` and `E9` classes.
+- Validation also corrected two concrete implementation defects outside the
+  model-zoo core: readiness type resolution for `LogicalRecording`, and MSD
+  Brain `seed` propagation into the MONAI loading path.
+
+This record does not convert unresolved checkpoint entries into runnable
+entries. Entries without verified checkpoints, executables, licenses, or
+security permission remain non-runnable by design.

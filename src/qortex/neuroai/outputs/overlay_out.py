@@ -256,7 +256,6 @@ def _save_image(arr, path: Path, fmt: str = "png") -> None:
         pass
     try:
         import cv2
-        import numpy as np
         bgr = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
         cv2.imwrite(str(path), bgr)
         return

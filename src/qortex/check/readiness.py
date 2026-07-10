@@ -27,6 +27,7 @@ from pathlib import Path
 
 from qortex.core.entities import (
     LabelPolicy,
+    LogicalRecording,
     Manifest,
     ReadinessFinding,
     ReadinessReport,
@@ -202,7 +203,7 @@ def compute_readiness(
 
 def _check_events_labels(
     path: Path,
-    rec: "LogicalRecording",
+    rec: LogicalRecording,
     policy: LabelPolicy | None,
 ) -> tuple[bool, ReadinessFinding | None]:
     """Check whether an events.tsv has usable labels given an optional LabelPolicy.

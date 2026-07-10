@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Iterator
 
 import numpy as np
 

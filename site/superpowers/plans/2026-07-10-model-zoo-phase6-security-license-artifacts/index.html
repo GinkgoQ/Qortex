@@ -5207,6 +5207,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#real-world-validation-addendum-2026-07-10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Real-world validation addendum — 2026-07-10
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -6092,6 +6103,40 @@ engines, promptable segmentation, and security/license/artifact gates.</p>
 <li>No fake checkpoint resolution.</li>
 <li>No remote manifest or weight download inside compile.</li>
 <li>No model inference during compile.</li>
+</ul>
+<h2 id="real-world-validation-addendum-2026-07-10">Real-world validation addendum — 2026-07-10<a class="headerlink" href="#real-world-validation-addendum-2026-07-10" title="Permanent link">&para;</a></h2>
+<p>Executed after the compiler and Phase 6 hardening work:</p>
+<ul>
+<li>Full scenario harness: <code>python test/run_all.py</code> -&gt; 43 passed, 0 failed.</li>
+<li>Full test suite: <code>python -m pytest tests -q</code> -&gt; 397 passed, 3 warnings.</li>
+<li>NeuroAI test suite: <code>python -m pytest tests/test_neuroai*.py -q</code> -&gt; 219
+  passed, 3 warnings.</li>
+<li>Focused correctness lint: <code>python -m ruff check --select F,E9
+  src/qortex/neuroai src/qortex/cli/app.py tests/test_neuroai*.py</code> -&gt; passed.</li>
+<li>Syntax/import compilation: <code>python -m compileall src/qortex tests</code> -&gt; passed.</li>
+<li>Wheel build: <code>python -m build --wheel --outdir /tmp/qortex-build-realworld</code>
+  -&gt; built <code>qortex-0.1.0-py3-none-any.whl</code>.</li>
+<li>Installed-wheel smoke: fresh venv imported <code>qortex</code>, instantiated
+  <code>Dataset("ds000001")</code>, and compiled a remote segmentation request into 15
+  candidates with a 64-character plan hash.</li>
+<li>Defects fixed during validation: readiness helper type contract now imports
+  <code>LogicalRecording</code>, and the MSD Brain dataset loader now propagates the public
+  <code>seed</code> parameter into the MONAI <code>DecathlonDataset</code> path. The seed propagation
+  has a regression test at the optional MONAI boundary.</li>
+<li>Real OpenNeuro NIfTI compiler workflow: downloaded and compiled
+  <code>sub-16/anat/sub-16_T1w.nii.gz</code>; execution-plan verification passed hash and
+  source-integrity checks. The result remained non-runnable because no verified
+  executable candidate satisfied the current license/checkpoint/security gates.</li>
+</ul>
+<p>Validation interpretation:</p>
+<ul>
+<li>The tested package is operational through its public API, CLI, wheel artifact,
+  real OpenNeuro data paths, scenario harness, and NeuroAI runtime artifact
+  validator.</li>
+<li>Remaining unchecked plan-template boxes above are historical implementation
+  scaffolding, not current runtime failures. Current unresolved product
+  deferrals remain HF pretrained registry support and TotalSegmentator task
+  discovery integration as documented in the design spec.</li>
 </ul>
 
 

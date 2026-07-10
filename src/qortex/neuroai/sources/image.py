@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Iterator
 
 import numpy as np
 
@@ -17,7 +17,6 @@ from qortex.neuroai.contracts import (
     EvidenceStatus,
     QortexVolume,
     SourceProfile,
-    WarningItem,
 )
 from qortex.neuroai.sources._base import SourceAdapter, QortexData
 from qortex.neuroai.spec import SourceSpec, WindowSpec

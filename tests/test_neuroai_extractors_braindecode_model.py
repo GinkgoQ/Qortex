@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from qortex.neuroai.contracts import EvidenceStatus
 from qortex.neuroai.models.extractors.braindecode_model import (
-    ExtractedBraindecodeContract,
     extract_braindecode_contract,
 )
 

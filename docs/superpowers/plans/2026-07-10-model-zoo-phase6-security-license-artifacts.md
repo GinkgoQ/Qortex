@@ -921,3 +921,38 @@ Non-goals intentionally preserved:
 - No fake checkpoint resolution.
 - No remote manifest or weight download inside compile.
 - No model inference during compile.
+
+## Real-world validation addendum — 2026-07-10
+
+Executed after the compiler and Phase 6 hardening work:
+
+- Full scenario harness: `python test/run_all.py` -> 43 passed, 0 failed.
+- Full test suite: `python -m pytest tests -q` -> 397 passed, 3 warnings.
+- NeuroAI test suite: `python -m pytest tests/test_neuroai*.py -q` -> 219
+  passed, 3 warnings.
+- Focused correctness lint: `python -m ruff check --select F,E9
+  src/qortex/neuroai src/qortex/cli/app.py tests/test_neuroai*.py` -> passed.
+- Syntax/import compilation: `python -m compileall src/qortex tests` -> passed.
+- Wheel build: `python -m build --wheel --outdir /tmp/qortex-build-realworld`
+  -> built `qortex-0.1.0-py3-none-any.whl`.
+- Installed-wheel smoke: fresh venv imported `qortex`, instantiated
+  `Dataset("ds000001")`, and compiled a remote segmentation request into 15
+  candidates with a 64-character plan hash.
+- Defects fixed during validation: readiness helper type contract now imports
+  `LogicalRecording`, and the MSD Brain dataset loader now propagates the public
+  `seed` parameter into the MONAI `DecathlonDataset` path. The seed propagation
+  has a regression test at the optional MONAI boundary.
+- Real OpenNeuro NIfTI compiler workflow: downloaded and compiled
+  `sub-16/anat/sub-16_T1w.nii.gz`; execution-plan verification passed hash and
+  source-integrity checks. The result remained non-runnable because no verified
+  executable candidate satisfied the current license/checkpoint/security gates.
+
+Validation interpretation:
+
+- The tested package is operational through its public API, CLI, wheel artifact,
+  real OpenNeuro data paths, scenario harness, and NeuroAI runtime artifact
+  validator.
+- Remaining unchecked plan-template boxes above are historical implementation
+  scaffolding, not current runtime failures. Current unresolved product
+  deferrals remain HF pretrained registry support and TotalSegmentator task
+  discovery integration as documented in the design spec.

@@ -3403,6 +3403,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="How a candidate is scored">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fit-score-and-selected_model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fit score and selected_model
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -3421,6 +3438,17 @@
     <span class="md-ellipsis">
       
         Deterministic plan hash
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#executing-verifying-a-saved-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Executing (verifying) a saved plan
       
     </span>
   </a>
@@ -5380,6 +5408,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="How a candidate is scored">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fit-score-and-selected_model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fit score and selected_model
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -5398,6 +5443,17 @@
     <span class="md-ellipsis">
       
         Deterministic plan hash
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#executing-verifying-a-saved-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Executing (verifying) a saved plan
       
     </span>
   </a>
@@ -5669,9 +5725,10 @@ not resolve OpenNeuro dataset IDs or other catalog references into files (see
 <a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    <span class="n">source_profile</span><span class="p">:</span> <span class="n">SourceProfileSummary</span>
 <a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    <span class="n">evidence_graph</span><span class="p">:</span> <span class="n">EvidenceGraph</span>
 <a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>    <span class="n">acquisition_plan</span><span class="p">:</span> <span class="n">AcquisitionPlan</span>
-<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>    <span class="n">candidates</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ModelCandidate</span><span class="p">]</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>    <span class="n">candidates</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ModelCandidate</span><span class="p">]</span>   <span class="c1"># sorted by fit_score descending</span>
 <a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>    <span class="n">runnable</span><span class="p">:</span> <span class="nb">bool</span>            <span class="c1"># any candidate runnable AND no acquisition blockers</span>
-<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>    <span class="n">plan_hash</span><span class="p">:</span> <span class="nb">str</span>             <span class="c1"># sha256 of the canonical JSON payload</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>    <span class="n">selected_model</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>  <span class="c1"># id of highest-scoring runnable candidate, or None</span>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>    <span class="n">plan_hash</span><span class="p">:</span> <span class="nb">str</span>             <span class="c1"># sha256 of the canonical JSON payload</span>
 </code></pre></div>
 <p><code>SourceProfileSummary</code> carries the real geometry fields:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">source</span><span class="p">:</span> <span class="nb">str</span>
@@ -5690,7 +5747,8 @@ not resolve OpenNeuro dataset IDs or other catalog references into files (see
 <a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a><span class="n">sampling_rate_hz</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span>
 <a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a><span class="n">duration_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span>
 </code></pre></div>
-<p>Each <code>ModelCandidate</code> carries: <code>capability_state</code>, <code>runnable</code>, <code>compatibility</code>
+<p>Each <code>ModelCandidate</code> carries: <code>capability_state</code>, <code>runnable</code>, <code>fit_score</code>
+(0–100), <code>fit_reasons</code> (how the score was derived), <code>compatibility</code>
 (<code>CompatibilityProof</code>), <code>geometry_plan</code> (<code>GeometryPlan</code>), <code>resource_plan</code>
 (<code>ResourcePlan</code>), <code>license_report</code> (<code>LicenseReport</code>), <code>security_report</code>
 (<code>SecurityReport</code>), <code>artifact_contract</code>, <code>repair_options</code>, <code>blockers</code>, and
@@ -5717,39 +5775,94 @@ declares the requested task, in this order:</p>
    executable is resolved with <code>shutil.which</code>; if missing, the candidate is
    blocked with a named <code>install_external_executable</code> repair. Covered by
    <code>test_compile_external_engine_records_missing_executable_requirement</code>.</li>
-<li><strong>Compatibility</strong> (<code>_compatibility</code>). Compares source modality against the
-   model's declared modalities (<code>compatible</code> / <code>incompatible</code> / <code>uncertain</code>),
-   and records the real header-geometry evidence (<code>spatial_shape</code>,
-   <code>voxel_sizes_mm</code>, <code>orientation</code>, <code>n_channels</code>, <code>sampling_rate_hz</code>,
-   <code>duration_s</code>) when present. <code>uncertain</code> — not <code>compatible</code> — is the result
-   whenever the model's input contract evidence status is <code>unknown</code>, even if
-   modality matches.</li>
-<li><strong>Geometry plan</strong> (<code>_geometry_plan</code>). Notes the confirmed source geometry
-   and blocks if an external engine explicitly declares
-   <code>geometry_preservation_known=False</code>.</li>
-<li><strong>Resource plan</strong> (<code>estimate_resource_plan</code>, in <code>resources.py</code>). Estimates
-   VRAM from the model's declared <code>input_contract.spatial_shape</code> when every
-   dimension is resolved and positive; otherwise falls back to the local file
-   size as an <code>inferred</code>-evidence proxy. Blocks if the estimate exceeds
-   <code>--max-vram-gb</code>.</li>
+<li><strong>Compatibility</strong> (<code>_compatibility</code>). Beyond modality, this now evaluates
+   the <strong>real collected header/signal evidence against the model's
+   <code>InputContract</code></strong> and emits specific <code>required_transforms</code>:</li>
+<li><strong>channel count</strong> — source with <em>fewer</em> channels than the model requires
+     is a hard <code>incompatible</code> blocker (missing channels can't be synthesized);
+     <em>more</em> channels yields a <code>select_channels</code> transform;</li>
+<li><strong>sampling rate</strong> mismatch → a <code>resample</code> transform;</li>
+<li><strong>anatomical orientation</strong> mismatch (only when the model axis convention
+     is a 3-letter code like <code>RAS</code>/<code>LAS</code>, not <code>channels_first</code>) → a <code>reorient</code>
+     transform;</li>
+<li><strong>voxel spacing</strong> mismatch → a <code>resample_spatial</code> transform.</li>
 </ol>
+<p>A source that matches natively is <code>compatible</code>; one that matches <em>after</em>
+   these known transforms is <code>compatible_with_transforms</code> (with the concrete
+   transform list attached — each <code>{transform, reason, from, to}</code>); a hard
+   mismatch is <code>incompatible</code>; an unprovable case (unknown source modality or
+   <code>input_contract.evidence_status == unknown</code>) is <code>uncertain</code>. Covered by
+   <code>tests/test_neuroai_compiler_compatibility.py</code>. A <code>compatible_with_transforms</code>
+   candidate is deliberately <strong>not</strong> <code>runnable</code> as-is — the transforms are a
+   real preprocessing prerequisite, so it never becomes <code>selected_model</code> until
+   they are applied.
+5. <strong>Geometry plan</strong> (<code>_geometry_plan</code>). Notes the confirmed source geometry
+   and blocks if an external engine explicitly declares
+   <code>geometry_preservation_known=False</code>.
+6. <strong>Resource plan</strong> (<code>estimate_resource_plan</code>, in <code>resources.py</code>). A
+   sliding-window-aware VRAM model, not a flat multiplier: it estimates the
+   working set from the <strong>ROI patch</strong> the model actually processes per forward
+   pass (a 512³ volume scanned with a 96³ ROI never materializes 512³
+   activations), separates channel from spatial dimensions, adds an
+   input+output patch tensor term, a documented encoder-decoder activation
+   upper-bound factor, a model-provided weights hint (<code>estimated_memory_mb</code>)
+   when the registry has one, and a fixed CUDA-context/framework allowance.
+   Every heuristic term is labelled — <code>evidence_status</code> is <code>confirmed</code> only
+   when the estimate rests on fully-resolved tensor dims. When it must fall
+   back to the local file size, it attaches an explicit caveat that a
+   compressed on-disk size is a poor proxy for in-memory tensor size (rather
+   than silently treating them as equal). Blocks if the estimate exceeds
+   <code>--max-vram-gb</code>. Covered by <code>tests/test_neuroai_compiler_resources.py</code>.</p>
 <p>A candidate's overall <code>capability_state</code> is <code>executable</code> only when it has no
 blockers and its runtime is truly executable. <code>runnable</code> additionally requires
 <code>compatibility.status == "compatible"</code> — so an <code>executable</code>-state candidate can
 still be non-<code>runnable</code> if compatibility is only <code>uncertain</code> (see the real
 example above).</p>
-<h2 id="acquisition-plan">Acquisition plan<a class="headerlink" href="#acquisition-plan" title="Permanent link">&para;</a></h2>
-<p><code>build_acquisition_plan()</code> (in <code>acquisition.py</code>) is intentionally simple today:</p>
+<h3 id="fit-score-and-selected_model">Fit score and <code>selected_model</code><a class="headerlink" href="#fit-score-and-selected_model" title="Permanent link">&para;</a></h3>
+<p>Every candidate carries an explainable, deterministic <code>fit_score</code> (0–100) and a
+<code>fit_reasons</code> list recording exactly how it was computed (<code>_fit_score</code> in
+<code>candidates.py</code>). The score is a pure function of already-typed candidate
+fields — never a hidden heuristic input:</p>
 <ul>
-<li>Local sources (<code>source_type</code> starting with <code>local_</code>) always report
-  <code>required_download=False</code>, <code>estimated_download_gb=0.0</code>,
-  <code>evidence_status="confirmed"</code>.</li>
-<li>Any other source type is treated as needing a download, with
-  <code>estimated_download_gb</code> left <code>None</code> (or based on a locally-known size if one
-  happens to be available) and <code>evidence_status="unknown"</code>. A note is always
-  attached: <em>"Remote source size is not known without manifest inspection; no
-  download is performed by compile."</em> <code>--max-download-gb</code> only blocks when a
-  size estimate actually exists to compare against.</li>
+<li><strong>Base tier</strong> by <code>capability_state</code>: <code>executable</code> 70, <code>requires_local_executable</code>
+  55, <code>plan_only</code> 35, <code>unavailable</code> 10, <code>blocked</code> 0.</li>
+<li><strong>Compatibility adjustment</strong>: <code>compatible</code> +20,
+  <code>compatible_with_transforms</code> +10 (a real match with a concrete preprocessing
+  cost), <code>uncertain</code> +0, <code>incompatible</code> −40.</li>
+<li><strong>Blocker penalty</strong>: −8 per blocker.</li>
+<li><strong>Geometry bonus</strong>: +5 when both the source coordinate frame and the model
+  axis convention are known.</li>
+<li>Clamped to <code>[0, 100]</code>.</li>
+</ul>
+<p>Candidates are sorted by <code>fit_score</code> descending (ties broken by id). The result
+sets <code>selected_model</code> to the id of the highest-scoring <strong>runnable</strong> candidate,
+or <code>None</code> when nothing is runnable — it never forces a selection onto a blocked
+candidate. Verified in <code>tests/test_neuroai_compiler_ranking.py</code>. A real compile
+against a NIfTI whose header geometry matched a MONAI segmentation bundle
+produced <code>selected_model=monai.brats_mri_segmentation</code> at <code>fit_score=95.0</code>
+(<code>70 base + 20 compatible + 5 geometry</code>).</p>
+<h2 id="acquisition-plan">Acquisition plan<a class="headerlink" href="#acquisition-plan" title="Permanent link">&para;</a></h2>
+<p>The acquisition plan reflects the real minimum file set a source needs, using
+Qortex's actual manifest machinery — not a reimplementation:</p>
+<ul>
+<li><strong>Local BIDS directories</strong> are routed through <code>build_local_companion_plan()</code>
+  (in <code>acquisition.py</code>), which walks the tree with Qortex's real BIDS parsers,
+  builds a <code>Manifest</code>, and runs the real <code>ManifestGraph</code> to compute logical
+  recordings and their <strong>companion closure</strong>. The plan reports <code>n_recordings</code>,
+  the full <code>required_files</code> set (primaries + required companions), and the
+  <code>companion_files</code> subset. This correctly pairs EEGLAB <code>.set</code> headers with
+  their <code>.fdt</code> payload (the <code>.fdt</code> is never treated as its own recording, and
+  always appears in <code>required_files</code> alongside its <code>.set</code>), plus
+  <code>channels.tsv</code>, <code>events.tsv</code>, and JSON sidecars. Verified in
+  <code>tests/test_neuroai_compiler_acquisition.py</code>.</li>
+<li><strong>Local single files</strong> report <code>required_download=False</code>,
+  <code>estimated_download_gb=0.0</code>, <code>evidence_status="confirmed"</code>.</li>
+<li><strong>Remote / dataset-id sources</strong> are deliberately not fetched — <code>compile</code> is
+  an offline planner and does no network I/O. They report
+  <code>evidence_status="unknown"</code> with the note <em>"Remote source size is not known
+  without manifest inspection; no download is performed by compile."</em>
+  <code>--max-download-gb</code> only blocks when a real size estimate exists to compare
+  against.</li>
 </ul>
 <h2 id="deterministic-plan-hash">Deterministic plan hash<a class="headerlink" href="#deterministic-plan-hash" title="Permanent link">&para;</a></h2>
 <p><code>CompilationResult.build()</code> serializes <code>request</code>, <code>source_profile</code>,
@@ -5762,20 +5875,47 @@ example above).</p>
 asserts, and it holds across separate process invocations since nothing
 timestamp-dependent feeds the hash (the payload used for hashing excludes
 <code>created_at</code>).</p>
+<h2 id="executing-verifying-a-saved-plan">Executing (verifying) a saved plan<a class="headerlink" href="#executing-verifying-a-saved-plan" title="Permanent link">&para;</a></h2>
+<p>A saved <code>execution-plan.json</code> is not just a report — it can be re-verified
+before anything acts on it, with <code>qortex execute</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>qortex<span class="w"> </span>execute<span class="w"> </span>execution-plan.json<span class="w">          </span><span class="c1"># exits 0 if verified, non-zero otherwise</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>qortex<span class="w"> </span>execute<span class="w"> </span>execution-plan.json<span class="w"> </span>--json<span class="w">    </span><span class="c1"># machine-readable ExecutionVerification</span>
+</code></pre></div>
+<p><code>verify_execution_plan()</code> (in <code>executor.py</code>) performs a fail-closed integrity
+pre-flight — it does <strong>not</strong> itself run model inference (there are no verified
+checkpoints in the zoo yet; that remains <a href="../pipeline/">Pipeline</a>'s job). It
+checks:</p>
+<ul>
+<li><strong><code>plan_hash_matches</code></strong> — recomputes the canonical hash from the loaded plan
+  (reusing the compiler's own <code>serialization.sha256_json</code>, excluding the
+  self-referential <code>plan_hash</code> and the wall-clock <code>created_at</code>) and compares it
+  to the recorded hash. A plan tampered with after saving fails here.</li>
+<li><strong><code>source_integrity</code></strong> — if the source is still a local path, re-hashes it
+  and compares to the <code>source_profile.sha256</code> captured at compile time; a
+  source that changed since compile fails.</li>
+<li><strong><code>license_gate</code> / <code>remote_code_gate</code></strong> — re-runs the real license and
+  remote-code gates for the plan's candidates, honoring the
+  <code>accept_unknown_license_risk</code> / <code>allow_remote_code</code> flags recorded in the
+  plan's <code>request</code>.</li>
+</ul>
+<p><code>verified</code> is <code>True</code> only when the hash matches and no check failed. Verified in
+<code>tests/test_neuroai_execute.py</code> (untampered plan verifies, JSON tamper and
+source drift are both detected, CLI exit codes reflect the verdict).</p>
 <h2 id="known-limitations">Known limitations<a class="headerlink" href="#known-limitations" title="Permanent link">&para;</a></h2>
 <p>Documented honestly, not aspirationally:</p>
 <ul>
-<li><strong>Acquisition planning is not connected to real OpenNeuro manifests.</strong>
-  Remote/catalog sources are reported with <code>evidence_status="unknown"</code> and no
-  real size; there is no manifest fetch, no companion-file closure, and no
-  actual bytes-to-download computation for anything that isn't already a local
-  path.</li>
-<li><strong>There is no model ranking or <code>selected_model</code> field.</strong> <code>candidates</code> is a
-  sorted list (executable candidates first, then by blocker count, then by id)
-  for readability, but the compiler does not pick or recommend a single model.</li>
-<li><strong>There is no <code>qortex execute</code> command.</strong> A saved <code>execution-plan.json</code> is
-  not consumed by any command yet — running a model still means using
-  <a href="../pipeline/">Pipeline</a> directly.</li>
+<li><strong>Remote / dataset-id acquisition is not connected to OpenNeuro manifests.</strong>
+  The real companion-closure planning above applies to <em>local</em> BIDS
+  directories; remote sources are reported with <code>evidence_status="unknown"</code> and
+  no size, because <code>compile</code> performs no network fetch by design.</li>
+<li><strong><code>execute</code> verifies a plan; it does not run inference.</strong> It is the
+  fail-closed integrity gate before execution, not a model runner — the zoo's
+  promptable/generative entries remain <code>checkpoint_unresolved</code> until verified
+  checkpoints and end-to-end fixtures exist.</li>
+<li><strong>The executable-allowlist re-check is not part of <code>execute</code> yet</strong>, because a
+  compiled plan does not record a resolved executable path to re-verify against
+  (the SHA-256 of a resolved executable is captured at external-run time by
+  <code>run_external_segmentation</code>, not at compile time).</li>
 <li><strong>Compatibility checks stay <code>uncertain</code> whenever the model's input contract
   evidence is unknown</strong>, even when header geometry was read successfully from
   the source. The compiler does not infer or guess an unconfirmed contract.</li>

@@ -5788,6 +5788,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#24-current-validation-record-2026-07-10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        24. Current validation record — 2026-07-10
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -6945,6 +6956,27 @@ required? What is unknown? What is unsafe? What is blocked? What will be
 written into the artifact? Can the result be reproduced?</p>
 <p>Anything that cannot answer these questions does not belong in the
 production zoo.</p>
+<h2 id="24-current-validation-record-2026-07-10">24. Current validation record — 2026-07-10<a class="headerlink" href="#24-current-validation-record-2026-07-10" title="Permanent link">&para;</a></h2>
+<p>The current implementation has been validated beyond registry existence:</p>
+<ul>
+<li>Public API, CLI, and installed wheel import paths work.</li>
+<li>Real OpenNeuro manifest, metadata, event-table, NIfTI-header, catalog,
+  Dataset facade, conversion, EDA/QC, visualization, and decision-workflow
+  scenarios pass through <code>python test/run_all.py</code> with 43/43 projects passing.</li>
+<li>The NeuroAI runtime scenario writes and validates real artifact files:
+  compatibility report, preprocessing plan, provenance, runtime report,
+  predictions CSV/JSONL, marker records, and artifact manifest.</li>
+<li>The compiler profiles a real OpenNeuro T1w NIfTI header, writes a deterministic
+  execution plan, and <code>qortex execute</code> verifies plan hash and source SHA drift.</li>
+<li>Focused correctness lint over <code>src/qortex/neuroai</code>, <code>src/qortex/cli/app.py</code>,
+  and NeuroAI tests passes for <code>F</code> and <code>E9</code> classes.</li>
+<li>Validation also corrected two concrete implementation defects outside the
+  model-zoo core: readiness type resolution for <code>LogicalRecording</code>, and MSD
+  Brain <code>seed</code> propagation into the MONAI loading path.</li>
+</ul>
+<p>This record does not convert unresolved checkpoint entries into runnable
+entries. Entries without verified checkpoints, executables, licenses, or
+security permission remain non-runnable by design.</p>
 
 
 

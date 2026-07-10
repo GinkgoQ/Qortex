@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from qortex.neuroai.contracts import EvidenceStatus
 from qortex.neuroai.models.extractors.monai_bundle import (
-    ExtractedMONAIContract,
     extract_monai_contract,
 )
 

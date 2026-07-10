@@ -48,11 +48,6 @@ class UltralyticsAdapter(ModelAdapter):
         model = YOLO(self._spec.id)
         self._task = str(getattr(model, "task", "detect") or "detect")
 
-        try:
-            info = model.info(verbose=False)
-        except Exception:
-            info = {}
-
         return ModelProfile(
             model_id=self._spec.id,
             provider="ultralytics",

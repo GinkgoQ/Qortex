@@ -97,7 +97,6 @@ class COCOOutputAdapter(OutputAdapter):
 
         for det in detections:
             class_name = str(det.get("class_name", "unknown"))
-            class_idx = int(det.get("class_index", 0))
 
             # Register category
             if class_name not in self._category_map:

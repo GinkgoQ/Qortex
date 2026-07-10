@@ -200,7 +200,7 @@ def render_model_zoo_showcase(
     weights are randomly initialised, so the panel is labelled as an
     architecture demo rather than presented as a real classification.
     """
-    from qortex.neuroai.models import list_models, get_model_card
+    from qortex.neuroai.models import list_models
     from qortex.neuroai.models._registry import make_model_adapter
     from qortex.neuroai.models.zoo import backend_availability
     from qortex.neuroai.spec import ModelSpec, RuntimeSpec
@@ -272,10 +272,9 @@ def _save_model_zoo_board(
 ) -> None:
     import matplotlib.pyplot as plt
     from matplotlib import gridspec
-    from matplotlib.patches import FancyBboxPatch
 
     from qortex.visualize.design import (
-        BORDER, CARD_BG, INK, SUBINK, STATUS,
+        INK, SUBINK, STATUS,
         apply_theme, figure_title, section_title, style_table,
     )
 
