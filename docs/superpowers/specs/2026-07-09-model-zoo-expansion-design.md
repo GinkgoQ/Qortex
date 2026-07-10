@@ -53,7 +53,7 @@ same commit as the code it tracks.
 - [x] VISTA3D prompt path
 - [x] MedSAM adapter
 - [x] SAM-Med3D adapter
-- [ ] `prompt-predict` CLI
+- [x] `prompt-predict` CLI
 
 ### Phase 6 — Security, license, and artifacts
 - [ ] License gate (`license.py`)

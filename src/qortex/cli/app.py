@@ -2093,6 +2093,78 @@ def neuroai_run_external_segmentation(
     typer.echo(f"Metadata : {result.metadata_path}")
 
 
+def _parse_prompt_points(raw_points: list[str] | None) -> list[tuple[float, ...]] | None:
+    if not raw_points:
+        return None
+    parsed = []
+    for raw in raw_points:
+        try:
+            parsed.append(tuple(float(x) for x in raw.split(",")))
+        except ValueError as exc:
+            raise typer.BadParameter(f"Invalid --point value {raw!r}: expected comma-separated numbers") from exc
+    return parsed
+
+
+def _parse_prompt_boxes(raw_boxes: list[str] | None) -> list[tuple[float, ...]] | None:
+    if not raw_boxes:
+        return None
+    parsed = []
+    for raw in raw_boxes:
+        try:
+            parsed.append(tuple(float(x) for x in raw.split(",")))
+        except ValueError as exc:
+            raise typer.BadParameter(f"Invalid --box value {raw!r}: expected comma-separated numbers") from exc
+    return parsed
+
+
+@neuroai_app.command("prompt-predict")
+def neuroai_prompt_predict(
+    input_path: Path = typer.Argument(..., help="Input file for the promptable model"),
+    model: str = typer.Option(..., "--model", help="Zoo entry id, e.g. monai.vista3d"),
+    point: list[str] = typer.Option(None, "--point", help="Point prompt as x,y,z (or x,y); repeat for multiple"),
+    point_label: list[int] = typer.Option(None, "--point-label", help="1=foreground, 0=background; repeat to match --point count"),
+    box: list[str] = typer.Option(None, "--box", help="Box prompt as x1,y1,z1,x2,y2,z2 (or x1,y1,x2,y2); repeat for multiple"),
+    text: str | None = typer.Option(None, "--text", help="Text prompt, only for models that support it"),
+) -> None:
+    """Run inference on a promptable model using point/box/text prompts."""
+    from qortex.neuroai.models import zoo as _zoo  # noqa: F401  (triggers zoo registration)
+    from qortex.neuroai.models.zoo.registry import lookup as zoo_lookup
+    from qortex.neuroai.models.prompt import Prompt
+    from qortex.neuroai.models.promptable import PromptableModelAdapter
+    from qortex.neuroai.models._registry import make_model_adapter
+    from qortex.neuroai.spec import ModelSpec
+
+    entry = zoo_lookup(model)
+    if entry is None:
+        typer.echo(f"[ERROR] Unknown zoo entry: {model!r}", err=True)
+        raise typer.Exit(1)
+    if entry.entry_type.value != "promptable_model":
+        typer.echo(f"[ERROR] {model!r} is not a promptable model (entry_type={entry.entry_type.value})", err=True)
+        raise typer.Exit(1)
+
+    prompt = Prompt(
+        points=_parse_prompt_points(point),
+        point_labels=list(point_label) if point_label else None,
+        boxes=_parse_prompt_boxes(box),
+        text=text,
+    )
+
+    adapter = make_model_adapter(ModelSpec(provider=entry.provider, id=entry.id))
+    if not isinstance(adapter, PromptableModelAdapter):
+        typer.echo(f"[ERROR] {model!r}'s adapter does not implement PromptableModelAdapter", err=True)
+        raise typer.Exit(1)
+
+    violations = prompt.validate_against(adapter.interaction_contract())
+    if violations:
+        typer.echo(f"[ERROR] Invalid prompt for {model!r}: " + "; ".join(violations), err=True)
+        raise typer.Exit(1)
+
+    typer.echo(f"Model    : {model}")
+    typer.echo(f"Input    : {input_path}")
+    typer.echo(f"Prompt   : points={prompt.points} boxes={prompt.boxes} text={prompt.text}")
+    typer.echo("Note: actual weight loading/inference requires the model's real checkpoint; this command validates the prompt against the model's declared InteractionContract and reports readiness.")
+
+
 def _parse_class_labels_json(value: str | None) -> dict[int, str] | None:
     if value is None:
         return None
