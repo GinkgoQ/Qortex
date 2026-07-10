@@ -7,14 +7,13 @@ using highdicom, with geometry validation against the source DICOM series.
 from __future__ import annotations
 
 import logging
-import uuid
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
 from qortex.neuroai.models._base import ModelOutput
-from qortex.neuroai.outputs._base import OutputAdapter
+from qortex.neuroai.outputs._base import OutputAdapter, OutputAdapterError
 
 log = logging.getLogger(__name__)
 
@@ -63,13 +62,12 @@ class DICOMSEGOutputAdapter(OutputAdapter):
 
     def write(self, output: ModelOutput, metadata: dict[str, Any] | None = None) -> None:
         hd = _require_highdicom()
-        pydicom = _require_pydicom()
+        _require_pydicom()
         meta = metadata or {}
 
         mask = output.mask
         if mask is None:
-            log.warning("DICOMSEGOutputAdapter.write(): output has no mask — skipping")
-            return
+            raise OutputAdapterError("DICOM SEG output requires a segmentation mask.")
 
         mask_arr = np.array(mask)
         if mask_arr.ndim == 2:
@@ -81,9 +79,10 @@ class DICOMSEGOutputAdapter(OutputAdapter):
             expected_h = int(self._source_datasets[0].Rows)
             expected_w = int(self._source_datasets[0].Columns)
             if mask_arr.shape != (expected_slices, expected_h, expected_w):
-                log.warning(
-                    "DICOMSEGOutputAdapter: mask shape %s does not match source series %s",
-                    mask_arr.shape, (expected_slices, expected_h, expected_w),
+                raise OutputAdapterError(
+                    "DICOM SEG geometry mismatch: "
+                    f"mask shape {mask_arr.shape} does not match source series "
+                    f"{(expected_slices, expected_h, expected_w)}."
                 )
 
         class_name = output.class_name or meta.get("class_name", "Segmentation")
@@ -121,16 +120,11 @@ class DICOMSEGOutputAdapter(OutputAdapter):
             )
 
         except Exception as exc:
-            log.warning(
-                "DICOM SEG creation failed (highdicom API mismatch?): %s — "
-                "writing raw mask as fallback",
-                exc,
-            )
-            self._write_fallback(mask_arr, meta)
-            return
+            raise OutputAdapterError(f"DICOM SEG creation failed: {exc}") from exc
 
         out_path = self._out_path()
         seg.save_as(str(out_path))
+        _validate_written_dicom(out_path, expected_modality="SEG")
         self._n_written += 1
         log.info("DICOM SEG saved: %s", out_path.name)
 
@@ -147,15 +141,6 @@ class DICOMSEGOutputAdapter(OutputAdapter):
             return self._path.parent / f"{stem}_{self._n_written:04d}.dcm"
         return self._path / f"seg_{self._n_written:04d}.dcm"
 
-    def _write_fallback(self, mask_arr: np.ndarray, meta: dict) -> None:
-        """Write mask as a plain NumPy file when highdicom fails."""
-        import numpy as np
-        out = self._out_path().with_suffix(".npy")
-        np.save(str(out), mask_arr)
-        self._n_written += 1
-        log.info("DICOM SEG fallback: mask saved as %s", out.name)
-
-
 def _load_source_series(folder: Path) -> list:
     try:
         import pydicom
@@ -171,6 +156,19 @@ def _load_source_series(folder: Path) -> list:
         return sorted(datasets, key=_sort_key)
     except Exception:
         return []
+
+
+def _validate_written_dicom(path: Path, *, expected_modality: str) -> None:
+    pydicom = _require_pydicom()
+    try:
+        dataset = pydicom.dcmread(str(path), stop_before_pixels=True)
+    except Exception as exc:
+        raise OutputAdapterError(f"Cannot reopen written DICOM output {path}: {exc}") from exc
+    modality = getattr(dataset, "Modality", None)
+    if modality != expected_modality:
+        raise OutputAdapterError(
+            f"Written DICOM output modality is {modality!r}; expected {expected_modality!r}."
+        )
 
 
 def _require_highdicom():

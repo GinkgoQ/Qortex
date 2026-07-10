@@ -11,7 +11,9 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+import tempfile
 from typing import Any
+import zipfile
 
 import numpy as np
 
@@ -130,7 +132,13 @@ class MONAIBundleAdapter(ModelAdapter):
                 state = torch.load(str(model_pt), map_location=self._device, weights_only=True)
                 if "state_dict" in state:
                     state = state["state_dict"]
-                self._model.load_state_dict(state, strict=False)
+                result = self._model.load_state_dict(state, strict=False)
+                if result.missing_keys or result.unexpected_keys:
+                    raise ModelAdapterError(
+                        "MONAI bundle state_dict mismatch: "
+                        f"missing={list(result.missing_keys)!r}, "
+                        f"unexpected={list(result.unexpected_keys)!r}"
+                    )
             self._model.eval()
             self._model.to(self._device)
         except Exception as exc:
@@ -149,7 +157,9 @@ class MONAIBundleAdapter(ModelAdapter):
         import torch
         monai = _require_monai()
 
-        if isinstance(batch, np.ndarray):
+        if isinstance(batch, torch.Tensor):
+            x = batch.to(self._device)
+        elif isinstance(batch, np.ndarray):
             x = torch.from_numpy(batch.astype(np.float32)).to(self._device)
         elif hasattr(batch, "data"):
             x = torch.from_numpy(np.array(batch.data, dtype=np.float32)).to(self._device)
@@ -162,16 +172,13 @@ class MONAIBundleAdapter(ModelAdapter):
             x = x.unsqueeze(0)  # [C,Z,Y,X] → [1,C,Z,Y,X]
 
         with torch.no_grad():
-            try:
-                out = monai.inferers.sliding_window_inference(
-                    x,
-                    roi_size=self._inference_settings.get("roi_size"),
-                    sw_batch_size=int(self._inference_settings.get("sw_batch_size", 1)),
-                    predictor=self._model,
-                    overlap=float(self._inference_settings.get("overlap", 0.25)),
-                )
-            except Exception:
-                out = self._model(x)
+            out = monai.inferers.sliding_window_inference(
+                x,
+                roi_size=self._inference_settings.get("roi_size"),
+                sw_batch_size=int(self._inference_settings.get("sw_batch_size", 1)),
+                predictor=self._model,
+                overlap=float(self._inference_settings.get("overlap", 0.25)),
+            )
 
         out = _apply_monai_postprocess(out, self._inference_settings)
         raw = out.cpu().numpy()
@@ -209,10 +216,8 @@ class MONAIBundleAdapter(ModelAdapter):
         if candidate.exists() and candidate.is_dir():
             self._bundle_dir = candidate
         elif candidate.exists() and candidate.suffix == ".zip":
-            import tempfile, zipfile
             tmp = Path(tempfile.mkdtemp(prefix="qortex_monai_"))
-            with zipfile.ZipFile(candidate) as zf:
-                zf.extractall(tmp)
+            _safe_extract_zip(candidate, tmp)
             inner = [d for d in tmp.iterdir() if d.is_dir()]
             self._bundle_dir = inner[0] if inner else tmp
         else:
@@ -282,13 +287,12 @@ class VISTA3DAdapter(MONAIBundleAdapter, PromptableModelAdapter):
             raise ModelAdapterError(
                 "VISTA3D prompt is invalid: " + "; ".join(violations)
             )
-        prompt_batch = {
-            "image": batch,
-            "point_coords": prompt.points,
-            "point_labels": prompt.point_labels,
-            "box": prompt.boxes,
-        }
-        return MONAIBundleAdapter.predict(self, prompt_batch)
+        raise ModelAdapterError(
+            "VISTA3D prompted inference is not executable in Qortex yet: "
+            "the MONAI bundle-specific prompt transforms and coordinate "
+            "restoration path are not wired. Use automatic mode only after "
+            "the bundle has passed compatibility validation."
+        )
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -323,13 +327,26 @@ def _detect_modality(metadata: dict) -> str:
 
 
 def _load_json(path: Path) -> dict:
-    try:
-        if path.exists():
-            with path.open() as f:
-                return json.load(f)
-    except Exception:
-        pass
+    if path.exists():
+        try:
+            with path.open(encoding="utf-8") as f:
+                data = json.load(f)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Malformed JSON in MONAI bundle config {path}: {exc}") from exc
+        if not isinstance(data, dict):
+            raise ValueError(f"MONAI bundle config {path} must contain a JSON object")
+        return data
     return {}
+
+
+def _safe_extract_zip(archive: Path, destination: Path) -> None:
+    destination = destination.resolve()
+    with zipfile.ZipFile(archive) as zf:
+        for member in zf.infolist():
+            target = (destination / member.filename).resolve()
+            if target != destination and destination not in target.parents:
+                raise ValueError(f"MONAI bundle ZIP contains unsafe path: {member.filename!r}")
+        zf.extractall(destination)
 
 
 def _parse_inference_settings(

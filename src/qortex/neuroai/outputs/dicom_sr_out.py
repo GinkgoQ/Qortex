@@ -7,12 +7,11 @@ Report DICOM SR objects using highdicom.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from qortex.neuroai.models._base import ModelOutput
-from qortex.neuroai.outputs._base import OutputAdapter
+from qortex.neuroai.outputs._base import OutputAdapter, OutputAdapterError
 
 log = logging.getLogger(__name__)
 
@@ -51,8 +50,6 @@ class DICOMSROutputAdapter(OutputAdapter):
 
     def write(self, output: ModelOutput, metadata: dict[str, Any] | None = None) -> None:
         hd = _require_highdicom()
-        meta = metadata or {}
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
 
         try:
             # Build a minimal TID 1500 measurement report
@@ -85,16 +82,11 @@ class DICOMSROutputAdapter(OutputAdapter):
             )
 
         except Exception as exc:
-            log.warning(
-                "DICOM SR creation failed (highdicom API mismatch?): %s — "
-                "falling back to JSON",
-                exc,
-            )
-            self._write_json_fallback(output, meta, timestamp)
-            return
+            raise OutputAdapterError(f"DICOM SR creation failed: {exc}") from exc
 
         out_path = self._out_path()
         sr.save_as(str(out_path))
+        _validate_written_dicom(out_path, expected_modality="SR")
         self._n_written += 1
         log.info("DICOM SR saved: %s", out_path.name)
 
@@ -111,24 +103,6 @@ class DICOMSROutputAdapter(OutputAdapter):
             return self._path.parent / f"{stem}_{self._n_written:04d}.dcm"
         return self._path / f"sr_{self._n_written:04d}.dcm"
 
-    def _write_json_fallback(self, output: ModelOutput, meta: dict, timestamp: str) -> None:
-        import json
-        data = {
-            "type": "DICOM_SR_fallback",
-            "timestamp": timestamp,
-            "pipeline_ref": self._pipeline_ref,
-            "output_type": output.output_type,
-            "class_name": output.class_name,
-            "class_index": output.class_index,
-            "probabilities": output.probabilities,
-            "source_id": meta.get("source_id"),
-            "model_id": meta.get("model_id"),
-        }
-        out = self._out_path().with_suffix(".json")
-        out.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        self._n_written += 1
-
-
 def _require_highdicom():
     try:
         import highdicom as hd
@@ -137,4 +111,28 @@ def _require_highdicom():
         raise ImportError(
             "DICOM SR output requires highdicom. "
             "Install with: pip install 'qortex[dicom]' or pip install highdicom"
+        )
+
+
+def _require_pydicom():
+    try:
+        import pydicom
+        return pydicom
+    except ImportError:
+        raise ImportError(
+            "DICOM SR output requires pydicom. "
+            "Install with: pip install 'qortex[dicom]' or pip install pydicom"
+        )
+
+
+def _validate_written_dicom(path: Path, *, expected_modality: str) -> None:
+    pydicom = _require_pydicom()
+    try:
+        dataset = pydicom.dcmread(str(path), stop_before_pixels=True)
+    except Exception as exc:
+        raise OutputAdapterError(f"Cannot reopen written DICOM output {path}: {exc}") from exc
+    modality = getattr(dataset, "Modality", None)
+    if modality != expected_modality:
+        raise OutputAdapterError(
+            f"Written DICOM output modality is {modality!r}; expected {expected_modality!r}."
         )

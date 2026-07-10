@@ -85,7 +85,7 @@ def register_all() -> None:
         ),
         license=_unlicensed(),
         evidence_status=EvidenceStatus.confirmed,
-        qortex_status="runnable_after_contract_validation",
+        qortex_status="checkpoint_unresolved",
         priority="P0",
         notes=[
             "Foundation-style 3D CT segmentation and annotation.",
@@ -94,7 +94,9 @@ def register_all() -> None:
             "Phase 5 (promptable segmentation): upgraded to entry_type="
             "promptable_model with provider=vista3d (dedicated VISTA3DAdapter) "
             "and a confirmed InteractionContract (point/box prompts, automatic "
-            "mode supported) — see models/monai.py VISTA3DAdapter.",
+            "mode supported) — see models/monai.py VISTA3DAdapter. Runtime "
+            "prompted inference remains checkpoint/workflow-unresolved and is "
+            "not production-executable yet.",
         ],
     ))
 

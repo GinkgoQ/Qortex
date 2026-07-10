@@ -5,10 +5,11 @@ real, documented interface supports text prompts or automatic
 
 Pretrained checkpoint ids are not registered here (same deferral
 rationale as zoo/braindecode_eeg.py): no specific, confirmed HF/GitHub
-checkpoint download URL is verified offline in this environment. The
-adapter (models/sam_adapters.py) is ready to load a real checkpoint the
-moment one is confirmed and wired in -- this is a registry-metadata
-deferral, not a missing capability.
+checkpoint download URL is verified offline in this environment. These
+entries therefore stay ``qortex_status="checkpoint_unresolved"`` and must
+not be treated as production-executable models until a checkpoint resolver,
+hash verification, preprocessing path, and end-to-end inference fixture are
+wired.
 """
 
 from __future__ import annotations
@@ -60,7 +61,7 @@ def register_all() -> None:
         interaction_contract=_point_box_contract(),
         license=_unlicensed(),
         evidence_status=EvidenceStatus.confirmed,
-        qortex_status="runnable_after_contract_validation",
+        qortex_status="checkpoint_unresolved",
         priority="P0",
     ))
     register(ZooEntry(
@@ -78,7 +79,7 @@ def register_all() -> None:
         interaction_contract=_point_box_contract(),
         license=_unlicensed(),
         evidence_status=EvidenceStatus.confirmed,
-        qortex_status="runnable_after_contract_validation",
+        qortex_status="checkpoint_unresolved",
         priority="P0",
         notes=[
             "Trained on 22K 3D images with 143K masks per arXiv:2310.15161 "

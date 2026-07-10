@@ -63,7 +63,18 @@ same commit as the code it tracks.
 - [x] Geometry ledger requirement — Implemented as file-level provenance (existence, size, sha256) in `model_zoo_entry.json`; NIfTI header-level geometry (shape/affine/voxel spacing) deferred because it would require adding `nibabel`, not currently a dependency.
 - [x] Synthetic-data notice for generative models
 
-**Model Zoo expansion (Phases 1-6): complete.**
+**Model Zoo expansion (Phases 1-6): registry/security/artifact phase complete.**
+
+Post-review hardening completed after the MONAI comparison:
+
+- Promptable foundation entries with unresolved checkpoints now use
+  `qortex_status="checkpoint_unresolved"` and are not runtime-executable
+  claims.
+- DICOM SEG/SR output adapters fail closed instead of writing `.npy`/JSON
+  fallbacks under DICOM output types.
+- MONAI bundle loading rejects unsafe ZIP paths, malformed JSON configs,
+  state-dict mismatches, and sliding-window inference failures instead of
+  silently falling back.
 
 ### Registry entries implemented so far
 
@@ -73,7 +84,7 @@ _(append one line per entry the moment it's registered and offline-validated —
 - `braindecode.EEGNet` — provider `braindecode`, entry_type `model` (Phase 1 seed)
 - `external.totalsegmentator` — provider `external_cli`, entry_type `external_engine` (Phase 1 seed)
 - `monai.wholeBrainSeg_Large_UNEST_segmentation` — provider `monai`, entry_type `model` (Phase 2)
-- `monai.vista3d` — provider `vista3d`, entry_type `promptable_model` (Phase 2, upgraded Phase 5 with `VISTA3DAdapter` and a confirmed `InteractionContract` for point/box prompts + automatic mode)
+- `monai.vista3d` — provider `vista3d`, entry_type `promptable_model` (Phase 2, upgraded Phase 5 with `VISTA3DAdapter` and a confirmed `InteractionContract` for point/box prompts + automatic mode; `qortex_status="checkpoint_unresolved"` until bundle-specific prompted inference and geometry restoration are wired)
 - `monai.swin_unetr_btcv_segmentation` — provider `monai`, entry_type `model` (Phase 2)
 - `monai.wholeBody_ct_segmentation` — provider `monai`, entry_type `model` (Phase 2)
 - `monai.spleen_ct_segmentation` — provider `monai`, entry_type `model` (Phase 2)
@@ -108,8 +119,8 @@ _(append one line per entry the moment it's registered and offline-validated —
 - `external.hdbet` — provider `external_cli`, entry_type `external_engine` (Phase 4)
 - `external.fastsurfer` — provider `external_cli`, entry_type `external_engine` (Phase 4)
 - `external.tractseg` — provider `external_cli`, entry_type `external_engine` (Phase 4)
-- `foundation.medsam` — provider `medsam`, entry_type `promptable_model` (Phase 5, point/box prompts only, `MedSAMAdapter`)
-- `foundation.sam_med3d` — provider `sam_med3d`, entry_type `promptable_model` (Phase 5, point/box prompts only, `SAMMed3DAdapter`)
+- `foundation.medsam` — provider `medsam`, entry_type `promptable_model` (Phase 5, point/box prompts only, `MedSAMAdapter`; `qortex_status="checkpoint_unresolved"` until a verified checkpoint resolver and real inference fixture exist)
+- `foundation.sam_med3d` — provider `sam_med3d`, entry_type `promptable_model` (Phase 5, point/box prompts only, `SAMMed3DAdapter`; `qortex_status="checkpoint_unresolved"` until a verified checkpoint resolver and real inference fixture exist)
 
 ---
 
@@ -763,6 +774,13 @@ capabilities:
 MedSAM and SAM-Med3D should use direct promptable adapters, not generic
 Hugging Face pipelines, unless the specific checkpoint is exposed through a
 stable HF-compatible interface.
+
+Current implementation status: these three promptable entries are
+contract-inspectable but not production-executable. Their
+`InteractionContract` is usable for validation and model selection, but
+runtime prompted inference remains blocked until Qortex has verified
+checkpoint resolution, preprocessing, prompt-coordinate transforms, output
+geometry restoration, and real end-to-end fixtures.
 
 ### 12.5 P1 MONAI generative bundles
 

@@ -27,6 +27,29 @@ writes one JSON file per run) rather than inventing a new mechanism.
 **Tech Stack:** Python 3.10+ stdlib (`hashlib`, `json`), Pydantic (optional,
 `_PYDANTIC` fallback), pytest, Typer.
 
+## Post-review hardening addendum
+
+The MONAI comparison review found additional P0 correctness gaps beyond the
+original Phase 6 checklist. The implemented corrections are:
+
+- `src/qortex/neuroai/models/zoo/status.py` normalizes `qortex_status` so
+  unresolved promptable checkpoints do not read as executable support.
+- `monai.vista3d`, `foundation.medsam`, and `foundation.sam_med3d` are now
+  `checkpoint_unresolved` until real checkpoint loading, prompt transforms,
+  and end-to-end fixtures exist.
+- `src/qortex/neuroai/outputs/dicom_seg_out.py` and
+  `src/qortex/neuroai/outputs/dicom_sr_out.py` fail closed: no `.npy` or JSON
+  fallback is written under DICOM output types, geometry mismatch raises, and
+  written DICOM files are reopened for modality validation.
+- `src/qortex/neuroai/models/monai.py` rejects unsafe ZIP members, malformed
+  bundle JSON, state-dict mismatches, and sliding-window inference failures
+  instead of hiding them behind broad fallback behavior.
+
+Remaining P0 work is not closed by this addendum: full MONAI bundle workflow
+execution, source-space geometry inversion, real promptable checkpoint
+fixtures, TotalSegmentator task discovery, and full medical evaluation/training
+systems require separate implementation phases.
+
 ## Global Constraints
 
 - Design spec: `docs/superpowers/specs/2026-07-09-model-zoo-expansion-design.md`

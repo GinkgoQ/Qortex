@@ -5,7 +5,14 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
+from qortex.core.exceptions import QortexError
 from qortex.neuroai.models._base import ModelOutput
+
+
+class OutputAdapterError(QortexError):
+    """Raised when an output adapter cannot write the requested format."""
+
+    default_code = "neuroai.output_adapter_error"
 
 
 class OutputAdapter(ABC):
@@ -64,3 +71,6 @@ class OutputAdapter(ABC):
 
     def __exit__(self, *args) -> None:
         self.close()
+
+
+__all__ = ["OutputAdapter", "OutputAdapterError"]
