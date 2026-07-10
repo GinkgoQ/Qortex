@@ -671,9 +671,22 @@ def convert(
     manifest_dir = data_dir / ".qortex"
     try:
         manifest = load_manifest(manifest_dir)
-    except Exception as e:
-        typer.echo(f"Cannot load manifest from {manifest_dir}: {e}", err=True)
-        raise typer.Exit(1)
+    except Exception as manifest_error:
+        from qortex import Dataset
+        from qortex.plan.lock import LockFile
+
+        lock = LockFile.load(manifest_dir / "download.lock.yaml")
+        if not lock.dataset_id:
+            typer.echo(
+                f"Cannot load manifest from {manifest_dir}: {manifest_error}",
+                err=True,
+            )
+            raise typer.Exit(1)
+        manifest = Dataset(
+            lock.dataset_id,
+            snapshot=lock.snapshot,
+            data_dir=data_dir,
+        ).manifest()
 
     win_spec = (
         WindowSpec(duration_s=window_duration, overlap=window_overlap)
@@ -2959,3 +2972,7 @@ def nc_cohort_anomalies(
     if output:
         output.write_text(json.dumps(cohort.to_dict(), indent=2))
         typer.echo(f"\nReport written to {output}")
+
+
+if __name__ == "__main__":
+    app()

@@ -30,6 +30,7 @@ from typing import Iterator
 from qortex.core.entities import (
     ArtifactManifest,
     ConversionResult,
+    FileRecord,
     Manifest,
     SampleRecord,
 )
@@ -45,10 +46,32 @@ log = logging.getLogger(__name__)
 @dataclass
 class _LoadStats:
     n_loaded: int = 0
+    n_skipped_metadata: int = 0
     n_skipped_no_loader: int = 0
     n_skipped_missing: int = 0
     n_failed: int = 0
     failed_files: list[str] = field(default_factory=list)
+
+
+_NON_SAMPLE_BIDS_SUFFIXES = frozenset({
+    "participants",
+    "sessions",
+    "scans",
+    "channels",
+    "electrodes",
+    "coordsystem",
+})
+
+
+def _is_non_sample_metadata_file(file_rec: FileRecord) -> bool:
+    """Return True for BIDS metadata tables that must not become ML samples."""
+    if file_rec.is_essential:
+        return True
+    if file_rec.suffix in _NON_SAMPLE_BIDS_SUFFIXES:
+        return True
+    if file_rec.filename in {"participants.tsv", "participants.json", "sessions.tsv"}:
+        return True
+    return False
 
 
 class ConversionPipeline:
@@ -351,6 +374,11 @@ class ConversionPipeline:
         """Stream SampleRecords from all loadable files in the manifest."""
         for file_rec in self.manifest.files:
             if file_rec.is_dir:
+                continue
+
+            if _is_non_sample_metadata_file(file_rec):
+                self._stats.n_skipped_metadata += 1
+                log.debug("Skipping BIDS metadata file during conversion: %s", file_rec.path)
                 continue
 
             local_path = self.data_dir / file_rec.path

@@ -128,6 +128,16 @@ class LockFile:
     def path(self) -> Path:
         return self._path
 
+    @property
+    def dataset_id(self) -> str | None:
+        value = self._data.get("dataset_id")
+        return str(value) if value else None
+
+    @property
+    def snapshot(self) -> str | None:
+        value = self._data.get("snapshot")
+        return str(value) if value else None
+
     # ── Summary ───────────────────────────────────────────────────────────
 
     def status_counts(self) -> dict[str, int]:

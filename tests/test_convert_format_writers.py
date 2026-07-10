@@ -13,7 +13,8 @@ import pytest
 from qortex.convert.formats.hdf5 import HDF5Writer
 from qortex.convert.formats.huggingface import HuggingFaceWriter
 from qortex.convert.formats.webdataset import WebDatasetWriter
-from qortex.core.entities import SampleRecord
+from qortex.convert.pipeline import ConversionPipeline
+from qortex.core.entities import BIDSEntities, FileRecord, Manifest, ManifestSummary, SampleRecord
 
 
 def _samples() -> list[SampleRecord]:
@@ -84,3 +85,88 @@ def test_huggingface_writer_roundtrip(tmp_path: Path):
     assert ds[1]["label_name"] == "class-1"
     np.testing.assert_array_equal(np.asarray(ds[0]["signal"], dtype=np.float32), _samples()[0].data)
     assert json.loads((out / "qortex_metadata.json").read_text()) == {"dataset_id": "ds-test"}
+
+
+def test_conversion_pipeline_does_not_convert_bids_metadata_tables(tmp_path: Path):
+    data_dir = tmp_path / "bids"
+    func_dir = data_dir / "sub-01" / "func"
+    eeg_dir = data_dir / "sub-01" / "eeg"
+    func_dir.mkdir(parents=True)
+    eeg_dir.mkdir(parents=True)
+
+    (data_dir / "participants.tsv").write_text(
+        "participant_id\tage\nsub-01\t31\nsub-02\t29\n",
+        encoding="utf-8",
+    )
+    (func_dir / "sub-01_task-risk_run-01_events.tsv").write_text(
+        "onset\tduration\ttrial_type\tresponse_time\n0.0\t1.0\tgain\t0.4\n2.0\t1.0\tloss\t0.5\n",
+        encoding="utf-8",
+    )
+    (eeg_dir / "sub-01_task-risk_channels.tsv").write_text(
+        "name\ttype\nCz\tEEG\nPz\tEEG\n",
+        encoding="utf-8",
+    )
+
+    files = [
+        FileRecord(
+            id="participants",
+            path="participants.tsv",
+            filename="participants.tsv",
+            extension=".tsv",
+            suffix="participants",
+            modality="behavior",
+            size=(data_dir / "participants.tsv").stat().st_size,
+        ),
+        FileRecord(
+            id="events",
+            path="sub-01/func/sub-01_task-risk_run-01_events.tsv",
+            filename="sub-01_task-risk_run-01_events.tsv",
+            extension=".tsv",
+            datatype="func",
+            suffix="events",
+            modality="behavior",
+            size=(func_dir / "sub-01_task-risk_run-01_events.tsv").stat().st_size,
+            entities=BIDSEntities(subject="01", task="risk", run="01"),
+        ),
+        FileRecord(
+            id="channels",
+            path="sub-01/eeg/sub-01_task-risk_channels.tsv",
+            filename="sub-01_task-risk_channels.tsv",
+            extension=".tsv",
+            datatype="eeg",
+            suffix="channels",
+            modality="behavior",
+            size=(eeg_dir / "sub-01_task-risk_channels.tsv").stat().st_size,
+            entities=BIDSEntities(subject="01", task="risk"),
+        ),
+    ]
+    manifest = Manifest(
+        dataset_id="ds-test",
+        snapshot="1.0.0",
+        files=files,
+        summary=ManifestSummary(
+            subjects=["01"],
+            tasks=["risk"],
+            modalities=["behavior"],
+            datatypes=["func", "eeg"],
+            suffixes=["participants", "events", "channels"],
+            file_count=len(files),
+            has_events=True,
+            has_participants_tsv=True,
+        ),
+    )
+
+    result = ConversionPipeline(
+        manifest=manifest,
+        data_dir=data_dir,
+        output_dir=tmp_path / "converted",
+        output_format="parquet",
+        shard_size=10,
+    ).run()
+
+    assert result.n_samples == 2
+    assert result.n_subjects == 1
+    assert result.warnings == []
+    assert result.artifact_manifest.source_files == [
+        "sub-01/func/sub-01_task-risk_run-01_events.tsv"
+    ]
