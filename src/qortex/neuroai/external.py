@@ -8,17 +8,19 @@ that can be passed to NeuroAI output adapters or showcase rendering.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+import hashlib
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import time
-from typing import Any, Literal, Sequence
+from collections.abc import Sequence
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Literal
 
-from qortex.core.exceptions import QortexError
+from qortex.core.exceptions import ModelAdapterError, QortexError
 
 ExternalSegmentationEngine = Literal[
     "totalsegmentator", "nnunet", "synthseg", "synthstrip", "hdbet",
@@ -97,6 +99,13 @@ def run_external_segmentation(request: ExternalSegmentationRequest) -> ExternalS
     output_path = Path(request.output_path).expanduser().resolve()
     _validate_external_request(request, image_path, output_path)
     command = _build_external_command(request, image_path, output_path)
+    zoo_entry = _lookup_external_zoo_entry(request.engine)
+    if zoo_entry is not None:
+        try:
+            from qortex.neuroai.models.security import check_executable_allowlist
+            check_executable_allowlist(zoo_entry, command[0])
+        except ModelAdapterError as exc:
+            raise ExternalSegmentationError(str(exc)) from exc
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     started = datetime.now(timezone.utc)
@@ -131,6 +140,8 @@ def run_external_segmentation(request: ExternalSegmentationRequest) -> ExternalS
         metadata_path=_metadata_path_for_output(output_path),
     )
     result.metadata_path.write_text(json.dumps(result.to_dict(), indent=2, sort_keys=True), encoding="utf-8")
+    if zoo_entry is not None:
+        _write_zoo_provenance(result.metadata_path, zoo_entry, image_path, output_path)
 
     if completed.returncode != 0:
         raise ExternalSegmentationError(
@@ -360,6 +371,49 @@ def _metadata_path_for_output(output_path: Path) -> Path:
         return output_path / "qortex_external_segmentation.json"
     suffix = output_path.suffix or ".out"
     return output_path.with_suffix(suffix + ".qortex.json")
+
+
+def _lookup_external_zoo_entry(engine: str):
+    from qortex.neuroai.models import zoo as _zoo  # noqa: F401
+    from qortex.neuroai.models.zoo.registry import lookup
+
+    return lookup(f"external.{engine}")
+
+
+def _file_facts(path: Path) -> dict[str, Any]:
+    facts: dict[str, Any] = {
+        "path": str(path),
+        "exists": path.exists(),
+        "is_file": path.is_file(),
+        "size_bytes": None,
+        "sha256": None,
+    }
+    if path.is_file():
+        facts["size_bytes"] = path.stat().st_size
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        facts["sha256"] = digest.hexdigest()
+    return facts
+
+
+def _write_zoo_provenance(metadata_path: Path, zoo_entry: Any, image_path: Path, output_path: Path) -> None:
+    provenance_path = metadata_path.with_name(metadata_path.name + ".model_zoo_entry.json")
+    payload = {
+        "zoo_entry_id": zoo_entry.id,
+        "provider": zoo_entry.provider,
+        "source_url": zoo_entry.source_url,
+        "license_evidence_status": zoo_entry.license.evidence_status.value,
+        "security_executable_names": list(zoo_entry.security.executable_names),
+        "geometry_ledger": {
+            "scope": "file_level",
+            "note": "Records existence, size, and sha256 only; NIfTI header geometry is not parsed.",
+            "input": _file_facts(image_path),
+            "output": _file_facts(output_path),
+        },
+    }
+    provenance_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 
 
 __all__ = [

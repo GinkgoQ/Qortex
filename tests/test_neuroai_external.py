@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -324,3 +325,61 @@ def test_cli_accepts_synthseg_engine_name(tmp_path: Path, monkeypatch: pytest.Mo
     )
 
     assert result.exit_code == 0, result.output
+
+
+def test_run_totalsegmentator_writes_zoo_provenance_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from qortex.neuroai.models import zoo as _zoo  # noqa: F401
+
+    _write_executable(
+        tmp_path / "TotalSegmentator",
+        """#!/usr/bin/env bash
+set -euo pipefail
+out=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o) out="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+printf 'mask' > "$out"
+""",
+    )
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ.get('PATH', '')}")
+    image = tmp_path / "image.nii.gz"
+    image.write_text("image", encoding="utf-8")
+    output = tmp_path / "mask.nii.gz"
+
+    result = run_external_segmentation(
+        ExternalSegmentationRequest(engine="totalsegmentator", image_path=image, output_path=output, task="total")
+    )
+
+    provenance_path = result.metadata_path.with_name(result.metadata_path.name + ".model_zoo_entry.json")
+    assert provenance_path.exists()
+    payload = json.loads(provenance_path.read_text(encoding="utf-8"))
+    assert payload["zoo_entry_id"] == "external.totalsegmentator"
+    assert payload["provider"] == "external_cli"
+    assert payload["geometry_ledger"]["input"]["sha256"] is not None
+    assert payload["geometry_ledger"]["output"]["sha256"] is not None
+
+
+def test_run_external_segmentation_enforces_executable_allowlist(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from qortex.neuroai.models import zoo as _zoo  # noqa: F401
+
+    fake = tmp_path / "not_totalsegmentator"
+    _write_executable(fake, "#!/usr/bin/env bash\nexit 0\n")
+    monkeypatch.setattr("shutil.which", lambda name: str(fake) if name == "TotalSegmentator" else None)
+    image = tmp_path / "image.nii.gz"
+    image.write_text("image", encoding="utf-8")
+
+    with pytest.raises(ExternalSegmentationError, match="executable"):
+        run_external_segmentation(
+            ExternalSegmentationRequest(
+                engine="totalsegmentator",
+                image_path=image,
+                output_path=tmp_path / "mask.nii.gz",
+                task="total",
+            )
+        )

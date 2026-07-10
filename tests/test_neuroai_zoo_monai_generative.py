@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from qortex.neuroai.models.zoo.registry import list_entries
 from qortex.neuroai.models.zoo.schema import ZooEntryType
 from qortex.neuroai.models.zoo.validate import validate_registry
@@ -31,3 +33,30 @@ def test_generative_entries_pass_offline_validation():
     issues = validate_registry()
     relevant = [i for i in issues if i.entry_id in _EXPECTED_IDS]
     assert relevant == []
+
+
+def test_synthetic_data_notice_matches_spec_convention():
+    from qortex.neuroai.models.zoo.monai_generative import synthetic_data_notice
+    from qortex.neuroai.models.zoo.registry import lookup
+
+    entry = lookup("monai.mednist_gan")
+    assert entry is not None
+    notice = synthetic_data_notice(entry)
+
+    assert notice == {
+        "clinical_use": "prohibited",
+        "research_use": "allowed",
+        "watermark_synthetic": True,
+        "require_generation_metadata": True,
+    }
+
+
+def test_synthetic_data_notice_rejects_non_generative_entry():
+    from qortex.neuroai.models.zoo.monai_generative import synthetic_data_notice
+    from qortex.neuroai.models.zoo.registry import lookup
+
+    entry = lookup("monai.brats_mri_segmentation")
+    assert entry is not None
+
+    with pytest.raises(ValueError):
+        synthetic_data_notice(entry)

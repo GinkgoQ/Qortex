@@ -40,3 +40,16 @@ def test_zoo_validate_passes_on_seed_registry():
     assert result.exit_code == 0
     # Exit code 0 means no errors (warnings are allowed and expected from braindecode entries)
     assert "[error]" not in result.stdout.lower()
+
+
+def test_zoo_show_includes_synthetic_data_notice_for_generative_entry():
+    result = runner.invoke(app, ["neuroai", "zoo", "show", "monai.mednist_gan"])
+    assert result.exit_code == 0
+    assert "clinical_use" in result.output
+    assert "prohibited" in result.output
+
+
+def test_zoo_show_omits_synthetic_data_notice_for_non_generative_entry():
+    result = runner.invoke(app, ["neuroai", "zoo", "show", "braindecode.EEGNet"])
+    assert result.exit_code == 0
+    assert "clinical_use" not in result.output

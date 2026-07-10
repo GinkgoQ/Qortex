@@ -3,6 +3,7 @@ from __future__ import annotations
 from typer.testing import CliRunner
 
 from qortex.cli.app import app
+from qortex.cli.app import _parse_prompt_boxes, _parse_prompt_points
 
 runner = CliRunner()
 
@@ -27,8 +28,6 @@ def test_prompt_predict_rejects_non_promptable_model():
 
 
 def test_prompt_predict_parses_point_and_box_flags():
-    from qortex.cli.app import _parse_prompt_points, _parse_prompt_boxes
-
     points = _parse_prompt_points(["1,2,3", "4,5,6"])
     assert points == [(1.0, 2.0, 3.0), (4.0, 5.0, 6.0)]
 
@@ -42,3 +41,29 @@ def test_prompt_predict_rejects_malformed_point():
         ["neuroai", "prompt-predict", "input.nii.gz", "--model", "monai.vista3d", "--point", "not-a-point"],
     )
     assert result.exit_code != 0
+
+
+def test_prompt_predict_blocks_unknown_license_by_default():
+    result = runner.invoke(
+        app,
+        ["neuroai", "prompt-predict", "input.nii.gz", "--model", "monai.vista3d", "--point", "1,2,3"],
+    )
+    assert result.exit_code != 0
+    assert "license" in result.output.lower()
+
+
+def test_prompt_predict_allows_with_license_risk_accepted():
+    result = runner.invoke(
+        app,
+        [
+            "neuroai",
+            "prompt-predict",
+            "input.nii.gz",
+            "--model",
+            "monai.vista3d",
+            "--point",
+            "1,2,3",
+            "--accept-unknown-license-risk",
+        ],
+    )
+    assert result.exit_code == 0, result.output

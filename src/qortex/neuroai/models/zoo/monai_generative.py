@@ -8,9 +8,19 @@ must not be mistaken for a diagnostic one.
 
 from __future__ import annotations
 
-from qortex.neuroai.contracts import AxisConvention, EvidenceStatus, InputContract, OutputContract
+from qortex.neuroai.contracts import (
+    AxisConvention,
+    EvidenceStatus,
+    InputContract,
+    OutputContract,
+)
 from qortex.neuroai.models.zoo.registry import register
-from qortex.neuroai.models.zoo.schema import ExecutionMode, LicenseInfo, ZooEntry, ZooEntryType
+from qortex.neuroai.models.zoo.schema import (
+    ExecutionMode,
+    LicenseInfo,
+    ZooEntry,
+    ZooEntryType,
+)
 
 _MAINTAINER = "Project MONAI"
 _CATALOG_URL = "https://project-monai.github.io/model-zoo.html"
@@ -93,4 +103,20 @@ def register_all() -> None:
     ))
 
 
-__all__ = ["register_all"]
+def synthetic_data_notice(entry: ZooEntry) -> dict[str, object]:
+    """Return the structured clinical-use notice for a generative entry."""
+
+    if entry.entry_type != ZooEntryType.generative_model:
+        raise ValueError(
+            f"synthetic_data_notice() called on non-generative entry {entry.id!r} "
+            f"(entry_type={entry.entry_type.value})"
+        )
+    return {
+        "clinical_use": "prohibited",
+        "research_use": "allowed",
+        "watermark_synthetic": True,
+        "require_generation_metadata": True,
+    }
+
+
+__all__ = ["register_all", "synthetic_data_notice"]

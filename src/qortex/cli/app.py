@@ -1533,6 +1533,9 @@ def neuroai_zoo_show(entry_id: str = typer.Argument(..., help="Zoo entry id")) -
     typer.echo(f"evidence_status: {entry.evidence_status.value}")
     typer.echo(f"license:         {entry.license.evidence_status.value}")
     typer.echo(f"qortex_status:   {entry.qortex_status}")
+    if entry.entry_type.value == "generative_model":
+        from qortex.neuroai.models.zoo.monai_generative import synthetic_data_notice
+        typer.echo(f"synthetic_data_notice: {synthetic_data_notice(entry)}")
 
 
 @zoo_app.command("validate")
@@ -2125,13 +2128,26 @@ def neuroai_prompt_predict(
     point_label: list[int] = typer.Option(None, "--point-label", help="1=foreground, 0=background; repeat to match --point count"),
     box: list[str] = typer.Option(None, "--box", help="Box prompt as x1,y1,z1,x2,y2,z2 (or x1,y1,x2,y2); repeat for multiple"),
     text: str | None = typer.Option(None, "--text", help="Text prompt, only for models that support it"),
+    accept_unknown_license_risk: bool = typer.Option(
+        False,
+        "--accept-unknown-license-risk",
+        help="Proceed even if the model's license has not been verified",
+    ),
+    allow_remote_code: bool = typer.Option(
+        False,
+        "--allow-remote-code",
+        help="Allow remote code execution if the model requires it",
+    ),
 ) -> None:
     """Run inference on a promptable model using point/box/text prompts."""
+    from qortex.core.exceptions import ModelAdapterError
     from qortex.neuroai.models import zoo as _zoo  # noqa: F401  (triggers zoo registration)
-    from qortex.neuroai.models.zoo.registry import lookup as zoo_lookup
+    from qortex.neuroai.models._registry import make_model_adapter
+    from qortex.neuroai.models.license import check_license_gate
     from qortex.neuroai.models.prompt import Prompt
     from qortex.neuroai.models.promptable import PromptableModelAdapter
-    from qortex.neuroai.models._registry import make_model_adapter
+    from qortex.neuroai.models.security import check_remote_code_gate
+    from qortex.neuroai.models.zoo.registry import lookup as zoo_lookup
     from qortex.neuroai.spec import ModelSpec
 
     entry = zoo_lookup(model)
@@ -2140,6 +2156,13 @@ def neuroai_prompt_predict(
         raise typer.Exit(1)
     if entry.entry_type.value != "promptable_model":
         typer.echo(f"[ERROR] {model!r} is not a promptable model (entry_type={entry.entry_type.value})", err=True)
+        raise typer.Exit(1)
+
+    try:
+        check_license_gate(entry, accept_unknown_license_risk=accept_unknown_license_risk)
+        check_remote_code_gate(entry, allow_remote_code=allow_remote_code)
+    except ModelAdapterError as exc:
+        typer.echo(f"[ERROR] {exc}", err=True)
         raise typer.Exit(1)
 
     prompt = Prompt(

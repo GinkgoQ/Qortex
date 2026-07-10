@@ -56,12 +56,14 @@ same commit as the code it tracks.
 - [x] `prompt-predict` CLI
 
 ### Phase 6 — Security, license, and artifacts
-- [ ] License gate (`license.py`)
-- [ ] Remote-code gate (`security.py`)
-- [ ] Executable allowlist
-- [ ] Model zoo artifact integration
-- [ ] Geometry ledger requirement
-- [ ] Synthetic-data notice for generative models
+- [x] License gate (`license.py`)
+- [x] Remote-code gate (`security.py`)
+- [x] Executable allowlist
+- [x] Model zoo artifact integration
+- [x] Geometry ledger requirement — Implemented as file-level provenance (existence, size, sha256) in `model_zoo_entry.json`; NIfTI header-level geometry (shape/affine/voxel spacing) deferred because it would require adding `nibabel`, not currently a dependency.
+- [x] Synthetic-data notice for generative models
+
+**Model Zoo expansion (Phases 1-6): complete.**
 
 ### Registry entries implemented so far
 
