@@ -2,490 +2,522 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://ginkgoq.github.io/Qortex/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/api/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/api/artifact/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/api/cli/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/api/conversion/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/api/dataset/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/api/datasets/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/api/neuroclassic/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/api/visualization/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/artifacts/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/artifacts/compare-splits/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/artifacts/inspect/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/artifacts/manifest/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/artifacts/ml-bridge/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/artifacts/visualize-samples/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/concepts/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/concepts/data-model/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/concepts/openneuro-and-bids/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/concepts/readiness-first/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/concepts/what-is-qortex/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/concepts/workflow/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/conversion/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/conversion/eda/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/conversion/formats/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/conversion/pipeline/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/conversion/provenance/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/conversion/splits/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/conversion/windows/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/dataset/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/dataset/bids-entities/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/dataset/inspect/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/dataset/metadata/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/dataset/search-catalog/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/dataset/snapshots/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/download/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/download/cache/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/download/local-index/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/download/metadata-only/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/download/plan/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/download/resume/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/download/selective-download/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/getting-started/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/getting-started/first-visual-audit/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/getting-started/install/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/getting-started/quickstart/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/guides/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/guides/generated-figures/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/modalities/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/modalities/conversion/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/modalities/readiness/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/modalities/selection/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/modalities/behavioral/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/modalities/behavioral/events-tsv/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/modalities/behavioral/labels-and-trial-types/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/modalities/eeg/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/modalities/eeg/events/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/modalities/eeg/files/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/modalities/eeg/visualization/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/modalities/fnirs/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/modalities/fnirs/files/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/modalities/ieeg/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/modalities/ieeg/electrodes-and-coordinates/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/modalities/ieeg/files/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/modalities/meg/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/modalities/meg/events/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/modalities/meg/files/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/modalities/mri/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/modalities/mri/dwi-diffusion/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/modalities/mri/fieldmaps/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/modalities/mri/fmri-bold/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/modalities/mri/structural-mri/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/modalities/pet/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/modalities/pet/metadata/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/modalities/pet/visualization/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/neuroai/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
+    </url>
+    <url>
+         <loc>https://ginkgoq.github.io/Qortex/neuroai/compiler/</loc>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/neuroai/external-runners/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/neuroai/models/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/neuroai/outputs/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/neuroai/pipeline/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/neuroai/sources/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/readiness/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/readiness/can-train/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/readiness/content-status/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/readiness/doctor/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/readiness/first-batch/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/readiness/label-readiness/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/readiness/leakage-check/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/readiness/minimum/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/readiness/recipes/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
+    </url>
+    <url>
+         <loc>https://ginkgoq.github.io/Qortex/superpowers/plans/2026-07-09-model-zoo-phase1-registry-hardening/</loc>
+         <lastmod>2026-07-10</lastmod>
+    </url>
+    <url>
+         <loc>https://ginkgoq.github.io/Qortex/superpowers/plans/2026-07-09-model-zoo-phase2-monai-integration/</loc>
+         <lastmod>2026-07-10</lastmod>
+    </url>
+    <url>
+         <loc>https://ginkgoq.github.io/Qortex/superpowers/plans/2026-07-09-model-zoo-phase3-braindecode-expansion/</loc>
+         <lastmod>2026-07-10</lastmod>
+    </url>
+    <url>
+         <loc>https://ginkgoq.github.io/Qortex/superpowers/plans/2026-07-10-model-zoo-phase4-external-engines/</loc>
+         <lastmod>2026-07-10</lastmod>
+    </url>
+    <url>
+         <loc>https://ginkgoq.github.io/Qortex/superpowers/plans/2026-07-10-model-zoo-phase5-promptable-segmentation/</loc>
+         <lastmod>2026-07-10</lastmod>
+    </url>
+    <url>
+         <loc>https://ginkgoq.github.io/Qortex/superpowers/plans/2026-07-10-model-zoo-phase6-security-license-artifacts/</loc>
+         <lastmod>2026-07-10</lastmod>
+    </url>
+    <url>
+         <loc>https://ginkgoq.github.io/Qortex/superpowers/specs/2026-07-09-model-zoo-expansion-design/</loc>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/troubleshooting/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/troubleshooting/artifacts/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/troubleshooting/bids/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/troubleshooting/dicom/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/troubleshooting/downloads/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/troubleshooting/install/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/troubleshooting/labels/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/troubleshooting/openneuro/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/troubleshooting/overlays/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/troubleshooting/visualization/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/tutorials/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/tutorials/coverage/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/tutorials/t01-eeg-motor-imagery/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/tutorials/t02-eeg-connectivity/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/tutorials/t03-eeg-sleep-staging/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/tutorials/t04-eeg-seizure-detection/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/tutorials/t05-mri-dementia-baseline/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/tutorials/t06-mri-age-sex-qc/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/tutorials/t07-fmri-design-readiness/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/tutorials/t08-brain-tumour-segmentation/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/visualization/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/visualization/artifact-visualization/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/visualization/colormaps-and-windows/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/visualization/dicom-browser/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/visualization/dwi-qc/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/visualization/eeg-viewer/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/visualization/fmri-qc/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/visualization/local-viewer/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/visualization/overlays/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/visualization/segmentation-comparison/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/visualization/visual-audit/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/visualization/visual-pipeline/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
     <url>
          <loc>https://ginkgoq.github.io/Qortex/visualization/visualize-openneuro/</loc>
-         <lastmod>2026-07-07</lastmod>
+         <lastmod>2026-07-10</lastmod>
     </url>
 </urlset>

@@ -98,6 +98,8 @@ class ModelCandidate(BaseModel):
     blockers: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     evidence_ids: list[str] = Field(default_factory=list)
+    fit_score: float = 0.0
+    fit_reasons: list[str] = Field(default_factory=list)
 
 
 class CompilationResult(BaseModel):
@@ -108,6 +110,7 @@ class CompilationResult(BaseModel):
     acquisition_plan: AcquisitionPlan
     candidates: list[ModelCandidate]
     runnable: bool
+    selected_model: str | None = None
     plan_hash: str
 
     @classmethod
@@ -120,6 +123,12 @@ class CompilationResult(BaseModel):
         acquisition_plan: AcquisitionPlan,
         candidates: list[ModelCandidate],
     ) -> "CompilationResult":
+        runnable_candidates = [candidate for candidate in candidates if candidate.runnable]
+        selected_model = (
+            min(runnable_candidates, key=lambda candidate: (-candidate.fit_score, candidate.id)).id
+            if runnable_candidates
+            else None
+        )
         payload = {
             "request": to_plain(request),
             "source_profile": to_plain(source_profile),
@@ -127,6 +136,7 @@ class CompilationResult(BaseModel):
             "acquisition_plan": to_plain(acquisition_plan),
             "candidates": to_plain(candidates),
             "runnable": any(candidate.runnable for candidate in candidates) and not acquisition_plan.blockers,
+            "selected_model": selected_model,
         }
         return cls(
             **payload,

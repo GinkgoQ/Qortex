@@ -1,6 +1,7 @@
 """Offline compiler for truthful NeuroAI execution plans."""
 
 from qortex.neuroai.compiler.compiler import NeuroAICompiler, compile_neuroai, profile_source
+from qortex.neuroai.compiler.executor import ExecutionCheck, ExecutionVerification, verify_execution_plan
 from qortex.neuroai.compiler.request import CompilationRequest
 from qortex.neuroai.compiler.result import (
     CapabilityState,
@@ -18,6 +19,8 @@ __all__ = [
     "CompatibilityProof",
     "CompilationRequest",
     "CompilationResult",
+    "ExecutionCheck",
+    "ExecutionVerification",
     "GeometryPlan",
     "LicenseReport",
     "ModelCandidate",
@@ -26,4 +29,5 @@ __all__ = [
     "SourceProfileSummary",
     "compile_neuroai",
     "profile_source",
+    "verify_execution_plan",
 ]

@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-from qortex.neuroai.compiler.acquisition import build_acquisition_plan
+from qortex.neuroai.compiler.acquisition import build_acquisition_plan, build_local_companion_plan
 from qortex.neuroai.compiler.candidates import build_candidates
 from qortex.neuroai.compiler.evidence import EvidenceGraph
 from qortex.neuroai.compiler.request import CompilationRequest
@@ -24,12 +24,15 @@ class NeuroAICompiler:
 
     def compile(self, request: CompilationRequest) -> CompilationResult:
         source_profile = profile_source(request.source)
-        acquisition_plan = build_acquisition_plan(
-            source=request.source,
-            source_type=source_profile.source_type,
-            local_size_bytes=source_profile.size_bytes,
-            max_download_gb=request.max_download_gb,
-        )
+        if source_profile.source_type.startswith("local_bids"):
+            acquisition_plan = build_local_companion_plan(request.source)
+        else:
+            acquisition_plan = build_acquisition_plan(
+                source=request.source,
+                source_type=source_profile.source_type,
+                local_size_bytes=source_profile.size_bytes,
+                max_download_gb=request.max_download_gb,
+            )
         evidence_graph = _evidence_graph(source_profile)
 
         from qortex.neuroai.models import zoo as _zoo  # noqa: F401

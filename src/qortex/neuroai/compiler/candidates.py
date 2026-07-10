@@ -46,7 +46,7 @@ def build_candidates(
             allow_remote_code=allow_remote_code,
             require_open_license=require_open_license,
         ))
-    return sorted(candidates, key=_candidate_sort_key)
+    return sorted(candidates, key=lambda candidate: (-candidate.fit_score, candidate.id))
 
 
 def _candidate(
@@ -123,7 +123,7 @@ def _candidate(
         and not blockers
     )
 
-    return ModelCandidate(
+    candidate = ModelCandidate(
         id=entry.id,
         display_name=entry.display_name,
         provider=entry.provider,
@@ -157,6 +157,8 @@ def _candidate(
         warnings=warnings,
         evidence_ids=evidence_ids,
     )
+    fit_score, fit_reasons = _fit_score(candidate)
+    return candidate.model_copy(update={"fit_score": fit_score, "fit_reasons": fit_reasons})
 
 
 def _license_report(
@@ -313,6 +315,7 @@ def _geometry_plan(entry: ZooEntry, source_profile: SourceProfileSummary) -> Geo
     if entry.external_engine_contract is not None and entry.external_engine_contract.geometry_preservation_known is None:
         notes.append("External engine geometry preservation is unknown; output validation must compare source/output geometry.")
     return GeometryPlan(
+        source_coordinate_frame=source_profile.orientation,
         model_axis_convention=getattr(input_axis, "value", input_axis),
         output_axis_convention=getattr(output_axis, "value", output_axis),
         blockers=blockers,
@@ -372,6 +375,48 @@ def _capability_state(
     if is_runtime_executable(entry):
         return CapabilityState.executable
     return CapabilityState.plan_only
+
+
+_CAPABILITY_BASE_SCORE = {
+    CapabilityState.executable: 70,
+    CapabilityState.requires_local_executable: 55,
+    CapabilityState.plan_only: 35,
+    CapabilityState.unavailable: 10,
+    CapabilityState.blocked: 0,
+}
+
+_COMPAT_ADJUSTMENT = {
+    "compatible": 20,
+    "uncertain": 0,
+    "incompatible": -40,
+}
+
+
+def _fit_score(candidate: ModelCandidate) -> tuple[float, list[str]]:
+    reasons: list[str] = []
+    base = _CAPABILITY_BASE_SCORE[candidate.capability_state]
+    reasons.append(f"base tier for capability_state={candidate.capability_state.value}: {base}")
+    score = float(base)
+
+    compat_adj = _COMPAT_ADJUSTMENT.get(candidate.compatibility.status, 0)
+    if compat_adj:
+        reasons.append(f"compatibility status {candidate.compatibility.status!r} adjustment: {compat_adj:+d}")
+    score += compat_adj
+
+    if candidate.blockers:
+        penalty = -8 * len(candidate.blockers)
+        reasons.append(f"blocker penalty for {len(candidate.blockers)} blocker(s): {penalty}")
+        score += penalty
+
+    if (
+        candidate.geometry_plan.source_coordinate_frame is not None
+        and candidate.geometry_plan.model_axis_convention is not None
+    ):
+        reasons.append("geometry bonus: source_coordinate_frame and model_axis_convention both known: +5")
+        score += 5
+
+    score = max(0.0, min(100.0, score))
+    return score, reasons
 
 
 def _candidate_sort_key(candidate: ModelCandidate) -> tuple[int, int, str]:

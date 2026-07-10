@@ -419,6 +419,35 @@ def compile_cmd(
     typer.echo(f"Plan saved to {output}")
 
 
+# ── execute ───────────────────────────────────────────────────────────────────
+
+@app.command("execute")
+def execute_cmd(
+    plan: Path = typer.Argument(..., help="Saved execution-plan.json path"),
+    json_output: bool = typer.Option(False, "--json", help="Print the verification as JSON"),
+) -> None:
+    """Verify a saved execution plan is safe to execute (integrity + license/security gates).
+
+    This is a pre-flight verifier, not a model runner: it does not download
+    weights or run inference.
+    """
+    from qortex.neuroai.compiler import verify_execution_plan
+
+    verification = verify_execution_plan(plan)
+
+    if json_output:
+        typer.echo(verification.model_dump_json(indent=2))
+    else:
+        typer.echo(f"Plan: {verification.plan_path}")
+        typer.echo(f"plan_hash_matches={str(verification.plan_hash_matches).lower()}")
+        for check in verification.checks:
+            typer.echo(f"  [{check.status}] {check.name}: {check.detail}")
+        typer.echo(f"verified={str(verification.verified).lower()}")
+
+    if not verification.verified:
+        raise typer.Exit(1)
+
+
 # ── plan ──────────────────────────────────────────────────────────────────────
 
 @app.command()
