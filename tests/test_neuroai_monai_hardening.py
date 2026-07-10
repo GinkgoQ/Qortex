@@ -81,3 +81,72 @@ def test_monai_load_rejects_state_dict_mismatch(tmp_path, monkeypatch):
 
     with pytest.raises(RuntimeError, match="state_dict mismatch"):
         adapter.load(RuntimeSpec(device="cpu"))
+
+
+def _fake_monai_with_conv3d(monkeypatch):
+    import torch
+
+    class _FakeParser(dict):
+        def read_config(self, path):
+            self["network_def"] = torch.nn.Conv3d(1, 1, kernel_size=1)
+
+        def get_parsed_content(self, key):
+            return self[key]
+
+    fake_monai = type("FakeMonai", (), {"bundle": type("B", (), {"ConfigParser": _FakeParser})})
+    monkeypatch.setattr("qortex.neuroai.models.monai._require_monai", lambda: fake_monai)
+
+
+def _make_bundle_without_checkpoint(tmp_path):
+    bundle = tmp_path / "bundle_no_ckpt"
+    (bundle / "configs").mkdir(parents=True)
+    (bundle / "models").mkdir()
+    (bundle / "configs" / "metadata.json").write_text("{}", encoding="utf-8")
+    (bundle / "configs" / "inference.json").write_text(
+        json.dumps({"network_def": {"spatial_dims": 3, "in_channels": 1, "out_channels": 1}}),
+        encoding="utf-8",
+    )
+    return bundle
+
+
+def test_monai_load_refuses_random_init_when_checkpoint_missing(tmp_path, monkeypatch):
+    bundle = _make_bundle_without_checkpoint(tmp_path)
+    _fake_monai_with_conv3d(monkeypatch)
+    adapter = MONAIBundleAdapter(ModelSpec(provider="monai", id=str(bundle)))
+
+    with pytest.raises(RuntimeError, match="no models/model.pt checkpoint"):
+        adapter.load(RuntimeSpec(device="cpu"))
+
+
+def test_monai_load_allows_missing_checkpoint_only_with_explicit_opt_in(tmp_path, monkeypatch):
+    bundle = _make_bundle_without_checkpoint(tmp_path)
+    _fake_monai_with_conv3d(monkeypatch)
+    adapter = MONAIBundleAdapter(
+        ModelSpec(provider="monai", id=str(bundle), extra={"allow_missing_weights": True})
+    )
+
+    adapter.load(RuntimeSpec(device="cpu"))  # must not raise
+
+    assert adapter._loaded is True
+
+
+def test_generative_bundle_output_schema_reflects_registry_not_hardcoded_segmentation():
+    from qortex.neuroai.models import zoo as _zoo  # noqa: F401  (triggers zoo registration)
+
+    adapter = MONAIBundleAdapter(ModelSpec(provider="monai", id="monai.mednist_gan"))
+
+    schema = adapter.output_schema()
+
+    assert schema.output_type == "image_generation"
+    assert schema.produces_probabilities is False
+
+
+def test_generative_bundle_predict_refuses_segmentation_style_inference():
+    from qortex.core.exceptions import ModelAdapterError
+    from qortex.neuroai.models import zoo as _zoo  # noqa: F401
+
+    adapter = MONAIBundleAdapter(ModelSpec(provider="monai", id="monai.mednist_gan"))
+    adapter._model = object()  # simulate a loaded (but generative) bundle
+
+    with pytest.raises(ModelAdapterError, match="generative"):
+        adapter.predict("fake_batch")

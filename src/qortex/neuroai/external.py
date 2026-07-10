@@ -64,6 +64,8 @@ class ExternalSegmentationResult:
     stdout: str
     stderr: str
     metadata_path: Path
+    executable_path: str | None = None
+    executable_sha256: str | None = None
 
     @property
     def success(self) -> bool:
@@ -82,6 +84,8 @@ class ExternalSegmentationResult:
             "stdout": self.stdout,
             "stderr": self.stderr,
             "metadata_path": str(self.metadata_path),
+            "executable_path": self.executable_path,
+            "executable_sha256": self.executable_sha256,
             "success": self.success,
         }
 
@@ -106,6 +110,13 @@ def run_external_segmentation(request: ExternalSegmentationRequest) -> ExternalS
             check_executable_allowlist(zoo_entry, command[0])
         except ModelAdapterError as exc:
             raise ExternalSegmentationError(str(exc)) from exc
+
+    # Real executable identity, hashed at the moment of execution -- this is
+    # the concrete foundation for detecting a mutated/swapped binary between
+    # a compiled plan and its later execution (the allowlist only checked
+    # the resolved basename; this records what actually ran).
+    executable_path = command[0]
+    executable_sha256 = _file_facts(Path(executable_path))["sha256"]
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     started = datetime.now(timezone.utc)
@@ -138,6 +149,8 @@ def run_external_segmentation(request: ExternalSegmentationRequest) -> ExternalS
         stdout=completed.stdout,
         stderr=completed.stderr,
         metadata_path=_metadata_path_for_output(output_path),
+        executable_path=executable_path,
+        executable_sha256=executable_sha256,
     )
     result.metadata_path.write_text(json.dumps(result.to_dict(), indent=2, sort_keys=True), encoding="utf-8")
     if zoo_entry is not None:

@@ -66,6 +66,46 @@ printf 'mask' > "$out"
     assert "TotalSegmentator" in result.command[0]
 
 
+def test_run_external_segmentation_records_real_executable_sha256(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import hashlib
+
+    executable_path = tmp_path / "TotalSegmentator"
+    _write_executable(
+        executable_path,
+        """#!/usr/bin/env bash
+set -euo pipefail
+out=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o) out="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+printf 'mask' > "$out"
+""",
+    )
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ.get('PATH', '')}")
+    image = tmp_path / "image.nii.gz"
+    image.write_text("image", encoding="utf-8")
+
+    result = run_external_segmentation(
+        ExternalSegmentationRequest(
+            engine="totalsegmentator", image_path=image, output_path=tmp_path / "mask.nii.gz", task="total"
+        )
+    )
+
+    # Independently recompute the hash of the actual executable file that
+    # was resolved and run -- proves executable_sha256 is a real digest of
+    # what actually executed, not a placeholder or fabricated value.
+    assert result.executable_path is not None
+    expected_sha256 = hashlib.sha256(Path(result.executable_path).read_bytes()).hexdigest()
+    assert result.executable_sha256 == expected_sha256
+    assert result.executable_path == str(executable_path)
+
+    payload = json.loads(result.metadata_path.read_text(encoding="utf-8"))
+    assert payload["executable_sha256"] == expected_sha256
+
+
 def test_build_nnunet_command_uses_results_folder_environment_not_plan_flag(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

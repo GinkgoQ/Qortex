@@ -79,17 +79,22 @@ class MONAIBundleAdapter(ModelAdapter):
         )
 
     def required_input(self) -> InputContract:
-        in_channels, spatial_dims, _ = self._parse_network_def()
-        shape = (
-            [in_channels, -1, -1, -1] if spatial_dims == 3
-            else [in_channels, -1, -1] if spatial_dims == 2
-            else None
-        )
+        in_channels, _, _ = self._parse_network_def()
+        # spatial_shape carries ONLY spatial dimensions (Z,Y,X / H,W), never
+        # the channel count -- n_channels is the separate, dedicated field
+        # every other adapter in this codebase already uses this way (e.g.
+        # zoo/monai_imaging.py's wholeBody_ct_segmentation entry). Bundle
+        # configs never confirm the actual spatial extent (MONAI bundles are
+        # sliding-window and accept arbitrary spatial size), so there is
+        # nothing real to put here -- leaving it None is the honest value,
+        # not a placeholder tuple of -1s that reads as a resolved shape to
+        # any downstream consumer (e.g. resource estimation) that doesn't
+        # know to special-case -1.
         return InputContract(
             modality=_detect_modality(self._metadata),
             n_channels=in_channels,
             sampling_rate_hz=None,
-            spatial_shape=shape,
+            spatial_shape=None,
             dtype="float32",
             axis_convention=AxisConvention.batch_channels_xyz,
             required_transforms=_parse_required_transforms(self._infer_config, self._spec.extra),
@@ -98,7 +103,33 @@ class MONAIBundleAdapter(ModelAdapter):
             ),
         )
 
+    def _zoo_entry(self):
+        """Look up this bundle's own zoo registry entry, if it has one.
+
+        Used to detect generative bundles (entry_type=generative_model) so
+        this adapter never mislabels their output as a segmentation mask --
+        the same registry entry that declares output_type="image_generation"
+        must be consulted here rather than this adapter blindly assuming
+        every MONAI bundle is a segmentation model.
+        """
+        try:
+            from qortex.neuroai.models.zoo.registry import lookup
+            return lookup(self._spec.id)
+        except Exception:
+            return None
+
+    def _is_generative_bundle(self) -> bool:
+        entry = self._zoo_entry()
+        return entry is not None and entry.entry_type.value == "generative_model"
+
     def output_schema(self) -> OutputContract:
+        entry = self._zoo_entry()
+        if entry is not None and entry.output_contract is not None:
+            # Trust the curated registry's confirmed output contract over a
+            # blind "segmentation" guess -- this is what actually fixes the
+            # generative-bundle mislabeling bug: entry.output_contract.output_type
+            # is "image_generation" for every zoo/monai_generative.py entry.
+            return entry.output_contract
         _, _, n_classes = self._parse_network_def()
         return OutputContract(
             output_type="segmentation",
@@ -126,9 +157,29 @@ class MONAIBundleAdapter(ModelAdapter):
                 self._spec.extra,
                 spatial_dims=self._parse_network_def()[1],
             )
-            # Load weights
+            # Load weights. Fail closed if no checkpoint is present -- silently
+            # continuing with the freshly-constructed network's random-init
+            # parameters would let a caller believe they ran a real trained
+            # segmentation model when they actually ran untrained noise.
+            # Bypass only via an explicit opt-in (mirrors the trust_remote_code
+            # explicit-opt-in pattern in models/plugin.py), for genuine
+            # architecture-only smoke testing.
             model_pt = self._bundle_dir / "models" / "model.pt"
-            if model_pt.exists():
+            allow_missing_weights = bool(self._spec.extra.get("allow_missing_weights", False))
+            if not model_pt.exists():
+                if not allow_missing_weights:
+                    raise ModelAdapterError(
+                        f"MONAI bundle {self._spec.id!r} has no models/model.pt checkpoint "
+                        f"at {model_pt}. Refusing to run with randomly-initialized weights. "
+                        "Pass model.allow_missing_weights: true only for deliberate "
+                        "architecture-only testing."
+                    )
+                log.warning(
+                    "MONAI bundle %s has no checkpoint; running with random-init "
+                    "weights because allow_missing_weights=True was explicitly set.",
+                    self._spec.id,
+                )
+            else:
                 state = torch.load(str(model_pt), map_location=self._device, weights_only=True)
                 if "state_dict" in state:
                     state = state["state_dict"]
@@ -154,6 +205,19 @@ class MONAIBundleAdapter(ModelAdapter):
     def predict(self, batch: Any) -> ModelOutput:
         if self._model is None:
             raise RuntimeError("Model not loaded — call load() first")
+        if self._is_generative_bundle():
+            # There is no real generative execution path yet -- no sampler,
+            # no conditioning contract, no seed handling, no synthetic-output
+            # writer. Running this bundle through the segmentation-style
+            # sliding-window inference below would silently mislabel a
+            # generative network's raw output as a segmentation mask. Refuse
+            # rather than fabricate a result this adapter cannot honestly
+            # produce.
+            raise ModelAdapterError(
+                f"{self._spec.id!r} is a generative model entry; MONAIBundleAdapter "
+                "has no generative execution path (sampler/conditioning/seed handling) "
+                "implemented yet. Refusing to run segmentation-style inference against it."
+            )
         import torch
         monai = _require_monai()
 

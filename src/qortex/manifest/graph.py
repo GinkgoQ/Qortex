@@ -130,6 +130,13 @@ class ManifestGraph:
         dataset_description = self._top_level("dataset_description.json")
         bvec = self._same_stem(primary, ".bvec") if primary.datatype == "dwi" else None
         bval = self._same_stem(primary, ".bval") if primary.datatype == "dwi" else None
+        # EEGLAB split-storage format: <stem>.set (header, always the
+        # primary) references <stem>.fdt (raw binary payload) in the same
+        # directory. .set is readable on its own only when EEGLAB embeds
+        # the data in-file; when split, .fdt is required to actually load
+        # the recording, so it must be a mandatory companion, not an
+        # optional extra.
+        eeg_data = self._same_stem(primary, ".fdt") if primary.extension == ".set" else None
 
         excluded_paths = {
             f.path for f in (participants, dataset_description) if f is not None
@@ -145,6 +152,7 @@ class ManifestGraph:
             scans=scans,
             bvec=bvec,
             bval=bval,
+            eeg_data=eeg_data,
             participants=participants,
             dataset_description=dataset_description,
             extra=extra,
@@ -177,6 +185,15 @@ class ManifestGraph:
 
     def _is_primary(self, file: FileRecord) -> bool:
         if file.is_essential or file.extension in SIDECAR_EXTENSIONS:
+            return False
+        # EEGLAB's .fdt is a dependent raw-data binary that a .set header
+        # file references and is never independently loadable on its own --
+        # unlike .set (which is a real, self-describing BIDS primary), .fdt
+        # must never be treated as its own primary recording. Without this,
+        # the graph produced two separate incomplete LogicalRecording
+        # entries (one per file) instead of one complete .set+.fdt pair,
+        # and a minimum-download plan could select just the .fdt half.
+        if file.extension == ".fdt":
             return False
         if file.modality not in PRIMARY_MODALITIES:
             return False

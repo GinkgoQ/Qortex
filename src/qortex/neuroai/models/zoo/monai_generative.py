@@ -54,7 +54,14 @@ def _generative_entry(bundle_name: str, display_name: str, modality: str, extra_
         ),
         license=LicenseInfo(evidence_status=EvidenceStatus.unknown, notes=["requires manual check"]),
         evidence_status=EvidenceStatus.confirmed,
-        qortex_status="runnable_after_contract_validation",
+        # Not "runnable_after_contract_validation": there is no real
+        # generative execution adapter yet (sampler/conditioning/seed
+        # handling, synthetic-output writer). MONAIBundleAdapter's generic
+        # segmentation-style forward pass must not be run against these --
+        # see MONAIBundleAdapter.output_schema()/predict() in models/monai.py,
+        # which now refuses generative entries rather than mislabeling their
+        # output as a segmentation mask.
+        qortex_status="checkpoint_unresolved",
         priority="P1",
         notes=[_CLINICAL_USE_NOTE] + (extra_notes or []),
     )

@@ -16,6 +16,11 @@ from qortex.neuroclassic._base import (
 )
 from qortex.neuroclassic.infoth import _higuchi_fd_1d, _shannon_entropy_bits
 
+# np.trapezoid was added in NumPy 2.0; np.trapz was removed in NumPy 2.0.
+# The package declares numpy>=1.24, which spans both, so neither name alone
+# is safe to call directly.
+_trapezoid = getattr(np, "trapezoid", None) or np.trapz
+
 __version__ = "0.1.0"
 
 DEFAULT_EEG_BANDS: dict[str, tuple[float, float]] = {
@@ -316,7 +321,7 @@ def _epoch_features(
 ) -> np.ndarray:
     values: list[float] = []
     freqs, psd = _welch_psd(epoch, sampling_frequency_hz)
-    total_power = np.trapezoid(psd, freqs, axis=1)
+    total_power = _trapezoid(psd, freqs, axis=1)
     total_power = np.where(total_power > 0, total_power, np.finfo(np.float64).tiny)
     for ch_i, channel in enumerate(epoch):
         for lo, hi in bands.values():
@@ -324,7 +329,7 @@ def _epoch_features(
             if not np.any(mask):
                 power = 0.0
             else:
-                power = float(np.trapezoid(psd[ch_i, mask], freqs[mask]))
+                power = float(_trapezoid(psd[ch_i, mask], freqs[mask]))
             values.append(power)
             if include_relative_bandpower:
                 values.append(float(power / total_power[ch_i]))

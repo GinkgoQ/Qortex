@@ -85,11 +85,18 @@ def _check_external_engine_contract(entry: ZooEntry) -> list[ValidationIssue]:
 def _check_provider_dispatch(entry: ZooEntry) -> list[ValidationIssue]:
     if entry.provider in _EXTERNAL_ONLY_PROVIDERS:
         return []
-    from qortex.neuroai.models._registry import make_model_adapter
+    # Uses the gate-free dispatch resolver deliberately, not
+    # make_model_adapter(): this check verifies registry structural
+    # validity (does the provider string resolve to a real adapter class),
+    # which must not be entangled with license/remote-code gates -- those
+    # are a separate, execution-time concern, and an unrelated
+    # unknown-license entry must never mask a genuine unknown-provider
+    # ValueError here.
+    from qortex.neuroai.models._registry import resolve_provider_dispatch
     from qortex.neuroai.spec import ModelSpec
 
     try:
-        make_model_adapter(ModelSpec(provider=entry.provider, id=entry.id))
+        resolve_provider_dispatch(ModelSpec(provider=entry.provider, id=entry.id))
     except ImportError:
         return []  # optional dependency missing — not a registry defect
     except ValueError:

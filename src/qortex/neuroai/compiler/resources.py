@@ -19,6 +19,21 @@ _DTYPE_BYTES = {
 }
 
 
+def _resolved_positive_dims(spatial_shape: tuple[int, ...] | list[int] | None) -> list[int] | None:
+    """Return spatial_shape as a list of ints only if every dimension is a
+    real, resolved, positive size. Rejects unresolved placeholder values
+    (0, negative, or any sentinel like -1 used to mean "unknown") instead
+    of silently multiplying them into a nonsensical (often negative)
+    element count.
+    """
+    if not spatial_shape:
+        return None
+    dims = [int(d) for d in spatial_shape]
+    if any(d <= 0 for d in dims):
+        return None
+    return dims
+
+
 class ResourcePlan(BaseModel):
     device: str
     estimated_vram_gb: float | None = None
@@ -39,14 +54,29 @@ def estimate_resource_plan(
     evidence = EvidenceStatus.unknown
     notes: list[str] = []
 
-    if input_contract is not None and input_contract.spatial_shape:
+    resolved_spatial_shape = _resolved_positive_dims(
+        input_contract.spatial_shape if input_contract is not None else None
+    )
+    if input_contract is not None and resolved_spatial_shape is not None:
         elements = 1
-        for dim in input_contract.spatial_shape:
-            elements *= int(dim)
+        for dim in resolved_spatial_shape:
+            elements *= dim
+        # spatial_shape is purely spatial dims (Z,Y,X / H,W); n_channels is
+        # the separate channel count. Multiplying both in is correct exactly
+        # once -- do not fold channels into spatial_shape upstream (see
+        # models/monai.py's required_input(), which used to do this and
+        # produced a negative element count from unresolved -1 dims).
         channels = int(input_contract.n_channels or 1)
         dtype = str(input_contract.dtype or "float32").lower()
         input_gb = elements * channels * _DTYPE_BYTES.get(dtype, 4) / 1e9
+        evidence = EvidenceStatus.confirmed
+    elif input_contract is not None and input_contract.spatial_shape and source_size_bytes is not None:
+        input_gb = source_size_bytes / 1e9
         evidence = EvidenceStatus.inferred
+        notes.append(
+            "VRAM estimate uses local file size because the model's declared "
+            "spatial_shape contains unresolved (non-positive) dimensions."
+        )
     elif source_size_bytes is not None:
         input_gb = source_size_bytes / 1e9
         evidence = EvidenceStatus.inferred

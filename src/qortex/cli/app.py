@@ -2221,7 +2221,14 @@ def neuroai_prompt_predict(
         text=text,
     )
 
-    adapter = make_model_adapter(ModelSpec(provider=entry.provider, id=entry.id))
+    adapter = make_model_adapter(ModelSpec(
+        provider=entry.provider,
+        id=entry.id,
+        extra={
+            "accept_unknown_license_risk": accept_unknown_license_risk,
+            "allow_remote_code": allow_remote_code,
+        },
+    ))
     if not isinstance(adapter, PromptableModelAdapter):
         typer.echo(f"[ERROR] {model!r}'s adapter does not implement PromptableModelAdapter", err=True)
         raise typer.Exit(1)

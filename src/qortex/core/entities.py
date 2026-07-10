@@ -195,6 +195,7 @@ class CompanionSet(_Frozen):
     scans: FileRecord | None = None
     bvec: FileRecord | None = None
     bval: FileRecord | None = None
+    eeg_data: FileRecord | None = None
     participants: FileRecord | None = None
     dataset_description: FileRecord | None = None
     extra: list[FileRecord] = Field(default_factory=list)
@@ -214,6 +215,7 @@ class CompanionSet(_Frozen):
             self.events,
             self.bvec,
             self.bval,
+            self.eeg_data,
             *self.sidecars,
             *self.extra,
         ]:
