@@ -1,0 +1,40 @@
+{
+  "source_recording": "/tmp/qortex_verify/dataset/sub-036/eeg/sub-036_task-AttendedSpeakerParadigmcEEGridAttention_eeg.set",
+  "sampling_rate_hz": 500.0,
+  "window_seconds": 4.0,
+  "n_channels_used": 18,
+  "start_time_s": 60.0,
+  "end_time_s": 63.998,
+  "models": {
+    "braindecode.Deep4Net": {
+      "provider": "braindecode",
+      "output_type": "classification",
+      "predicted_class_index": 2,
+      "predicted_class_name": "class_2",
+      "probabilities": {
+        "class_0": 0.2479971945285797,
+        "class_1": 0.18965740501880646,
+        "class_2": 0.3123890459537506,
+        "class_3": 0.24995636940002441
+      },
+      "raw_logits_shape": [
+        4
+      ]
+    },
+    "braindecode.ShallowFBCSPNet": {
+      "provider": "braindecode",
+      "output_type": "classification",
+      "predicted_class_index": 1,
+      "predicted_class_name": "class_1",
+      "probabilities": {
+        "class_0": 0.0005241702892817557,
+        "class_1": 0.959850549697876,
+        "class_2": 0.01695457100868225,
+        "class_3": 0.022670794278383255
+      },
+      "raw_logits_shape": [
+        4
+      ]
+    }
+  }
+}
