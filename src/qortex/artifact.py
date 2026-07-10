@@ -54,6 +54,18 @@ class Artifact:
             raise ValueError("sklearn adapter currently expects a Parquet Qortex artifact.")
         return SklearnAdapter().from_dir(self.path, split=split)
 
+    def as_dataframe(self, split: str | None = None):
+        """Return artifact rows as a Polars DataFrame.
+
+        This is the intended downstream view for table/event/behavior artifacts
+        where samples are structured rows rather than numeric signal arrays.
+        """
+        from qortex.train.sklearn import SklearnAdapter
+
+        if self.manifest.output_format != "parquet":
+            raise ValueError("as_dataframe() currently expects a Parquet Qortex artifact.")
+        return SklearnAdapter().as_dataframe(self.path, split=split)
+
     def visualize_sample(
         self,
         index: int = 0,
@@ -91,16 +103,11 @@ class Artifact:
         except ImportError:
             raise ImportError("visualize_sample() requires plotly and polars: pip install plotly polars")
 
-        # Find the first shard for the requested split
-        split_dir = self.path / split if split else self.path
-        shards = sorted(split_dir.glob("*.parquet")) if split_dir.exists() else []
-        if not shards:
-            # Fall back: scan the artifact root
-            shards = sorted(self.path.glob("**/*.parquet"))
+        shards = _artifact_shards(self.path, split=split)
         if not shards:
             raise FileNotFoundError(f"No Parquet shards found in {self.path}")
 
-        target_row = _read_artifact_row(shards, index)
+        target_row = _read_artifact_row(shards, index, split=split)
 
         # Detect and render the data column
         data_col = _artifact_data_column(target_row, self.manifest)
@@ -177,12 +184,12 @@ class Artifact:
         from qortex.visualize._audit import VisualAuditReport, AuditEntry
         from qortex.visualize._asset import VisualAsset
 
-        split_dir = self.path / split if split != "all" else self.path
-        shards = sorted(split_dir.glob("**/*.parquet")) if split_dir.exists() else sorted(self.path.glob("**/*.parquet"))
+        split_filter = None if split == "all" else split
+        shards = _artifact_shards(self.path, split=split_filter)
         if not shards:
             raise FileNotFoundError(f"No Parquet shards found for split={split!r} in {self.path}")
 
-        samples = _sample_artifact_rows(shards, n=n, seed=seed)
+        samples = _sample_artifact_rows(shards, n=n, seed=seed, split=split_filter)
 
         entries: list[AuditEntry] = []
         n_rendered = 0
@@ -254,16 +261,17 @@ class Artifact:
                     f"expected {expected_hash[:16]}… got {actual[:16]}…"
                 )
 
-        # Check splits have shards.
+        # Check splits have readable rows. Writers may store splits either as
+        # split directories or as a root-level ``split`` column.
         declared_splits = list((self.manifest.splits or {}).keys())
         for split_name in declared_splits:
-            split_dir = self.path / split_name
-            if not split_dir.exists():
-                errors.append(f"Split directory missing: {split_name}/")
+            try:
+                n_rows = _count_split_rows(self.path, split_name)
+            except Exception as exc:
+                errors.append(f"Cannot read split {split_name!r}: {exc}")
                 continue
-            shards = list(split_dir.glob("*.parquet"))
-            if not shards:
-                warnings.append(f"Split {split_name!r} has no Parquet shards on disk")
+            if n_rows == 0:
+                warnings.append(f"Split {split_name!r} has no Parquet rows on disk")
 
         # Check artifact_contract.json is present.
         contract_path = self.path / "artifact_contract.json"
@@ -354,14 +362,13 @@ class Artifact:
         all_label_sets: dict[str, set] = {}
 
         for split_name in declared_splits:
-            split_dir = self.path / split_name
-            shards = list(split_dir.glob("*.parquet"))
+            shards = _artifact_shards(self.path, split=split_name)
             if not shards:
                 warnings.append(f"Split {split_name!r} has no Parquet shards — skipping schema check.")
                 continue
 
             try:
-                df = pl.read_parquet(split_dir)
+                df = _read_artifact_frame(self.path, split=split_name)
             except Exception as exc:
                 errors.append(f"Cannot read split {split_name!r}: {exc}")
                 continue
@@ -484,23 +491,21 @@ class Artifact:
             ]
 
         for split_name in declared_splits:
-            split_dir = self.path / split_name
-            shards = sorted(split_dir.glob("*.parquet")) if split_dir.exists() else []
+            shards = _artifact_shards(self.path, split=split_name)
             if not shards:
                 continue
             subjects: set[str] = set()
             sources: set[str] = set()
-            for shard in shards:
-                df = pl.scan_parquet(shard)
-                cols = df.columns
-                if "subject" in cols:
-                    vals = df.select("subject").collect()["subject"].drop_nulls().to_list()
-                    subjects.update(str(v) for v in vals)
-                for src_col in ("source_path", "source_file"):
-                    if src_col in cols:
-                        vals = df.select(src_col).collect()[src_col].drop_nulls().to_list()
-                        sources.update(str(v) for v in vals)
-                        break
+            df = _read_artifact_frame(self.path, split=split_name)
+            cols = df.columns
+            if "subject" in cols:
+                vals = df["subject"].drop_nulls().to_list()
+                subjects.update(str(v) for v in vals)
+            for src_col in ("source_path", "source_file"):
+                if src_col in cols:
+                    vals = df[src_col].drop_nulls().to_list()
+                    sources.update(str(v) for v in vals)
+                    break
             split_subjects[split_name] = subjects
             split_sources[split_name] = sources
 
@@ -586,12 +591,16 @@ class Artifact:
         n_failed = 0
 
         for split_name in available_splits:
-            split_dir = self.path / split_name
-            shards = sorted(split_dir.glob("*.parquet")) if split_dir.exists() else []
+            shards = _artifact_shards(self.path, split=split_name)
             if not shards:
                 continue
 
-            samples = _sample_artifact_rows(shards, n=n, seed=None if seed is None else seed + len(all_entries))
+            samples = _sample_artifact_rows(
+                shards,
+                n=n,
+                seed=None if seed is None else seed + len(all_entries),
+                split=split_name,
+            )
 
             for i, row in enumerate(samples):
                 path_label = _artifact_path_label(row, split=split_name, row_index=i)
@@ -645,11 +654,42 @@ _META_COLUMNS = {
 }
 
 
-def _read_artifact_row(shards: list[Path], index: int) -> dict[str, Any]:
+def _artifact_shards(path: Path, split: str | None = None) -> list[Path]:
+    if split:
+        split_dir = path / split
+        if split_dir.exists():
+            shards = sorted(split_dir.glob("*.parquet"))
+            if shards:
+                return shards
+    return sorted(path.glob("shard_*.parquet")) or sorted(path.glob("**/*.parquet"))
+
+
+def _read_artifact_frame(path: Path, split: str | None = None):
+    shards = _artifact_shards(path, split=split)
+    if not shards:
+        raise FileNotFoundError(f"No parquet shards found in {path}")
+    return _read_frame_from_shards(shards, split=split)
+
+
+def _count_split_rows(path: Path, split: str) -> int:
+    return int(_read_artifact_frame(path, split=split).height)
+
+
+def _read_artifact_row(
+    shards: list[Path],
+    index: int,
+    *,
+    split: str | None = None,
+) -> dict[str, Any]:
     import polars as pl
 
     if index < 0:
         raise IndexError("Sample index must be non-negative")
+    if split:
+        frame = _read_frame_from_shards(shards, split=split)
+        if index >= frame.height:
+            raise IndexError(f"Sample index {index} out of range ({frame.height} samples)")
+        return frame.slice(index, 1).row(0, named=True)
     row_cursor = 0
     for shard in shards:
         n_rows = _parquet_n_rows(shard)
@@ -661,11 +701,25 @@ def _read_artifact_row(shards: list[Path], index: int) -> dict[str, Any]:
     raise IndexError(f"Sample index {index} out of range ({row_cursor} samples)")
 
 
-def _sample_artifact_rows(shards: list[Path], *, n: int, seed: int | None) -> list[dict[str, Any]]:
+def _sample_artifact_rows(
+    shards: list[Path],
+    *,
+    n: int,
+    seed: int | None,
+    split: str | None = None,
+) -> list[dict[str, Any]]:
     import polars as pl
 
     if n <= 0:
         return []
+    if split:
+        frame = _read_frame_from_shards(shards, split=split)
+        total = frame.height
+        if total == 0:
+            return []
+        rng = random.Random(seed)
+        wanted = sorted(rng.sample(range(total), k=min(n, total)))
+        return [frame.slice(offset, 1).row(0, named=True) for offset in wanted]
     counts = [(shard, _parquet_n_rows(shard)) for shard in shards]
     total = sum(count for _, count in counts)
     if total == 0:
@@ -687,6 +741,15 @@ def _sample_artifact_rows(shards: list[Path], *, n: int, seed: int | None) -> li
             frame = pl.scan_parquet(shard).slice(offset, 1).collect()
             out.append(frame.row(0, named=True))
     return out
+
+
+def _read_frame_from_shards(shards: list[Path], *, split: str | None = None):
+    import polars as pl
+
+    frame = pl.concat([pl.read_parquet(shard) for shard in shards])
+    if split and "split" in frame.columns:
+        frame = frame.filter(pl.col("split") == split)
+    return frame
 
 
 def _parquet_n_rows(shard: Path) -> int:

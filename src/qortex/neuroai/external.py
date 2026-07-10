@@ -27,6 +27,8 @@ ExternalSegmentationEngine = Literal[
     "fastsurfer", "tractseg",
 ]
 
+_LOG_TAIL_CHARS = 8_000
+
 
 @dataclass(frozen=True)
 class ExternalSegmentationRequest:
@@ -66,6 +68,11 @@ class ExternalSegmentationResult:
     metadata_path: Path
     executable_path: str | None = None
     executable_sha256: str | None = None
+    stdout_bytes: int = 0
+    stderr_bytes: int = 0
+    stdout_truncated: bool = False
+    stderr_truncated: bool = False
+    output_summary: dict[str, Any] = field(default_factory=dict)
 
     @property
     def success(self) -> bool:
@@ -83,6 +90,11 @@ class ExternalSegmentationResult:
             "finished_at": self.finished_at,
             "stdout": self.stdout,
             "stderr": self.stderr,
+            "stdout_bytes": self.stdout_bytes,
+            "stderr_bytes": self.stderr_bytes,
+            "stdout_truncated": self.stdout_truncated,
+            "stderr_truncated": self.stderr_truncated,
+            "output_summary": self.output_summary,
             "metadata_path": str(self.metadata_path),
             "executable_path": self.executable_path,
             "executable_sha256": self.executable_sha256,
@@ -126,14 +138,29 @@ def run_external_segmentation(request: ExternalSegmentationRequest) -> ExternalS
     if request.engine == "nnunet" and request.model_folder is not None:
         env["nnUNet_results"] = str(Path(request.model_folder).expanduser().resolve())
 
-    completed = subprocess.run(
-        command,
-        text=True,
-        capture_output=True,
-        timeout=request.timeout_s,
-        env=env,
-        check=False,
-    )
+    try:
+        completed = subprocess.run(
+            command,
+            text=True,
+            capture_output=True,
+            timeout=request.timeout_s,
+            env=env,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout.decode(errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        stderr = exc.stderr.decode(errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+        raise ExternalSegmentationError(
+            f"{request.engine} timed out after {float(exc.timeout):.1f}s",
+            context={
+                "command": command,
+                "timeout_s": float(exc.timeout),
+                "stdout": stdout[-4000:],
+                "stderr": stderr[-4000:],
+            },
+            suggestion="Increase --timeout-s for large models, use a smaller task/device setting, or run the external engine directly to pre-download required weights.",
+            retriable=True,
+        ) from exc
     elapsed = time.perf_counter() - t0
     finished = datetime.now(timezone.utc)
 
@@ -146,11 +173,16 @@ def run_external_segmentation(request: ExternalSegmentationRequest) -> ExternalS
         elapsed_s=float(elapsed),
         started_at=started.isoformat(),
         finished_at=finished.isoformat(),
-        stdout=completed.stdout,
-        stderr=completed.stderr,
+        stdout=_tail_text(completed.stdout, _LOG_TAIL_CHARS),
+        stderr=_tail_text(completed.stderr, _LOG_TAIL_CHARS),
         metadata_path=_metadata_path_for_output(output_path),
         executable_path=executable_path,
         executable_sha256=executable_sha256,
+        stdout_bytes=len(completed.stdout.encode("utf-8", errors="replace")),
+        stderr_bytes=len(completed.stderr.encode("utf-8", errors="replace")),
+        stdout_truncated=len(completed.stdout) > _LOG_TAIL_CHARS,
+        stderr_truncated=len(completed.stderr) > _LOG_TAIL_CHARS,
+        output_summary=_summarize_external_output(output_path),
     )
     result.metadata_path.write_text(json.dumps(result.to_dict(), indent=2, sort_keys=True), encoding="utf-8")
     if zoo_entry is not None:
@@ -159,7 +191,11 @@ def run_external_segmentation(request: ExternalSegmentationRequest) -> ExternalS
     if completed.returncode != 0:
         raise ExternalSegmentationError(
             f"{request.engine} failed with exit code {completed.returncode}",
-            context={"command": command, "stderr": completed.stderr[-4000:]},
+            context={
+                "command": command,
+                "stdout": completed.stdout[-4000:],
+                "stderr": completed.stderr[-4000:],
+            },
             suggestion="Check that the external tool is installed, its weights are available, and the input modality matches the selected task.",
         )
     if not output_path.exists():
@@ -384,6 +420,81 @@ def _metadata_path_for_output(output_path: Path) -> Path:
         return output_path / "qortex_external_segmentation.json"
     suffix = output_path.suffix or ".out"
     return output_path.with_suffix(suffix + ".qortex.json")
+
+
+def _tail_text(text: str, max_chars: int) -> str:
+    if len(text) <= max_chars:
+        return text
+    return text[-max_chars:]
+
+
+def _summarize_external_output(output_path: Path) -> dict[str, Any]:
+    summary: dict[str, Any] = {
+        "exists": output_path.exists(),
+        "is_dir": output_path.is_dir(),
+        "file_count": 0,
+        "nifti_count": 0,
+        "nonempty_nifti_count": 0,
+        "empty_nifti_count": 0,
+        "nonempty_nifti_examples": [],
+        "empty_nifti_examples": [],
+        "warnings": [],
+    }
+    if not output_path.exists():
+        summary["warnings"].append("Expected output path does not exist.")
+        return summary
+
+    files = (
+        sorted(p for p in output_path.rglob("*") if p.is_file())
+        if output_path.is_dir()
+        else [output_path]
+    )
+    summary["file_count"] = len(files)
+    nifti_files = [p for p in files if _is_nifti_path(p)]
+    summary["nifti_count"] = len(nifti_files)
+    if not nifti_files:
+        return summary
+
+    try:
+        import nibabel as nib
+        import numpy as np
+    except ImportError:
+        summary["warnings"].append("nibabel/numpy unavailable; NIfTI mask content was not inspected.")
+        return summary
+
+    for path in nifti_files:
+        rel = str(path.relative_to(output_path)) if output_path.is_dir() else path.name
+        try:
+            image = nib.load(str(path))
+            data = np.asanyarray(image.dataobj)
+            nonzero = int(np.count_nonzero(data))
+        except Exception as exc:
+            summary["warnings"].append(f"Could not inspect {rel}: {exc}")
+            continue
+        item = {
+            "path": rel,
+            "shape": [int(dim) for dim in data.shape],
+            "dtype": str(data.dtype),
+            "nonzero_voxels": nonzero,
+        }
+        if nonzero:
+            summary["nonempty_nifti_count"] += 1
+            if len(summary["nonempty_nifti_examples"]) < 10:
+                summary["nonempty_nifti_examples"].append(item)
+        else:
+            summary["empty_nifti_count"] += 1
+            if len(summary["empty_nifti_examples"]) < 10:
+                summary["empty_nifti_examples"].append(item)
+    if summary["nifti_count"] and summary["nonempty_nifti_count"] == 0:
+        summary["warnings"].append("All generated NIfTI outputs are empty.")
+    elif summary["nifti_count"] and summary["empty_nifti_count"] / summary["nifti_count"] >= 0.8:
+        summary["warnings"].append("Most generated NIfTI outputs are empty; verify task/input modality fit.")
+    return summary
+
+
+def _is_nifti_path(path: Path) -> bool:
+    name = path.name.lower()
+    return name.endswith(".nii") or name.endswith(".nii.gz")
 
 
 def _lookup_external_zoo_entry(engine: str):

@@ -73,10 +73,7 @@ class BIDSValidatorRunner:
             cmd = [
                 self.executable,
                 str(root),
-                "--format",
-                "json",
-                "--outfile",
-                str(json_path),
+                "--json",
             ]
             if config_path is not None:
                 cmd.extend(["--config", str(Path(config_path).expanduser())])
@@ -99,10 +96,14 @@ class BIDSValidatorRunner:
                 ) from exc
 
             raw = _read_validator_json(json_path, proc.stdout)
+            if output_json is not None and not json_path.exists():
+                json_path.write_text(json.dumps(raw, indent=2, sort_keys=True), encoding="utf-8")
             elapsed = time.monotonic() - t0
             issues = _normalize_issues(raw)
             valid = _infer_valid(raw, proc.returncode, issues)
             version = _extract_version(raw, proc.stderr, proc.stdout)
+            if version is None:
+                version = _probe_validator_version(self.executable, timeout_s=timeout_s or self.timeout_s)
             report = ValidationReport(
                 dataset_path=str(root),
                 valid=valid,
@@ -179,13 +180,32 @@ def _normalize_issues(raw: dict[str, Any]) -> list[ValidationIssue]:
     seen: set[tuple[str, str, str | None, str]] = set()
     for severity, entries in buckets.items():
         for entry in entries:
-            issue = _normalize_issue(severity, entry)
-            key = (issue.severity, issue.code, issue.path, issue.message)
-            if key in seen:
-                continue
-            seen.add(key)
-            issues.append(issue)
+            for normalized_entry in _expand_issue_entry(entry):
+                issue = _normalize_issue(severity, normalized_entry)
+                key = (issue.severity, issue.code, issue.path, issue.message)
+                if key in seen:
+                    continue
+                seen.add(key)
+                issues.append(issue)
     return issues
+
+
+def _expand_issue_entry(entry: Any) -> list[Any]:
+    if not isinstance(entry, dict):
+        return [entry]
+    files = entry.get("files")
+    if not isinstance(files, list) or not files:
+        return [entry]
+    expanded: list[dict[str, Any]] = []
+    group = {k: v for k, v in entry.items() if k != "files"}
+    for file_issue in files:
+        if isinstance(file_issue, dict):
+            merged = {**group, **file_issue}
+            merged.setdefault("group", group)
+            expanded.append(merged)
+        else:
+            expanded.append({**group, "file": file_issue})
+    return expanded
 
 
 def _normalize_issue(severity: str, entry: Any) -> ValidationIssue:
@@ -262,6 +282,21 @@ def _extract_version(raw: dict[str, Any], stderr: str, stdout: str) -> str | Non
             if "bids-validator" in line.lower() and any(ch.isdigit() for ch in line):
                 return line.strip()
     return None
+
+
+def _probe_validator_version(executable: str, *, timeout_s: float) -> str | None:
+    try:
+        proc = subprocess.run(
+            [executable, "--version"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=min(timeout_s, 10.0),
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    text = (proc.stdout or proc.stderr).strip()
+    return text or None
 
 
 def _as_list(value: Any) -> list[Any]:

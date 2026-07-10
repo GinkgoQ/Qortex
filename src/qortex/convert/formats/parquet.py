@@ -52,7 +52,7 @@ class ParquetWriter:
     def _flush(self, buffer: list[SampleRecord], output_dir: Path, idx: int) -> None:
         import numpy as np
 
-        rows = []
+        rows: list[dict[str, Any]] = []
         for s in buffer:
             row: dict[str, Any] = {
                 "subject": s.subject,
@@ -77,6 +77,9 @@ class ParquetWriter:
                 row["data_json"] = json.dumps(s.data, default=str, sort_keys=True)
             rows.append(row)
 
+        all_keys = sorted({key for row in rows for key in row})
+        rows = [{key: row.get(key) for key in all_keys} for row in rows]
+
         out_path = output_dir / f"shard_{idx:05d}.parquet"
         try:
             import polars as pl
@@ -86,7 +89,7 @@ class ParquetWriter:
 
             pq.write_table(pa.Table.from_pylist(rows), out_path)
         else:
-            pl.DataFrame(rows).write_parquet(out_path)
+            pl.DataFrame(rows, infer_schema_length=None).write_parquet(out_path)
 
     def estimate_size(self, n_samples: int, sample_shape: tuple[int, ...]) -> int:
         n = 1

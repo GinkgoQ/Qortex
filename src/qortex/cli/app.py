@@ -1671,6 +1671,7 @@ def neuroai_check(
         report = pipe.check()
     except Exception as exc:
         typer.echo(f"[ERROR] {exc}", err=True)
+        _echo_exception_context(exc)
         raise typer.Exit(1)
 
     if json_output:
@@ -1712,6 +1713,7 @@ def neuroai_plan(
         plan = pipe.plan_preprocessing()
     except Exception as exc:
         typer.echo(f"[ERROR] {exc}", err=True)
+        _echo_exception_context(exc)
         raise typer.Exit(1)
 
     if json_output:
@@ -2175,6 +2177,7 @@ def neuroai_run_external_segmentation(
         )
     except Exception as exc:
         typer.echo(f"[ERROR] {exc}", err=True)
+        _echo_exception_context(exc)
         raise typer.Exit(1)
 
     if json_output:
@@ -2185,6 +2188,34 @@ def neuroai_run_external_segmentation(
     typer.echo(f"Output   : {result.output_path}")
     typer.echo(f"Elapsed  : {result.elapsed_s:.2f}s")
     typer.echo(f"Metadata : {result.metadata_path}")
+    summary = result.output_summary or {}
+    if summary:
+        typer.echo(
+            "NIfTI    : "
+            f"{summary.get('nifti_count', 0)} total, "
+            f"{summary.get('nonempty_nifti_count', 0)} nonempty, "
+            f"{summary.get('empty_nifti_count', 0)} empty"
+        )
+        for warning in summary.get("warnings", []):
+            typer.echo(f"Warning  : {warning}")
+
+
+def _echo_exception_context(exc: Exception) -> None:
+    context = getattr(exc, "context", {}) or {}
+    command = context.get("command")
+    if command:
+        typer.echo("Command : " + " ".join(str(part) for part in command), err=True)
+    stdout = str(context.get("stdout") or "").strip()
+    stderr = str(context.get("stderr") or "").strip()
+    if stdout:
+        typer.echo("Stdout:", err=True)
+        typer.echo(stdout, err=True)
+    if stderr:
+        typer.echo("Stderr:", err=True)
+        typer.echo(stderr, err=True)
+    suggestion = getattr(exc, "suggestion", None)
+    if suggestion:
+        typer.echo(f"Suggestion: {suggestion}", err=True)
 
 
 def _parse_prompt_points(raw_points: list[str] | None) -> list[tuple[float, ...]] | None:

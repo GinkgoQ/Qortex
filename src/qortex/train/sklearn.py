@@ -26,13 +26,13 @@ class SklearnAdapter:
         """
         import polars as pl
 
-        shards = sorted(data_dir.glob("shard_*.parquet"))
+        shards = _parquet_shards(data_dir, split=split)
         if not shards:
             raise FileNotFoundError(f"No parquet shards found in {data_dir}")
 
         frames = [pl.read_parquet(s) for s in shards]
         df = pl.concat(frames)
-        if split and "split" in df.columns:
+        if split and "split" in df.columns and not (data_dir / split).exists():
             df = df.filter(pl.col("split") == split)
 
         Xs: list[np.ndarray] = []
@@ -74,11 +74,21 @@ class SklearnAdapter:
         of signal artifacts without loading arrays into memory.
         """
         import polars as pl
-        shards = sorted(data_dir.glob("shard_*.parquet"))
+        shards = _parquet_shards(data_dir, split=split)
         if not shards:
             raise FileNotFoundError(f"No parquet shards found in {data_dir}")
         frames = [pl.read_parquet(s) for s in shards]
         df = pl.concat(frames)
-        if split and "split" in df.columns:
+        if split and "split" in df.columns and not (data_dir / split).exists():
             df = df.filter(pl.col("split") == split)
         return df
+
+
+def _parquet_shards(data_dir: Path, split: str | None = None) -> list[Path]:
+    if split:
+        split_dir = data_dir / split
+        if split_dir.exists():
+            shards = sorted(split_dir.glob("*.parquet"))
+            if shards:
+                return shards
+    return sorted(data_dir.glob("shard_*.parquet")) or sorted(data_dir.glob("**/*.parquet"))
