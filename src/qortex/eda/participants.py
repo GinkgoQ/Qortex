@@ -200,6 +200,104 @@ def numeric_by_group(
     return stats
 
 
+def summarize_demographics(
+    table: ParticipantsTable,
+    *,
+    group_col: str = "sex",
+    value_col: str = "age",
+) -> dict[str, Any]:
+    """Build a JSON-safe, validation-aware grouped numeric summary.
+
+    Raw categorical defects remain separate from valid groups. Numeric
+    missingness and parse failures are reported independently, so consumers
+    never have to infer validity from a plotted subset.
+    """
+    if group_col not in table.columns:
+        raise ValueError(f"participants table has no {group_col!r} column")
+    if value_col not in table.columns:
+        raise ValueError(f"participants table has no {value_col!r} column")
+
+    categorical = summarize_categorical(table, group_col)
+    stats = numeric_by_group(table, value_col, categorical)
+    invalid_group_rows = {
+        index for indices in categorical.invalid_values.values() for index in indices
+    }
+    values_by_group: dict[str, list[float]] = {
+        group: [] for group in categorical.valid_counts
+    }
+    invalid_group_values: list[float] = []
+    numeric_values: list[float] = []
+    numeric_missing = 0
+    numeric_invalid: dict[str, list[int]] = {}
+
+    for index, record in enumerate(table.records):
+        raw_value = record.values.get(value_col)
+        if _is_missing(raw_value):
+            numeric_missing += 1
+            continue
+        value = _float_or_none(raw_value)
+        if value is None or not np.isfinite(value):
+            numeric_invalid.setdefault(str(raw_value), []).append(index + 1)
+            continue
+        numeric_values.append(value)
+        if index in invalid_group_rows:
+            invalid_group_values.append(value)
+            continue
+        group = record.values.get(group_col, "")
+        if group in values_by_group:
+            values_by_group[group].append(value)
+
+    overall = None
+    if numeric_values:
+        arr = np.asarray(numeric_values, dtype=np.float64)
+        overall = {
+            "n": len(numeric_values),
+            "median": float(np.median(arr)),
+            "q1": float(np.percentile(arr, 25)),
+            "q3": float(np.percentile(arr, 75)),
+            "min": float(arr.min()),
+            "max": float(arr.max()),
+        }
+
+    return {
+        "group_column": group_col,
+        "value_column": value_col,
+        "total_rows": table.n_participants,
+        "categorical": {
+            "valid_counts": categorical.valid_counts,
+            "invalid_values": {
+                raw: [index + 1 for index in indices]
+                for raw, indices in categorical.invalid_values.items()
+            },
+            "n_valid": categorical.n_valid,
+            "n_invalid": categorical.n_invalid,
+            "n_missing": categorical.n_missing,
+        },
+        "numeric": {
+            "n_valid": len(numeric_values),
+            "n_invalid": sum(len(indices) for indices in numeric_invalid.values()),
+            "n_missing": numeric_missing,
+            "invalid_values": numeric_invalid,
+        },
+        "groups": [
+            {
+                "group": row.group,
+                "n": row.n,
+                "median": row.median,
+                "q1": row.q1,
+                "q3": row.q3,
+                "min": row.vmin,
+                "max": row.vmax,
+                "values": invalid_group_values
+                if row.group == "Invalid"
+                else values_by_group.get(row.group, []),
+            }
+            for row in stats
+        ],
+        "overall": overall,
+    }
+
+
 def participants_metadata_figure(
     table: ParticipantsTable,
     *,
@@ -216,8 +314,8 @@ def participants_metadata_figure(
     invalid-value warning banner (never silently absorbed into a group).
     """
     try:
-        import matplotlib.pyplot as plt
         import matplotlib.gridspec as gridspec
+        import matplotlib.pyplot as plt
         import seaborn as sns
     except ImportError as exc:
         raise ImportError(
@@ -226,8 +324,15 @@ def participants_metadata_figure(
         ) from exc
 
     from qortex.visualize.design import (
-        BORDER, CATEGORICAL, INK, SUBINK, STATUS,
-        apply_theme, figure_title, metric_card, section_title, style_table,
+        CATEGORICAL,
+        INK,
+        STATUS,
+        SUBINK,
+        apply_theme,
+        figure_title,
+        metric_card,
+        section_title,
+        style_table,
     )
 
     apply_theme()

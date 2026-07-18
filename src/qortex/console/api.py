@@ -20,6 +20,7 @@ import json
 import logging
 import re
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -27,7 +28,7 @@ try:
     from fastapi import Body, FastAPI, HTTPException, Query
     from fastapi.concurrency import run_in_threadpool
     from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.responses import Response
+    from fastapi.responses import FileResponse, Response
     from pydantic import BaseModel as _PydanticModel
 except ImportError:
     raise ImportError(
@@ -199,6 +200,14 @@ async def store_status() -> dict[str, Any]:
             idx.close()
 
     return await call(_status)
+
+
+@app.get("/cache/inventory")
+async def cache_inventory() -> dict[str, object]:
+    """Measure the persistent cache directories used by this installation."""
+    from qortex.console.cache_inventory import cache_inventory as inspect_cache
+
+    return await call(inspect_cache)
 
 
 # ── Catalog search (local cache) + facets ────────────────────────────────────
@@ -615,7 +624,12 @@ async def dataset_manifest(
 
 
 @app.get("/dataset/{dataset_id}/readiness")
-async def dataset_readiness(dataset_id: str, snapshot: Optional[str] = Query(None)) -> dict[str, Any]:
+async def dataset_readiness(
+    dataset_id: str,
+    snapshot: Optional[str] = Query(None),
+    modality: Optional[str] = Query(None),
+    target: Optional[str] = Query(None),
+) -> dict[str, Any]:
     from qortex.check.readiness import compute_readiness
     from qortex.decision import can_train as can_train_fn
 
@@ -623,7 +637,7 @@ async def dataset_readiness(dataset_id: str, snapshot: Optional[str] = Query(Non
         with atlas_timing.timed("readiness", dataset_id):
             manifest = _manifest_for(dataset_id, snapshot)
             readiness = compute_readiness(manifest)
-            ct = can_train_fn(manifest)
+            ct = can_train_fn(manifest, modality=modality, target=target)
             evidence = build_evidence(
                 dataset_id=dataset_id,
                 manifest_summary=to_jsonable(manifest.summary),
@@ -639,6 +653,126 @@ async def dataset_readiness(dataset_id: str, snapshot: Optional[str] = Query(Non
         }
 
     return await call(_run)
+
+
+@app.get("/dataset/{dataset_id}/validation")
+async def dataset_validation(
+    dataset_id: str,
+    snapshot: Optional[str] = Query(None),
+) -> dict[str, Any]:
+    """Return snapshot validation issues published by OpenNeuro.
+
+    OpenNeuro exposes issue findings, not the validator's full passed-check
+    inventory. The response therefore leaves passed counts and tool version
+    unknown instead of deriving them from an absence of issues.
+    """
+    from qortex.client.graphql import get_shared_client
+
+    def _run() -> dict[str, Any]:
+        manifest = _manifest_for(dataset_id, snapshot)
+        issues = get_shared_client().get_validation_issues(dataset_id, manifest.snapshot)
+        groups: dict[str, dict[str, Any]] = {}
+        counts = {"error": 0, "warning": 0}
+        for issue in issues:
+            severity = str(issue.get("severity") or "warning").lower()
+            if severity not in counts:
+                severity = "warning"
+            counts[severity] += 1
+            key = str(issue.get("key") or "unclassified")
+            group = groups.setdefault(key, {
+                "key": key,
+                "severity": severity,
+                "reason": issue.get("reason"),
+                "help_url": issue.get("helpUrl"),
+                "occurrences": 0,
+                "files": [],
+            })
+            group["occurrences"] += 1
+            for file_info in issue.get("files") or []:
+                path = file_info.get("path") or file_info.get("name")
+                if path and path not in group["files"] and len(group["files"]) < 20:
+                    group["files"].append(path)
+            if severity == "error":
+                group["severity"] = "error"
+        ordered = sorted(
+            groups.values(),
+            key=lambda item: (item["severity"] != "error", item["key"]),
+        )
+        return {
+            "dataset_id": dataset_id,
+            "snapshot": manifest.snapshot,
+            "source": "OpenNeuro snapshot validation issues",
+            "retrieved_at": datetime.now(timezone.utc).isoformat(),
+            "validator": {
+                "name": "BIDS Validator",
+                "version": None,
+                "version_evidence": "not exposed by the OpenNeuro snapshot issues API",
+            },
+            "coverage": {
+                "passed_checks": None,
+                "passed_checks_evidence": "OpenNeuro publishes issues only; absence is not counted as passed checks",
+                "issue_occurrences": len(issues),
+                **counts,
+            },
+            "issues": ordered,
+        }
+
+    return await call(_run)
+
+
+@app.post("/dataset/{dataset_id}/validation/local/start")
+async def dataset_local_validation_start(
+    dataset_id: str,
+    snapshot: Optional[str] = Query(None),
+) -> dict[str, Any]:
+    """Run the installed official BIDS Validator over bytes present locally."""
+    import secrets
+
+    from qortex.console.local_validation import run_local_bids_validation
+    from qortex.core.config import get_config
+    from qortex.lake.layout import LakeLayout
+
+    manifest = _manifest_for(dataset_id, snapshot)
+    layout = LakeLayout(get_config())
+    data_dir = layout.data_dir(dataset_id, manifest.snapshot)
+    run_id = f"bv-{secrets.token_hex(6)}"
+    output_dir = layout.reports_dir(dataset_id, manifest.snapshot) / "bids-validator" / run_id
+
+    def _run() -> dict[str, Any]:
+        result = run_local_bids_validation(manifest, data_dir, output_dir)
+        return {"run_id": run_id, **result}
+
+    job = atlas_jobs.submit(f"Validate local {dataset_id}@{manifest.snapshot}", _run)
+    return {"job_id": job.id, "run_id": run_id, "snapshot": manifest.snapshot}
+
+
+@app.get(
+    "/dataset/{dataset_id}/validation/local/runs/{snapshot}/{run_id}/artifacts/{artifact_name}"
+)
+async def dataset_local_validation_artifact(
+    dataset_id: str,
+    snapshot: str,
+    run_id: str,
+    artifact_name: str,
+) -> FileResponse:
+    """Serve one report artifact from a bounded local-validator run."""
+    from qortex.console.local_validation import resolve_validation_artifact
+    from qortex.core.config import get_config
+    from qortex.lake.layout import LakeLayout
+
+    if re.fullmatch(r"bv-[a-f0-9]{12}", run_id) is None:
+        raise HTTPException(status_code=400, detail="invalid validation run id")
+    manifest = _manifest_for(dataset_id, snapshot)
+    output_dir = (
+        LakeLayout(get_config()).reports_dir(dataset_id, manifest.snapshot)
+        / "bids-validator"
+        / run_id
+    )
+    try:
+        artifact = await call(resolve_validation_artifact, output_dir, artifact_name)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="validation artifact not found") from exc
+    return FileResponse(artifact, filename=artifact.name, media_type="application/json")
 
 
 @app.get("/timing/estimate")
@@ -690,13 +824,319 @@ async def dataset_signal_budget(dataset_id: str, snapshot: Optional[str] = Query
 @app.get("/dataset/{dataset_id}/participants")
 async def dataset_participants(dataset_id: str, snapshot: Optional[str] = Query(None)) -> dict[str, Any]:
     from qortex import Dataset
+    from qortex.eda.participants import (
+        ParticipantRecord,
+        ParticipantsTable,
+        summarize_demographics,
+    )
 
     def _run():
-        ds = Dataset(dataset_id, snapshot=snapshot, manifest=_manifest_for(dataset_id, snapshot))
+        manifest = _manifest_for(dataset_id, snapshot)
+        ds = Dataset(dataset_id, snapshot=snapshot, manifest=manifest)
         df = ds.participants()
-        return {"columns": df.columns, "rows": df.to_dicts()}
+        rows = df.to_dicts()
+        sidecar: dict[str, Any] = {}
+        try:
+            candidate = next(
+                (record.path for record in manifest.files if record.path.endswith("participants.json")),
+                None,
+            )
+            if candidate:
+                preview = ds.preview(candidate)
+                sidecar = preview.get("data", preview) if isinstance(preview, dict) else {}
+        except (FileNotFoundError, ValueError, TypeError):
+            sidecar = {}
+
+        summary = None
+        if "age" in df.columns and "sex" in df.columns:
+            table = ParticipantsTable(
+                columns=list(df.columns),
+                records=[
+                    ParticipantRecord(
+                        participant_id=str(row.get("participant_id", "")),
+                        values={
+                            key: "" if value is None else str(value)
+                            for key, value in row.items()
+                            if key != "participant_id"
+                        },
+                    )
+                    for row in rows
+                ],
+                sidecar=sidecar,
+            )
+            summary = summarize_demographics(table)
+        return {"columns": df.columns, "rows": rows, "demographics": summary}
 
     return await call(_run)
+
+
+@app.get("/dataset/{dataset_id}/coverage")
+async def dataset_coverage(
+    dataset_id: str,
+    snapshot: Optional[str] = Query(None),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+) -> dict[str, Any]:
+    from qortex.eda.coverage import observed_coverage_report
+
+    return await call(
+        observed_coverage_report,
+        _manifest_for(dataset_id, snapshot),
+        offset=offset,
+        limit=limit,
+    )
+
+
+@app.get("/dataset/{dataset_id}/fmri-qc")
+async def dataset_fmri_qc(
+    dataset_id: str,
+    snapshot: Optional[str] = Query(None),
+    path: Optional[str] = Query(None),
+    max_frames: int = Query(500, ge=2, le=2000),
+    fd_threshold_mm: float = Query(0.5, ge=0.0),
+    dvars_threshold: Optional[float] = Query(None, ge=0.0),
+) -> dict[str, Any]:
+    """Compute real framewise BOLD QC from a locally downloaded 4-D NIfTI."""
+    from qortex.core.config import get_config
+    from qortex.lake.layout import LakeLayout
+    from qortex.visualize.volume import VolumeViewer
+
+    manifest = _manifest_for(dataset_id, snapshot)
+    candidate_paths = sorted(
+        record.path
+        for record in manifest.files
+        if not record.is_dir
+        and record.suffix == "bold"
+        and record.extension in {".nii", ".nii.gz"}
+    )
+    if path is not None and path not in candidate_paths:
+        raise HTTPException(status_code=400, detail="path is not a BOLD NIfTI in this snapshot manifest")
+
+    data_root = LakeLayout(get_config()).data_dir(dataset_id, manifest.snapshot).resolve()
+    available = [
+        candidate
+        for candidate in candidate_paths
+        if (data_root / candidate).resolve().is_relative_to(data_root)
+        and (data_root / candidate).is_file()
+    ]
+    selected = path or (available[0] if available else None)
+    if selected is None or selected not in available:
+        return {
+            "dataset_id": dataset_id,
+            "snapshot": manifest.snapshot,
+            "available": False,
+            "selected_path": selected,
+            "available_paths": available,
+            "manifest_bold_count": len(candidate_paths),
+            "reason": (
+                "The selected BOLD file is not downloaded locally. Full framewise QC requires consecutive image volumes; remote header or slice ranges are insufficient."
+                if selected
+                else "No locally downloaded BOLD NIfTI is available for full framewise QC."
+            ),
+        }
+
+    local_file = (data_root / selected).resolve()
+
+    def _run() -> dict[str, Any]:
+        viewer = VolumeViewer(local_file, modality="fmri")
+        report = viewer.fmri_qc_report(
+            max_frames=max_frames,
+            fd_threshold_mm=fd_threshold_mm,
+            dvars_threshold=dvars_threshold,
+        )
+        return {
+            "dataset_id": dataset_id,
+            "snapshot": manifest.snapshot,
+            "available": True,
+            "selected_path": selected,
+            "available_paths": available,
+            "manifest_bold_count": len(candidate_paths),
+            "report": report,
+        }
+
+    return await call(_run)
+
+
+@app.get("/dataset/{dataset_id}/signal-analysis")
+async def dataset_signal_analysis(
+    dataset_id: str,
+    snapshot: Optional[str] = Query(None),
+    path: Optional[str] = Query(None),
+    duration_seconds: float = Query(20.0, gt=0.0, le=120.0),
+    max_channels: int = Query(32, ge=2, le=64),
+    connectivity_threshold: float = Query(0.35, ge=0.0, le=1.0),
+) -> dict[str, Any]:
+    """Run bounded Neuroclassic analytics on a locally downloaded signal file."""
+    from qortex.core.config import get_config
+    from qortex.eda.signal_analysis import analyze_signal_file
+    from qortex.lake.layout import LakeLayout
+
+    manifest = _manifest_for(dataset_id, snapshot)
+    candidate_records = sorted(
+        (
+            record
+            for record in manifest.files
+            if not record.is_dir
+            and record.suffix in {"eeg", "meg", "ieeg"}
+            and record.extension in {".edf", ".bdf", ".fif", ".set", ".vhdr"}
+        ),
+        key=lambda record: record.path,
+    )
+    records_by_path = {record.path: record for record in candidate_records}
+    if path is not None and path not in records_by_path:
+        raise HTTPException(status_code=400, detail="path is not an MNE-readable signal file in this snapshot manifest")
+
+    data_root = LakeLayout(get_config()).data_dir(dataset_id, manifest.snapshot).resolve()
+    available_records = [
+        record
+        for record in candidate_records
+        if (data_root / record.path).resolve().is_relative_to(data_root)
+        and (data_root / record.path).is_file()
+    ]
+    if path is not None:
+        available_records = [record for record in available_records if record.path == path]
+
+    def _run() -> dict[str, Any]:
+        load_errors: list[dict[str, str]] = []
+        for record in available_records:
+            local_file = (data_root / record.path).resolve()
+            try:
+                report = analyze_signal_file(
+                    local_file,
+                    file_record=record,
+                    duration_seconds=duration_seconds,
+                    max_channels=max_channels,
+                    connectivity_threshold=connectivity_threshold,
+                )
+            except (OSError, RuntimeError, TypeError, ValueError) as exc:
+                load_errors.append({"path": record.path, "error": f"{type(exc).__name__}: {exc}"})
+                continue
+            return {
+                "dataset_id": dataset_id,
+                "snapshot": manifest.snapshot,
+                "available": True,
+                "selected_path": record.path,
+                "downloaded_paths": [item.path for item in available_records],
+                "manifest_signal_count": len(candidate_records),
+                "unreadable_downloads": load_errors,
+                "report": report,
+            }
+        return {
+            "dataset_id": dataset_id,
+            "snapshot": manifest.snapshot,
+            "available": False,
+            "selected_path": path,
+            "downloaded_paths": [item.path for item in available_records],
+            "manifest_signal_count": len(candidate_records),
+            "unreadable_downloads": load_errors[:20],
+            "reason": (
+                "Downloaded signal files were present but none could be parsed as complete recordings."
+                if available_records
+                else "No locally downloaded MNE-readable EEG, MEG, or iEEG recording is available."
+            ),
+        }
+
+    return await call(_run)
+
+
+class ConversionBody(_PydanticModel):
+    paths: list[str]
+    output_format: str = "parquet"
+    shard_size: int = 1000
+
+
+@app.get("/dataset/{dataset_id}/conversion/options")
+async def dataset_conversion_options(
+    dataset_id: str,
+    snapshot: Optional[str] = Query(None),
+) -> dict[str, Any]:
+    """List locally present loader-backed sources and installed output writers."""
+    from qortex.console.conversion_runs import conversion_options
+    from qortex.core.config import get_config
+    from qortex.lake.layout import LakeLayout
+
+    manifest = _manifest_for(dataset_id, snapshot)
+    data_dir = LakeLayout(get_config()).data_dir(dataset_id, manifest.snapshot)
+    return await call(conversion_options, manifest, data_dir)
+
+
+@app.post("/dataset/{dataset_id}/conversion/start")
+async def dataset_conversion_start(
+    dataset_id: str,
+    body: ConversionBody = Body(...),
+    snapshot: Optional[str] = Query(None),
+) -> dict[str, Any]:
+    """Start a strict conversion over explicit locally downloaded paths."""
+    import secrets
+
+    from qortex.console.conversion_runs import conversion_capabilities, run_conversion
+    from qortex.core.config import get_config
+    from qortex.lake.layout import LakeLayout
+
+    if not 1 <= len(body.paths) <= 100:
+        raise HTTPException(status_code=400, detail="paths must contain between 1 and 100 files")
+    if not 1 <= body.shard_size <= 100_000:
+        raise HTTPException(status_code=400, detail="shard_size must be in [1, 100000]")
+    if len(body.paths) != len(set(body.paths)):
+        raise HTTPException(status_code=400, detail="paths must not contain duplicates")
+    formats = {item["name"]: item for item in conversion_capabilities()["formats"]}
+    capability = formats.get(body.output_format)
+    if capability is None:
+        raise HTTPException(status_code=400, detail=f"unsupported output format: {body.output_format}")
+    if not capability["available"]:
+        missing = ", ".join(capability["missing_packages"])
+        raise HTTPException(
+            status_code=409,
+            detail=f"{body.output_format} requires missing packages: {missing}",
+        )
+    manifest = _manifest_for(dataset_id, snapshot)
+    layout = LakeLayout(get_config())
+    data_dir = layout.data_dir(dataset_id, manifest.snapshot)
+    run_id = f"cv-{secrets.token_hex(6)}"
+    output_dir = layout.exports_dir(dataset_id, manifest.snapshot) / run_id
+
+    def _run() -> dict[str, Any]:
+        result = run_conversion(
+            manifest,
+            data_dir,
+            output_dir,
+            paths=body.paths,
+            output_format=body.output_format,
+            shard_size=body.shard_size,
+        )
+        return {"run_id": run_id, **result}
+
+    job = atlas_jobs.submit(
+        f"Convert {dataset_id}@{manifest.snapshot} to {body.output_format}",
+        _run,
+    )
+    return {"job_id": job.id, "run_id": run_id, "snapshot": manifest.snapshot}
+
+
+@app.get("/dataset/{dataset_id}/conversion/runs/{snapshot}/{run_id}/artifacts/{artifact_path:path}")
+async def dataset_conversion_artifact(
+    dataset_id: str,
+    snapshot: str,
+    run_id: str,
+    artifact_path: str,
+) -> FileResponse:
+    """Serve one inventoried conversion artifact from its bounded run directory."""
+    import mimetypes
+
+    from qortex.console.conversion_runs import resolve_conversion_artifact
+    from qortex.core.config import get_config
+    from qortex.lake.layout import LakeLayout
+
+    if re.fullmatch(r"cv-[a-f0-9]{12}", run_id) is None:
+        raise HTTPException(status_code=400, detail="invalid conversion run id")
+    manifest = _manifest_for(dataset_id, snapshot)
+    output_dir = LakeLayout(get_config()).exports_dir(dataset_id, manifest.snapshot) / run_id
+    try:
+        artifact = await call(resolve_conversion_artifact, output_dir, artifact_path)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="conversion artifact not found") from exc
+    media_type = mimetypes.guess_type(artifact.name)[0] or "application/octet-stream"
+    return FileResponse(artifact, filename=artifact.name, media_type=media_type)
 
 
 @app.get("/dataset/{dataset_id}/events")
@@ -1477,7 +1917,59 @@ async def list_models() -> list[dict[str, Any]]:
     return atlas_models.list_models()
 
 
+@app.get("/models/status")
+async def model_runtime_status() -> dict[str, Any]:
+    return atlas_models.runtime_summary()
+
+
+class PublicBratsValidationBody(_PydanticModel):
+    case_id: str = "BraTS-GLI-00000-000"
+    device: str = "auto"
+
+
+@app.post("/models/brats/validate-public")
+async def start_public_brats_validation(
+    body: PublicBratsValidationBody = Body(default=PublicBratsValidationBody()),
+) -> dict[str, Any]:
+    """Run pinned pretrained MONAI weights on a real public BraTS case."""
+    from qortex.neuroai.public_validation import run_public_brats_validation
+
+    if body.device not in {"auto", "cpu", "cuda"}:
+        raise HTTPException(status_code=400, detail="device must be auto, cpu, or cuda")
+    job = atlas_jobs.submit(
+        f"Validate pretrained BraTS model on {body.case_id}",
+        run_public_brats_validation,
+        case_id=body.case_id,
+        device=body.device,
+        report_progress=True,
+    )
+    return {"job_id": job.id, "case_id": body.case_id}
+
+
+@app.get("/models/brats/runs/{run_id}")
+async def get_public_brats_validation(run_id: str) -> dict[str, Any]:
+    from qortex.neuroai.public_validation import load_public_brats_run
+
+    return await call(load_public_brats_run, run_id)
+
+
+@app.get("/models/brats/runs/{run_id}/artifacts/{artifact}")
+async def get_public_brats_artifact(run_id: str, artifact: str) -> FileResponse:
+    from qortex.neuroai.public_validation import public_brats_artifact_path
+
+    path = await call(public_brats_artifact_path, run_id, artifact)
+    media_type = "application/json" if path.suffix == ".json" else "application/gzip"
+    return FileResponse(path, filename=path.name, media_type=media_type)
+
+
 # ── Jobs ──────────────────────────────────────────────────────────────────
+
+@app.get("/runs/persistent")
+async def persistent_runs(limit: int = Query(100, ge=1, le=500)) -> dict[str, Any]:
+    """List artifact-backed scientific and conversion runs across restarts."""
+    from qortex.console.run_inventory import persistent_run_inventory
+
+    return await call(persistent_run_inventory, limit=limit)
 
 @app.get("/jobs")
 async def jobs_list() -> list[dict[str, Any]]:

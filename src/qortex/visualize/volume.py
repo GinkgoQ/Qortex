@@ -24,20 +24,25 @@ added to navigate through individual time points.
 
 from __future__ import annotations
 
-import logging
 import csv
+import logging
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
 from qortex.visualize._colors import (
-    CT_PRESETS, WindowPreset,
-    auto_window, apply_window, colormap_for_modality,
+    CT_PRESETS,
+    WindowPreset,
+    apply_window,
+    auto_window,
+    colormap_for_modality,
 )
 from qortex.visualize._html import (
-    array_to_b64png, render_axis_slices, build_interactive_html,
     _compute_histogram_data,
+    array_to_b64png,
+    build_interactive_html,
+    render_axis_slices,
 )
 
 log = logging.getLogger(__name__)
@@ -604,7 +609,7 @@ class VolumeViewer:
         name_lower = path.name.lower()
 
         if suffix in {".dcm", ".dicom", ".ima"} or path.is_dir():
-            from qortex.visualize.dicom import load_dicom_series, list_dicom_series
+            from qortex.visualize.dicom import list_dicom_series, load_dicom_series
             if path.is_dir():
                 series_list = list_dicom_series(path)
             else:
@@ -1545,6 +1550,150 @@ class VolumeViewer:
         )
         return fig
 
+    def fmri_qc_report(
+        self,
+        *,
+        max_frames: int | None = 500,
+        fd_threshold_mm: float = 0.5,
+        dvars_threshold: float | None = None,
+        confounds_path: Path | str | None = None,
+        memory_budget_bytes: int = 512_000_000,
+    ) -> dict[str, Any]:
+        """Return a serializable, provenance-bearing QC report for 4-D BOLD.
+
+        The computation reads one bounded consecutive block. This matters for
+        ``.nii.gz``: repeated random frame access restarts gzip decompression
+        and becomes quadratic in file position. Framewise displacement is
+        reported only when a real confounds table supplies it or all six motion
+        columns.
+        """
+        if self._lazy is None or len(self._lazy.shape) != 4:
+            raise ValueError("fmri_qc_report() requires a path-backed 4D BOLD NIfTI")
+        if max_frames is not None and max_frames < 2:
+            raise ValueError("max_frames must be at least 2 or None")
+        if fd_threshold_mm < 0:
+            raise ValueError("fd_threshold_mm must be non-negative")
+        if dvars_threshold is not None and dvars_threshold < 0:
+            raise ValueError("dvars_threshold must be non-negative")
+        if memory_budget_bytes < 1:
+            raise ValueError("memory_budget_bytes must be positive")
+
+        lazy = self._lazy
+        n_volumes = int(lazy.shape[3])
+        requested = min(n_volumes, max_frames) if max_frames is not None else n_volumes
+        bytes_per_frame = int(np.prod(lazy.shape[:3])) * np.dtype(np.float32).itemsize
+        budget_frames = max(1, memory_budget_bytes // max(bytes_per_frame, 1))
+        n_used = min(requested, budget_frames)
+        if n_used < 2:
+            raise ValueError("memory budget is too small for two consecutive BOLD frames")
+        tr = float(self.tr) if self.tr is not None else None
+        source = _source_path_from_lazy(lazy)
+
+        # One sequential decompression/read for the bounded block. Subsequent
+        # calculations reuse this array and never seek through the gzip stream.
+        data = np.asarray(lazy._proxy[..., :n_used], dtype=np.float32)
+        mean = np.mean(data, axis=3, dtype=np.float64)
+        finite_mean = mean[np.isfinite(mean)]
+        positive = finite_mean[finite_mean > 0]
+        brain_mask = mean > (float(np.max(finite_mean)) * 0.15) if finite_mean.size else np.zeros(mean.shape, dtype=bool)
+        if not brain_mask.any():
+            brain_mask = np.isfinite(mean)
+        std = np.std(data, axis=3, ddof=1, dtype=np.float64)
+        tsnr = np.divide(mean, std, out=np.zeros_like(mean), where=std >= 1e-6)
+        np.clip(tsnr, 0, 500, out=tsnr)
+        masked_tsnr = tsnr[brain_mask & np.isfinite(tsnr)]
+
+        global_signal = np.asarray(
+            [float(np.mean(data[..., index][brain_mask], dtype=np.float64)) for index in range(n_used)],
+            dtype=np.float32,
+        )
+        dvars = np.empty(n_used - 1, dtype=np.float32)
+        for index in range(1, n_used):
+            delta = data[..., index][brain_mask].astype(np.float64) - data[..., index - 1][brain_mask]
+            dvars[index - 1] = float(np.sqrt(np.mean(delta * delta)))
+        confound_file = Path(confounds_path) if confounds_path else _find_bold_companion(lazy, "confounds")
+        confounds = _load_confounds(confound_file)
+        fd = confounds.get("framewise_displacement")
+        fd_source = "framewise_displacement column"
+        if fd is None:
+            fd = _framewise_displacement_from_motion(confounds)
+            fd_source = "six motion parameters"
+        if fd is not None:
+            fd = np.asarray(fd[:n_used], dtype=np.float32)
+
+        global_times = [float(index * tr) if tr is not None else float(index) for index in range(n_used)]
+        dvars_times = [float(index * tr) if tr is not None else float(index) for index in range(1, len(dvars) + 1)]
+        fd_times = [float(index * tr) if tr is not None else float(index) for index in range(len(fd) if fd is not None else 0)]
+        fd_flags = np.flatnonzero(fd > fd_threshold_mm).astype(int).tolist() if fd is not None else []
+        dvars_flags = (
+            (np.flatnonzero(dvars > dvars_threshold) + 1).astype(int).tolist()
+            if dvars_threshold is not None
+            else []
+        )
+        flagged = sorted(set(fd_flags) | set(dvars_flags))
+
+        return {
+            "source_path": str(source) if source else None,
+            "shape": [int(value) for value in lazy.shape],
+            "voxel_sizes_mm": [float(value) for value in self.voxel_sizes],
+            "tr_seconds": tr,
+            "duration_seconds": float(n_volumes * tr) if tr is not None else None,
+            "n_volumes": n_volumes,
+            "n_volumes_analyzed": n_used,
+            "analysis_window": {
+                "strategy": "all consecutive frames" if n_used == n_volumes else "first consecutive frames",
+                "requested_frames": requested,
+                "memory_budget_bytes": memory_budget_bytes,
+                "estimated_block_bytes": n_used * bytes_per_frame,
+                "limited_by_memory_budget": n_used < requested,
+            },
+            "brain_mask": {
+                "method": "temporal mean greater than 15 percent of finite mean-volume maximum",
+                "voxel_count": int(np.count_nonzero(brain_mask)),
+                "coverage_fraction": float(np.count_nonzero(brain_mask) / brain_mask.size),
+                "nonzero_fraction": float(np.count_nonzero(finite_mean) / finite_mean.size) if finite_mean.size else None,
+            },
+            "mean_intensity": {
+                "p01": float(np.percentile(positive, 1)) if positive.size else None,
+                "p50": float(np.percentile(positive, 50)) if positive.size else None,
+                "p995": float(np.percentile(positive, 99.5)) if positive.size else None,
+            },
+            "tsnr": {
+                "median": float(np.median(masked_tsnr)) if masked_tsnr.size else None,
+                "iqr": (
+                    float(np.percentile(masked_tsnr, 75) - np.percentile(masked_tsnr, 25))
+                    if masked_tsnr.size
+                    else None
+                ),
+                "sampled_frames": n_used,
+            },
+            "global_signal": {"time": global_times, "values": global_signal.astype(float).tolist()},
+            "dvars": {
+                "time": dvars_times,
+                "values": dvars.astype(float).tolist(),
+                "method": "RMS consecutive-frame derivative within the derived brain mask",
+                "threshold": dvars_threshold,
+                "flagged_volumes": dvars_flags,
+            },
+            "framewise_displacement": {
+                "available": fd is not None,
+                "time": fd_times,
+                "values": fd.astype(float).tolist() if fd is not None else [],
+                "source": fd_source if fd is not None else None,
+                "unavailable_reason": None if fd is not None else "No framewise-displacement column or complete six-parameter motion trace was found.",
+                "threshold_mm": fd_threshold_mm,
+                "flagged_volumes": fd_flags,
+            },
+            "scrubbing": {
+                "flagged_volumes": flagged,
+                "retained_count": n_used - len(flagged),
+                "flagged_count": len(flagged),
+                "immutable": True,
+                "note": "This report does not modify the source image. Apply an explicit downstream scrub plan to exclude volumes.",
+            },
+            "confounds_path": str(confound_file) if confound_file and confound_file.exists() else None,
+        }
+
     def to_html(self, output: Path | str, **kwargs) -> Path:
         """Write interactive HTML viewer to file. Returns the output Path."""
         out_path = Path(output)
@@ -1553,7 +1702,8 @@ class VolumeViewer:
 
     def show(self) -> None:
         """Open the interactive viewer in the default web browser."""
-        import tempfile, webbrowser
+        import tempfile
+        import webbrowser
         with tempfile.NamedTemporaryFile(suffix=".html", delete=False, mode="w") as f:
             f.write(self.interactive_html())
             tmp_path = f.name

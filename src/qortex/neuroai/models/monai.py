@@ -8,16 +8,16 @@ MONAI bundles are self-contained model packages (ZIP or directory) with:
 
 from __future__ import annotations
 
-from contextlib import nullcontext as _nullcontext
 import hashlib
 import importlib
 import json
 import logging
-from pathlib import Path
 import sys
 import tempfile
-from typing import Any
 import zipfile
+from contextlib import nullcontext as _nullcontext
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -70,11 +70,10 @@ class MONAIBundleAdapter(ModelAdapter):
     def inspect(self) -> ModelProfile:
         _require_monai()
         self._resolve_bundle()
-        task = (
-            self._metadata.get("task", {}).get("name", "")
-            or self._spec.task
-            or "segmentation"
-        )
+        metadata_task = self._metadata.get("task")
+        if isinstance(metadata_task, dict):
+            metadata_task = metadata_task.get("name")
+        task = str(metadata_task or self._spec.task or "segmentation")
         in_channels, spatial_dims, output_classes = self._parse_network_def()
 
         return ModelProfile(
@@ -285,14 +284,16 @@ class MONAIBundleAdapter(ModelAdapter):
         out = _apply_monai_postprocess(out, self._inference_settings)
         raw = out.cpu().numpy()
         argmax_axis = self._inference_settings.get("argmax_axis", 1)
-        if raw.ndim >= 2 and raw.shape[int(argmax_axis)] > 1:
+        threshold = self._inference_settings.get("threshold")
+        if threshold is not None:
+            # A threshold declares independent output channels (for example
+            # BraTS TC/WT/ET nested regions). Argmax would incorrectly force
+            # those overlapping regions into mutually exclusive classes.
+            mask = (raw[0] >= float(threshold)).astype(np.uint8)
+        elif raw.ndim >= 2 and raw.shape[int(argmax_axis)] > 1:
             mask = np.argmax(raw, axis=int(argmax_axis))[0]
         else:
-            threshold = self._inference_settings.get("threshold")
-            if threshold is not None:
-                mask = (raw[0, 0] >= float(threshold)).astype(np.uint8)
-            else:
-                mask = raw[0, 0]
+            mask = raw[0, 0]
         return ModelOutput(
             output_type="segmentation",
             raw=raw,
@@ -612,7 +613,11 @@ def _parse_inference_settings(
             or _find_config_value(config, ("overlap", "sliding_window_overlap"))
             or 0.25
         ),
-        "activation": extra.get("activation") or _find_config_value(config, ("activation", "post_activation")),
+        "activation": (
+            extra.get("activation")
+            or _find_config_value(config, ("activation", "post_activation"))
+            or _configured_activation(config)
+        ),
         "argmax_axis": int(extra.get("argmax_axis", _find_config_value(config, ("argmax_axis",)) or 1)),
         "threshold": extra.get("threshold", _find_config_value(config, ("threshold",))),
         "label_map": extra.get("label_map") or _find_config_value(config, ("label_map", "labels")) or {},
@@ -620,6 +625,27 @@ def _parse_inference_settings(
     if settings["overlap"] < 0 or settings["overlap"] >= 1:
         raise ValueError(f"MONAI sliding-window overlap must be in [0, 1), got {settings['overlap']}")
     return settings
+
+
+def _configured_activation(config: dict[str, Any]) -> str | None:
+    """Resolve a declarative MONAI ``Activationsd`` configuration."""
+    postprocessing = config.get("postprocessing")
+    stack = [postprocessing]
+    while stack:
+        value = stack.pop()
+        if isinstance(value, list):
+            stack.extend(value)
+            continue
+        if not isinstance(value, dict):
+            continue
+        target = str(value.get("_target_") or value.get("target") or "")
+        if target.rsplit(".", 1)[-1].lower() in {"activations", "activationsd"}:
+            if value.get("sigmoid") is True:
+                return "sigmoid"
+            if value.get("softmax") is True:
+                return "softmax"
+        stack.extend(value.values())
+    return None
 
 
 def _parse_required_transforms(config: dict, extra: dict[str, Any]) -> list[dict[str, Any]]:

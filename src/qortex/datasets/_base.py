@@ -17,12 +17,9 @@ Design contract
 
 from __future__ import annotations
 
-import json
-import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-
 
 # ── Small path helpers ───────────────────────────────────────────────────────
 
@@ -77,7 +74,7 @@ class DatasetCard:
             f"Source      : {self.source_url}",
         ]
         if self.requires_registration:
-            lines.append(f"⚠ Registration required — see access_instructions")
+            lines.append("⚠ Registration required — see access_instructions")
         if self.n_channels:
             lines.append(f"Channels    : {self.n_channels}")
         if self.sampling_hz:
@@ -460,6 +457,7 @@ class EEGBundle:
         Requires qortex[neuroclassic] extras.
         """
         import numpy as np
+
         from qortex.neuroclassic import compute_signal_qc
 
         reports = []
@@ -572,7 +570,7 @@ class MRIBundle:
 
         Requires nibabel + qortex[neuroclassic].
         """
-        import numpy as np
+
         from qortex.neuroclassic import compute_image_qc
 
         if self.images is None:
@@ -584,7 +582,6 @@ class MRIBundle:
         for i, (img, aff) in enumerate(zip(images_to_check, affines)):
             vox = None
             if aff is not None:
-                import numpy as np
                 vox = tuple(float(abs(aff[j, j])) for j in range(3))
             rpt = compute_image_qc(
                 img,
@@ -727,11 +724,29 @@ class SegmentationBundle:
                 "load_pair() requires nibabel. Install with: pip install 'qortex[mri]'"
             ) from None
 
+        if index < 0 or index >= self.n_cases:
+            raise IndexError(f"case index {index} is outside [0, {self.n_cases})")
+        if index >= len(self.mask_paths):
+            raise ValueError(
+                f"split {self.split!r} has no ground-truth mask for case {self.case_ids[index]!r}"
+            )
+
         imgs = []
         for p in self.image_paths[index]:
             img = nib.load(str(p))
             imgs.append(img.get_fdata(dtype=np.float32))
-        image = np.stack(imgs, axis=0) if len(imgs) > 1 else imgs[0]
+        if len(imgs) > 1:
+            image = np.stack(imgs, axis=0)
+        else:
+            image = imgs[0]
+            if image.ndim == 4:
+                if image.shape[-1] == len(self.modalities):
+                    image = np.moveaxis(image, -1, 0)
+                elif image.shape[0] != len(self.modalities):
+                    raise ValueError(
+                        f"case {self.case_ids[index]!r} has 4D image shape {image.shape}, "
+                        f"which does not expose {len(self.modalities)} modality channels"
+                    )
 
         mask_img = nib.load(str(self.mask_paths[index]))
         mask = mask_img.get_fdata(dtype=np.float32)

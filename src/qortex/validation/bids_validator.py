@@ -99,7 +99,7 @@ class BIDSValidatorRunner:
             if output_json is not None and not json_path.exists():
                 json_path.write_text(json.dumps(raw, indent=2, sort_keys=True), encoding="utf-8")
             elapsed = time.monotonic() - t0
-            issues = _normalize_issues(raw)
+            issues = _normalize_issues(raw, dataset_root=root)
             valid = _infer_valid(raw, proc.returncode, issues)
             version = _extract_version(raw, proc.stderr, proc.stdout)
             if version is None:
@@ -165,7 +165,9 @@ def _read_validator_json(json_path: Path, stdout: str) -> dict[str, Any]:
     return parsed
 
 
-def _normalize_issues(raw: dict[str, Any]) -> list[ValidationIssue]:
+def _normalize_issues(
+    raw: dict[str, Any], *, dataset_root: Path | None = None
+) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     issue_root = raw.get("issues", raw)
 
@@ -181,7 +183,7 @@ def _normalize_issues(raw: dict[str, Any]) -> list[ValidationIssue]:
     for severity, entries in buckets.items():
         for entry in entries:
             for normalized_entry in _expand_issue_entry(entry):
-                issue = _normalize_issue(severity, normalized_entry)
+                issue = _normalize_issue(severity, normalized_entry, dataset_root=dataset_root)
                 key = (issue.severity, issue.code, issue.path, issue.message)
                 if key in seen:
                     continue
@@ -208,13 +210,15 @@ def _expand_issue_entry(entry: Any) -> list[Any]:
     return expanded
 
 
-def _normalize_issue(severity: str, entry: Any) -> ValidationIssue:
+def _normalize_issue(
+    severity: str, entry: Any, *, dataset_root: Path | None = None
+) -> ValidationIssue:
     if not isinstance(entry, dict):
         return ValidationIssue(
             severity=severity, code="UNKNOWN", message=str(entry), raw={}
         )
     location = entry.get("location") or entry.get("file") or entry.get("path")
-    path, line, column = _parse_location(location)
+    path, line, column = _parse_location(location, dataset_root=dataset_root)
     code = str(
         entry.get("code")
         or entry.get("key")
@@ -242,19 +246,36 @@ def _normalize_issue(severity: str, entry: Any) -> ValidationIssue:
     )
 
 
-def _parse_location(location: Any) -> tuple[str | None, int | None, int | None]:
+def _parse_location(
+    location: Any, *, dataset_root: Path | None = None
+) -> tuple[str | None, int | None, int | None]:
     if isinstance(location, str):
-        return location.lstrip("/") or None, None, None
+        candidate = Path(location)
+        if candidate.is_absolute() and dataset_root is not None:
+            try:
+                candidate = candidate.resolve().relative_to(dataset_root)
+            except ValueError:
+                pass
+        return candidate.as_posix().lstrip("/") or None, None, None
     if isinstance(location, dict):
         path = (
-            location.get("path")
+            location.get("relativePath")
+            or location.get("path")
             or location.get("file")
             or location.get("filename")
             or location.get("location")
         )
         line = _as_int(location.get("line"))
         column = _as_int(location.get("column"))
-        return str(path).lstrip("/") if path else None, line, column
+        if not path:
+            return None, line, column
+        candidate = Path(str(path))
+        if candidate.is_absolute() and dataset_root is not None:
+            try:
+                candidate = candidate.resolve().relative_to(dataset_root)
+            except ValueError:
+                pass
+        return candidate.as_posix().lstrip("/") or None, line, column
     return None, None, None
 
 

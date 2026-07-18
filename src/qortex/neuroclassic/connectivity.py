@@ -19,9 +19,7 @@ Install extras:
 from __future__ import annotations
 
 import math
-import time
 from dataclasses import dataclass, field
-from typing import Any
 
 import numpy as np
 
@@ -29,8 +27,6 @@ from qortex.neuroclassic._base import (
     MethodConfidence,
     MetricResult,
     NeuroClassicResult,
-    NeuroClassicSpec,
-    _timer,
 )
 
 __version__ = "0.1.0"
@@ -199,6 +195,8 @@ class GraphMetricReport:
             "mean_path_length": self.mean_path_length,
             "modularity": self.modularity,
             "n_connected_components": self.n_connected_components,
+            "degree": self.degree,
+            "strength": self.strength,
             "betweenness_centrality": self.betweenness_centrality,
             "community_assignments": self.community_assignments,
             "small_world_sigma": self.small_world_sigma,
@@ -219,6 +217,8 @@ def compute_pearson_connectivity(
     frequency_band: tuple[float, float] | None = None,
     threshold: float | None = None,
     scope: str = "unknown",
+    input_signal_type: str = "EEG",
+    node_definition: str | None = None,
 ) -> ConnectivityMatrix:
     """Compute Pearson correlation connectivity matrix.
 
@@ -298,8 +298,8 @@ def compute_pearson_connectivity(
 
     import datetime
     spec = ConnectivitySpec(
-        input_signal_type="EEG",
-        node_definition="EEG_channel",
+        input_signal_type=input_signal_type,
+        node_definition=node_definition or f"{input_signal_type}_channel",
         parcellation_or_channel_set=channel_names,
         time_window_s=time_window_s,
         preprocessing_assumptions=preprocessing,

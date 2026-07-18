@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from qortex.datasets._base import DatasetCard, SegmentationBundle, _REGISTRY
+from qortex.datasets._base import _REGISTRY, DatasetCard, SegmentationBundle
 from qortex.datasets._cache import dataset_cache_dir
 
 # ── Dataset card ──────────────────────────────────────────────────────────────
@@ -117,9 +117,14 @@ def load_data(
     >>> image, mask = bundle.load_pair(0)
     >>> print(image.shape, mask.shape)  # (4, 240, 240, 155), (240, 240, 155)
     """
+    if split not in {"train", "test"}:
+        raise ValueError(f"split must be 'train' or 'test', got {split!r}")
+    if max_cases is not None and max_cases < 1:
+        raise ValueError(f"max_cases must be positive when provided, got {max_cases}")
     if local_root is None:
         local_root = dataset_cache_dir("msd_brain")
     local_root = Path(local_root)
+    local_root.mkdir(parents=True, exist_ok=True)
 
     # Try MONAI first (preferred path)
     try:
@@ -140,7 +145,7 @@ def _load_via_monai(
 ) -> SegmentationBundle:
     """Load via MONAI DecathlonDataset."""
     try:
-        from monai.data import DecathlonDataset  # type: ignore[import]
+        from monai.apps import DecathlonDataset  # type: ignore[import]
     except ImportError:
         raise ImportError(
             "msd_brain.load_data() via MONAI requires:\n"
@@ -153,8 +158,10 @@ def _load_via_monai(
         root_dir=str(local_root),
         task="Task01_BrainTumour",
         section=monai_split,
+        transform=_preserve_paths,
         download=download,
         seed=seed,
+        cache_rate=0.0,
     )
 
     n = len(dataset)
@@ -167,11 +174,11 @@ def _load_via_monai(
 
     for i in range(n):
         item = dataset[i]
-        img_path = Path(item["image"] if isinstance(item["image"], str) else str(item["image"]))
-        case_ids.append(f"case_{i:04d}")
+        img_path = _require_path_value(item, "image", index=i)
+        case_ids.append(_nifti_stem(img_path))
         image_paths.append([img_path])  # MONAI stacks modalities in one 4D file
         if "label" in item:
-            mask_paths.append(Path(item["label"] if isinstance(item["label"], str) else str(item["label"])))
+            mask_paths.append(_require_path_value(item, "label", index=i))
 
     return SegmentationBundle(
         card=_CARD,
@@ -182,6 +189,25 @@ def _load_via_monai(
         modalities=MODALITIES,
         split=split,
     )
+
+
+def _preserve_paths(item: dict[str, object]) -> dict[str, object]:
+    """Keep MONAI's validated datalist paths instead of loading volumes eagerly."""
+    return item
+
+
+def _require_path_value(item: dict[str, object], key: str, *, index: int) -> Path:
+    value = item.get(key)
+    if not isinstance(value, (str, Path)):
+        raise TypeError(
+            f"MSD case {index} field {key!r} must be a filesystem path, "
+            f"got {type(value).__name__}"
+        )
+    return Path(value)
+
+
+def _nifti_stem(path: Path) -> str:
+    return path.name[:-7] if path.name.endswith(".nii.gz") else path.stem
 
 
 def _load_from_filesystem(

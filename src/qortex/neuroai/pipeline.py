@@ -388,25 +388,15 @@ class Pipeline:
             modality=self._spec.source.modality,
         )
 
-        original_outputs = self._spec.outputs
-        replay_outputs = original_outputs
-
-        if output_dir:
-            from qortex.neuroai.spec import OutputSpec
-            replay_outputs = [
-                OutputSpec(
-                    type=o.type,
-                    path=str(output_dir / Path(o.path or "replay.jsonl").name),
-                    stream_name=o.stream_name,
-                )
-                for o in original_outputs
-            ]
-
-        replay_pipeline = Pipeline(replace(
+        replay_spec_with_source = replace(
             self._spec,
             source=replay_spec,
-            outputs=replay_outputs,
-        ))
+        )
+        artifact_dir = Path(output_dir) if output_dir is not None else None
+        if artifact_dir is not None:
+            replay_spec_with_source = _spec_with_artifact_outputs(replay_spec_with_source, artifact_dir)
+
+        replay_pipeline = Pipeline(replay_spec_with_source)
         replay_pipeline.check()
         log.info("Pipeline.replay(): replaying %s at %.3gx speed", source_path, speed)
 
@@ -449,6 +439,26 @@ class Pipeline:
             replay_pipeline._model_adapter.unload()
 
         _write_artifact_sidecar(replay_pipeline._spec, report)
+        if artifact_dir is not None:
+            try:
+                from qortex.neuroai.artifact import ArtifactWriter
+                writer = ArtifactWriter(artifact_dir, pipeline_ref=pipeline_ref)
+                writer.write(
+                    spec=replay_pipeline._spec,
+                    compat_report=replay_pipeline._compat_report,
+                    preprocess_plan=replay_pipeline._preprocess_plan,
+                    run_report=report,
+                    source_profile=replay_pipeline._source_profile,
+                    model_profile=replay_pipeline._model_profile,
+                )
+            except Exception as exc:
+                failure_policy = str(getattr(self._spec.artifact, "failure_policy", "strict")).lower()
+                if failure_policy == "warn":
+                    log.warning("ArtifactWriter failed during replay (non-fatal by policy): %s", exc)
+                else:
+                    raise _make_runtime_error(
+                        f"ArtifactWriter failed for requested replay output_dir={artifact_dir}: {exc}"
+                    ) from exc
 
         return report
 

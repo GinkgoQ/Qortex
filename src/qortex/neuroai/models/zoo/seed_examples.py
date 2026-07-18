@@ -6,7 +6,12 @@ Braindecode expansion, external engines) land in Phases 2-4.
 
 from __future__ import annotations
 
-from qortex.neuroai.contracts import AxisConvention, EvidenceStatus, InputContract, OutputContract
+from qortex.neuroai.contracts import (
+    AxisConvention,
+    EvidenceStatus,
+    InputContract,
+    OutputContract,
+)
 from qortex.neuroai.models.zoo.registry import register
 from qortex.neuroai.models.zoo.schema import (
     ExecutionMode,
@@ -26,6 +31,8 @@ def _register_brats_mri_segmentation() -> None:
         provider="monai",
         execution_mode=ExecutionMode.bundle,
         source_url="https://huggingface.co/MONAI/brats_mri_segmentation",
+        model_url="https://huggingface.co/MONAI/brats_mri_segmentation/blob/main/models/model.pt",
+        paper_url="https://arxiv.org/abs/1810.11654",
         docs_url="https://project-monai.github.io/model-zoo.html",
         maintainer="Project MONAI",
         modality=["mri"],
@@ -42,7 +49,15 @@ def _register_brats_mri_segmentation() -> None:
             classes=["tumor_core", "whole_tumor", "enhancing_tumor"],
             produces_probabilities=False,
         ),
-        license=LicenseInfo(evidence_status=EvidenceStatus.unknown, notes=["requires manual check"]),
+        license=LicenseInfo(
+            name="Apache-2.0",
+            url="https://huggingface.co/MONAI/brats_mri_segmentation/blob/main/LICENSE",
+            commercial_use=True,
+            redistribution_allowed=True,
+            requires_citation=False,
+            evidence_status=EvidenceStatus.confirmed,
+            notes=["Model bundle license; input datasets retain their own licenses."],
+        ),
         security=SecurityPolicy(
             network_required_for_download=True,
             network_required_at_runtime=False,

@@ -6,10 +6,12 @@ import zipfile
 
 import pytest
 
+from qortex.core.exceptions import ModelAdapterError
 from qortex.neuroai.models.monai import (
     MONAIBundleAdapter,
     _apply_monai_postprocess,
     _load_json,
+    _parse_inference_settings,
     _safe_extract_zip,
 )
 from qortex.neuroai.spec import ModelSpec, RuntimeSpec
@@ -81,7 +83,7 @@ def test_monai_load_rejects_state_dict_mismatch(tmp_path, monkeypatch):
     monkeypatch.setattr("qortex.neuroai.models.monai._require_monai", lambda: fake_monai)
     adapter = MONAIBundleAdapter(ModelSpec(provider="monai", id=str(bundle)))
 
-    with pytest.raises(RuntimeError, match="state_dict mismatch"):
+    with pytest.raises(ModelAdapterError, match="state_dict mismatch"):
         adapter.load(RuntimeSpec(device="cpu"))
 
 
@@ -116,7 +118,7 @@ def test_monai_load_refuses_random_init_when_checkpoint_missing(tmp_path, monkey
     _fake_monai_with_conv3d(monkeypatch)
     adapter = MONAIBundleAdapter(ModelSpec(provider="monai", id=str(bundle)))
 
-    with pytest.raises(RuntimeError, match="no models/model.pt checkpoint"):
+    with pytest.raises(ModelAdapterError, match="no valid checkpoint"):
         adapter.load(RuntimeSpec(device="cpu"))
 
 
@@ -133,7 +135,9 @@ def test_monai_load_allows_missing_checkpoint_only_with_explicit_opt_in(tmp_path
 
 
 def test_generative_bundle_output_schema_reflects_registry_not_hardcoded_segmentation():
-    from qortex.neuroai.models import zoo as _zoo  # noqa: F401  (triggers zoo registration)
+    from qortex.neuroai.models import (
+        zoo as _zoo,  # noqa: F401  (triggers zoo registration)
+    )
 
     adapter = MONAIBundleAdapter(ModelSpec(provider="monai", id="monai.mednist_gan"))
 
@@ -183,6 +187,21 @@ def test_inspect_reports_real_model_hash_when_checkpoint_present(tmp_path, monke
     assert len(profile.model_hash) == 64
 
 
+def test_inspect_accepts_string_task_from_current_monai_metadata(tmp_path, monkeypatch):
+    bundle = _make_bundle_with_checkpoint(tmp_path, name="bundle_string_task")
+    (bundle / "configs" / "metadata.json").write_text(
+        json.dumps({"task": "Multimodal Brain Tumor Subregion Segmentation"}),
+        encoding="utf-8",
+    )
+    fake_monai = type("FakeMonai", (), {})
+    monkeypatch.setattr("qortex.neuroai.models.monai._require_monai", lambda: fake_monai)
+    adapter = MONAIBundleAdapter(ModelSpec(provider="monai", id=str(bundle)))
+
+    profile = adapter.inspect()
+
+    assert profile.task == "Multimodal Brain Tumor Subregion Segmentation"
+
+
 def test_monai_load_fp16_on_cpu_does_not_half_the_model(tmp_path, monkeypatch):
     bundle = _make_bundle_with_checkpoint(tmp_path, name="bundle_fp16_cpu")
     _fake_monai_with_conv3d(monkeypatch)
@@ -207,3 +226,20 @@ def test_monai_postprocess_honors_config_declared_activation():
     assert torch.allclose(sigmoid_out, torch.sigmoid(logits))
     assert torch.allclose(softmax_out, torch.softmax(logits, dim=1))
     assert not torch.allclose(sigmoid_out, softmax_out)
+
+
+def test_monai_settings_resolve_nested_sigmoid_and_threshold():
+    config = {
+        "postprocessing": {
+            "_target_": "Compose",
+            "transforms": [
+                {"_target_": "Activationsd", "keys": "pred", "sigmoid": True},
+                {"_target_": "AsDiscreted", "keys": "pred", "threshold": 0.5},
+            ],
+        }
+    }
+
+    settings = _parse_inference_settings(config, {}, spatial_dims=3)
+
+    assert settings["activation"] == "sigmoid"
+    assert settings["threshold"] == 0.5

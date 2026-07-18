@@ -27,11 +27,11 @@ def test_msd_brain_monai_loader_receives_public_seed(monkeypatch, tmp_path):
             return self._items[index]
 
     monai_mod = types.ModuleType("monai")
-    monai_data_mod = types.ModuleType("monai.data")
-    monai_data_mod.DecathlonDataset = FakeDecathlonDataset
+    monai_apps_mod = types.ModuleType("monai.apps")
+    monai_apps_mod.DecathlonDataset = FakeDecathlonDataset
 
     monkeypatch.setitem(sys.modules, "monai", monai_mod)
-    monkeypatch.setitem(sys.modules, "monai.data", monai_data_mod)
+    monkeypatch.setitem(sys.modules, "monai.apps", monai_apps_mod)
 
     bundle = msd_brain.load_data(
         local_root=tmp_path,
@@ -46,6 +46,8 @@ def test_msd_brain_monai_loader_receives_public_seed(monkeypatch, tmp_path):
     assert captured["section"] == "training"
     assert captured["download"] is False
     assert captured["seed"] == 123
+    assert captured["cache_rate"] == 0.0
     assert bundle.n_cases == 1
+    assert bundle.case_ids == ["case_000"]
     assert bundle.image_paths == [[Path(tmp_path / "imagesTr" / "case_000.nii.gz")]]
     assert bundle.mask_paths == [Path(tmp_path / "labelsTr" / "case_000.nii.gz")]

@@ -60,18 +60,48 @@ def sync_into_legacy_registry() -> int:
     for entry in list_entries():
         if entry.input_contract is None or entry.output_contract is None:
             continue
-        if any(_contracts.lookup(cid) is not None for cid in _legacy_id_candidates(entry.id)):
-            continue
-        _contracts.register(_contracts.ModelContractEntry(
-            model_id=entry.id,
-            provider=entry.provider,
-            input_contract=entry.input_contract,
-            output_contract=entry.output_contract,
-            estimated_memory_mb=None,
-            notes=entry.display_name,
-        ))
-        synced += 1
+        modalities = tuple(entry.modality or ())
+        if not modalities:
+            modalities = (str(getattr(entry.input_contract, "modality", "") or "unknown"),)
+        for modality in modalities:
+            input_contract = _copy_input_contract_with_modality(entry.input_contract, modality)
+            if _legacy_entry_exists(entry.id, modality):
+                continue
+            if modality == str(getattr(entry.input_contract, "modality", "") or ""):
+                if any(
+                    _contracts.lookup(cid) is not None
+                    and _legacy_entry_exists(cid, modality)
+                    for cid in _legacy_id_candidates(entry.id)
+                ):
+                    continue
+            _contracts.register(_contracts.ModelContractEntry(
+                model_id=entry.id,
+                provider=entry.provider,
+                input_contract=input_contract,
+                output_contract=entry.output_contract,
+                estimated_memory_mb=None,
+                notes=entry.display_name,
+            ))
+            synced += 1
     return synced
+
+
+def _legacy_entry_exists(model_id: str, modality: str) -> bool:
+    model_key = model_id.lower()
+    modality_key = modality.lower()
+    return any(
+        existing.model_id.lower() == model_key
+        and str(getattr(existing.input_contract, "modality", "") or "").lower() == modality_key
+        for existing in _contracts.list_entries()
+    )
+
+
+def _copy_input_contract_with_modality(input_contract, modality: str):
+    if hasattr(input_contract, "model_copy"):
+        return input_contract.model_copy(update={"modality": modality})
+    data = input_contract.model_dump() if hasattr(input_contract, "model_dump") else dict(input_contract.__dict__)
+    data["modality"] = modality
+    return type(input_contract)(**data)
 
 
 __all__ = ["sync_into_legacy_registry"]
