@@ -120,3 +120,13 @@ class TTLCache:
     def clear(self) -> None:
         with self._guard:
             self._entries.clear()
+
+    def fresh_values(self) -> list[Any]:
+        """Return a point-in-time list of fresh ready values without computing."""
+        now = time.monotonic()
+        with self._guard:
+            return [
+                entry.value
+                for entry in self._entries.values()
+                if entry.ready and (now - entry.ts) < self._ttl
+            ]

@@ -1323,6 +1323,10 @@ async def dataset_nifti_slice_data(
     import numpy as np
 
     def _run() -> dict[str, Any]:
+        import time
+
+        from qortex.console.stream_telemetry import stream_telemetry
+
         streamer, file_record = _resolve_nifti_streamer(dataset_id, snapshot, path)
         hdr = streamer.header()
         idx = slice_index if slice_index is not None else hdr.spatial_shape[axis] // 2
@@ -1334,8 +1338,30 @@ async def dataset_nifti_slice_data(
         # the Viewer Lab's per-plane ETA depends on knowing which one applies.
         is_fast_path = axis == 2 and not path.lower().endswith(".gz")
         operation = "nifti_slice_axial_fast" if is_fast_path else "nifti_slice_full_volume"
+        cache_before = streamer.stream_stats()
+        started = time.perf_counter()
         with atlas_timing.timed(operation, dataset_id):
             arr = streamer.get_slice(axis=axis, index=idx, t=time_index, dtype=np.float32)
+        elapsed_seconds = time.perf_counter() - started
+        cache_after = streamer.stream_stats()
+        stream_telemetry.record({
+            "operation": operation,
+            "dataset_id": dataset_id,
+            "path": path,
+            "axis": axis,
+            "slice_index": idx,
+            "time_index": time_index,
+            "elapsed_seconds": elapsed_seconds,
+            "response_data_bytes": int(arr.nbytes),
+            "cache_hits_delta": int(cache_after.get("hits", 0) - cache_before.get("hits", 0)),
+            "cache_misses_delta": int(cache_after.get("misses", 0) - cache_before.get("misses", 0)),
+            "cache_hit_bytes_delta": int(cache_after.get("hit_bytes", 0) - cache_before.get("hit_bytes", 0)),
+            "cache_bytes_inserted_delta": int(cache_after.get("bytes_inserted", 0) - cache_before.get("bytes_inserted", 0)),
+            "decoded_volume_hits_delta": int(cache_after.get("volume_hits", 0) - cache_before.get("volume_hits", 0)),
+            "decoded_volume_misses_delta": int(cache_after.get("volume_misses", 0) - cache_before.get("volume_misses", 0)),
+            "decoded_volume_resident_bytes": int(cache_after.get("volume_resident_bytes", 0)),
+            "source_kind": "local" if getattr(streamer, "_is_local", False) else "remote",
+        })
         modality = _guess_modality(file_record.suffix)
         data_b64 = base64.b64encode(np.ascontiguousarray(arr, dtype=np.float32).tobytes()).decode("ascii")
         from qortex.visualize._colors import auto_window
@@ -1363,6 +1389,16 @@ async def dataset_nifti_slice_data(
         }
 
     return await call(_run)
+
+
+@app.get("/stream/telemetry")
+async def stream_telemetry_report(
+    limit: int = Query(100, ge=1, le=1000),
+) -> dict[str, Any]:
+    """Return bounded measurements from actual NIfTI slice-data requests."""
+    from qortex.console.stream_telemetry import stream_telemetry
+
+    return stream_telemetry.report(limit=limit)
 
 
 def _intensity_histogram(arr: Any, bins: int) -> dict[str, Any] | None:

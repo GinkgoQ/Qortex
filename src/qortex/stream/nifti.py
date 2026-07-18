@@ -27,19 +27,18 @@ Design
 
 from __future__ import annotations
 
-import io
 import logging
 import struct
 import threading
 import zlib
 from collections import OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from qortex.stream._cache import MemoryCache, make_cache
+from qortex.stream._cache import make_cache
 
 log = logging.getLogger(__name__)
 
@@ -207,6 +206,8 @@ class NiftiStreamer:
         # whole series in RAM.
         self._volume_lru: "OrderedDict[int, np.ndarray]" = OrderedDict()
         self._volume_lru_max = 2
+        self._volume_hits = 0
+        self._volume_misses = 0
         self._lock = threading.Lock()
 
     # ── Public API ────────────────────────────────────────────────────────
@@ -404,9 +405,15 @@ class NiftiStreamer:
 
     def stream_stats(self) -> dict[str, Any]:
         """Return cache hit/miss statistics."""
-        if hasattr(self._cache, "stats"):
-            return self._cache.stats()
-        return {}
+        stats = self._cache.stats() if hasattr(self._cache, "stats") else {}
+        with self._lock:
+            stats.update({
+                "volume_hits": self._volume_hits,
+                "volume_misses": self._volume_misses,
+                "volume_resident_count": len(self._volume_lru),
+                "volume_resident_bytes": sum(array.nbytes for array in self._volume_lru.values()),
+            })
+        return stats
 
     # ── Private ───────────────────────────────────────────────────────────
 
@@ -457,7 +464,9 @@ class NiftiStreamer:
             hit = self._volume_lru.get(t)
             if hit is not None:
                 self._volume_lru.move_to_end(t)
+                self._volume_hits += 1
                 return hit
+            self._volume_misses += 1
 
         if self._is_gz:
             vol_data = self._stream_volume_gz(hdr, t)

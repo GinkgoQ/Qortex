@@ -46,6 +46,8 @@ class MemoryCache:
         self._lock = threading.Lock()
         self._hits = 0
         self._misses = 0
+        self._hit_bytes = 0
+        self._bytes_inserted = 0
 
     def get(self, key: str) -> bytes | None:
         with self._lock:
@@ -61,6 +63,7 @@ class MemoryCache:
             # Move to end (most recently used)
             self._store.move_to_end(key)
             self._hits += 1
+            self._hit_bytes += len(data)
             return data
 
     def put(self, key: str, data: bytes) -> None:
@@ -68,6 +71,7 @@ class MemoryCache:
             if key in self._store:
                 self._store.move_to_end(key)
             self._store[key] = (data, time.monotonic())
+            self._bytes_inserted += len(data)
             while len(self._store) > self._maxsize:
                 evicted_key, _ = self._store.popitem(last=False)
                 log.debug("Cache evicted: %s", evicted_key[:60])
@@ -81,6 +85,9 @@ class MemoryCache:
                 "hits": self._hits,
                 "misses": self._misses,
                 "hit_rate": self._hits / total if total > 0 else 0.0,
+                "hit_bytes": self._hit_bytes,
+                "bytes_inserted": self._bytes_inserted,
+                "resident_bytes": sum(len(data) for data, _ in self._store.values()),
             }
 
     def clear(self) -> None:
