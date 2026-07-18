@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 from collections import deque
 from datetime import datetime, timezone
+from statistics import median
 from typing import Any
 
 
@@ -38,7 +39,7 @@ class StreamTelemetry:
             "total_recorded": len(events),
             "truncated": len(events) > len(selected),
             "summary": {
-                "median_latency_seconds": sorted(elapsed)[len(elapsed) // 2] if elapsed else None,
+                "median_latency_seconds": median(elapsed) if elapsed else None,
                 "mean_latency_seconds": sum(elapsed) / len(elapsed) if elapsed else None,
                 "response_data_bytes": output_bytes,
                 "cache_bytes_inserted": fetched_bytes,

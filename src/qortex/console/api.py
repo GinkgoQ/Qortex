@@ -22,7 +22,7 @@ import re
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 try:
     from fastapi import Body, FastAPI, HTTPException, Query
@@ -629,15 +629,36 @@ async def dataset_readiness(
     snapshot: Optional[str] = Query(None),
     modality: Optional[str] = Query(None),
     target: Optional[str] = Query(None),
+    label_column: Optional[str] = Query(None, min_length=1, max_length=128),
+    label_missing: Literal["drop", "keep", "error"] = Query("drop"),
+    split_strategy: Literal["subject", "subject_session", "recording"] = Query("subject"),
 ) -> dict[str, Any]:
     from qortex.check.readiness import compute_readiness
+    from qortex.core.config import get_config
+    from qortex.core.entities import LabelPolicy
     from qortex.decision import can_train as can_train_fn
+    from qortex.lake.layout import LakeLayout
 
     def _run() -> dict[str, Any]:
         with atlas_timing.timed("readiness", dataset_id):
             manifest = _manifest_for(dataset_id, snapshot)
-            readiness = compute_readiness(manifest)
-            ct = can_train_fn(manifest, modality=modality, target=target)
+            data_root = LakeLayout(get_config()).data_dir(dataset_id, manifest.snapshot)
+            local_path = data_root if data_root.is_dir() else None
+            policy = LabelPolicy(column=label_column.strip(), missing=label_missing) if label_column else None
+            readiness = compute_readiness(
+                manifest,
+                local_path=local_path,
+                label_policy=policy,
+                modality=modality,
+            )
+            ct = can_train_fn(
+                manifest,
+                modality=modality,
+                target=target,
+                local_path=local_path,
+                label_policy=policy,
+                split_strategy=split_strategy,
+            )
             evidence = build_evidence(
                 dataset_id=dataset_id,
                 manifest_summary=to_jsonable(manifest.summary),
@@ -649,6 +670,10 @@ async def dataset_readiness(
             "snapshot": manifest.snapshot,
             "readiness": to_jsonable(readiness),
             "can_train": to_jsonable(ct),
+            "local_label_evidence": {
+                "data_root_present": local_path is not None,
+                "policy": to_jsonable(policy) if policy else None,
+            },
             "evidence": evidence.as_dict(),
         }
 
@@ -887,6 +912,152 @@ async def dataset_coverage(
     )
 
 
+class CoverageSelectorBody(_PydanticModel):
+    session: Optional[str] = None
+    task: Optional[str] = None
+    run: Optional[str] = None
+    modality: str
+    suffix: str
+
+
+class CoverageExpectationBody(_PydanticModel):
+    id: Optional[str] = None
+    selector: CoverageSelectorBody
+    expected_subjects: list[str]
+
+
+class CoverageDesignBody(_PydanticModel):
+    expectations: list[CoverageExpectationBody]
+    offset: int = 0
+    limit: int = 100
+
+
+@app.post("/dataset/{dataset_id}/coverage/evaluate-design")
+async def dataset_coverage_design(
+    dataset_id: str,
+    body: CoverageDesignBody = Body(...),
+    snapshot: Optional[str] = Query(None),
+) -> dict[str, Any]:
+    from qortex.eda.coverage import evaluate_coverage_expectations
+
+    try:
+        return await call(
+            evaluate_coverage_expectations,
+            _manifest_for(dataset_id, snapshot),
+            [item.model_dump() for item in body.expectations],
+            offset=body.offset,
+            limit=body.limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+class AnnotationSaveBody(_PydanticModel):
+    model_config = {"extra": "forbid"}
+    source_path: str
+    annotation_id: Optional[str] = None
+    expected_revision: Optional[int] = None
+    payload: dict[str, Any]
+
+
+@app.get("/dataset/{dataset_id}/annotations")
+async def dataset_annotations(
+    dataset_id: str,
+    snapshot: str = Query(...),
+    source_path: Optional[str] = Query(None),
+) -> dict[str, Any]:
+    from qortex.console.annotation_store import list_annotations
+
+    manifest = _manifest_for(dataset_id, snapshot)
+    if source_path is not None and not any(record.path == source_path for record in manifest.files):
+        raise HTTPException(status_code=400, detail="source_path is not in this immutable snapshot manifest")
+    return await call(list_annotations, dataset_id, manifest.snapshot, source_path=source_path)
+
+
+@app.post("/dataset/{dataset_id}/annotations")
+async def save_dataset_annotation(
+    dataset_id: str,
+    body: AnnotationSaveBody = Body(...),
+    snapshot: str = Query(...),
+) -> dict[str, Any]:
+    from qortex.console.annotation_store import save_annotation
+
+    manifest = _manifest_for(dataset_id, snapshot)
+    record = next((item for item in manifest.files if item.path == body.source_path), None)
+    if record is None:
+        raise HTTPException(status_code=400, detail="source_path is not in this immutable snapshot manifest")
+    if record.extension not in {".nii", ".nii.gz"}:
+        raise HTTPException(status_code=400, detail="viewer annotations require a NIfTI source")
+    source = {
+        "path": record.path,
+        "filename": record.filename,
+        "size_bytes": record.size,
+        "checksum": record.checksum,
+        "checksum_algorithm": "md5" if record.checksum else None,
+        "urls": record.urls,
+        "snapshot": manifest.snapshot,
+    }
+    try:
+        # Keep the domain conflict visible here: the generic ``call`` wrapper
+        # intentionally maps unknown runtime failures to 502, while an
+        # optimistic revision mismatch is an HTTP resource conflict.
+        return await run_in_threadpool(
+            save_annotation,
+            dataset_id=dataset_id,
+            snapshot=manifest.snapshot,
+            source=source,
+            payload=body.payload,
+            annotation_id=body.annotation_id,
+            expected_revision=body.expected_revision,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/dataset/{dataset_id}/annotations/{annotation_id}")
+async def get_dataset_annotation(
+    dataset_id: str,
+    annotation_id: str,
+    snapshot: str = Query(...),
+    revision: Optional[int] = Query(None, ge=1),
+) -> dict[str, Any]:
+    from qortex.console.annotation_store import load_annotation
+
+    manifest = _manifest_for(dataset_id, snapshot)
+    try:
+        return await call(load_annotation, dataset_id, manifest.snapshot, annotation_id, revision=revision)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+def _local_bold_context(dataset_id: str, snapshot: str | None, path: str | None) -> dict[str, Any]:
+    from qortex.core.config import get_config
+    from qortex.lake.layout import LakeLayout
+
+    manifest = _manifest_for(dataset_id, snapshot)
+    candidate_paths = sorted(
+        record.path for record in manifest.files
+        if not record.is_dir and record.suffix == "bold" and record.extension in {".nii", ".nii.gz"}
+    )
+    if path is not None and path not in candidate_paths:
+        raise HTTPException(status_code=400, detail="path is not a BOLD NIfTI in this snapshot manifest")
+    data_root = LakeLayout(get_config()).data_dir(dataset_id, manifest.snapshot).resolve()
+    available = [
+        candidate for candidate in candidate_paths
+        if (data_root / candidate).resolve().is_relative_to(data_root) and (data_root / candidate).is_file()
+    ]
+    selected = path or (available[0] if available else None)
+    return {
+        "manifest": manifest,
+        "candidate_paths": candidate_paths,
+        "available": available,
+        "selected": selected,
+        "local_file": (data_root / selected).resolve() if selected in available else None,
+    }
+
+
 @app.get("/dataset/{dataset_id}/fmri-qc")
 async def dataset_fmri_qc(
     dataset_id: str,
@@ -897,29 +1068,13 @@ async def dataset_fmri_qc(
     dvars_threshold: Optional[float] = Query(None, ge=0.0),
 ) -> dict[str, Any]:
     """Compute real framewise BOLD QC from a locally downloaded 4-D NIfTI."""
-    from qortex.core.config import get_config
-    from qortex.lake.layout import LakeLayout
     from qortex.visualize.volume import VolumeViewer
 
-    manifest = _manifest_for(dataset_id, snapshot)
-    candidate_paths = sorted(
-        record.path
-        for record in manifest.files
-        if not record.is_dir
-        and record.suffix == "bold"
-        and record.extension in {".nii", ".nii.gz"}
-    )
-    if path is not None and path not in candidate_paths:
-        raise HTTPException(status_code=400, detail="path is not a BOLD NIfTI in this snapshot manifest")
-
-    data_root = LakeLayout(get_config()).data_dir(dataset_id, manifest.snapshot).resolve()
-    available = [
-        candidate
-        for candidate in candidate_paths
-        if (data_root / candidate).resolve().is_relative_to(data_root)
-        and (data_root / candidate).is_file()
-    ]
-    selected = path or (available[0] if available else None)
+    context = _local_bold_context(dataset_id, snapshot, path)
+    manifest = context["manifest"]
+    candidate_paths = context["candidate_paths"]
+    available = context["available"]
+    selected = context["selected"]
     if selected is None or selected not in available:
         return {
             "dataset_id": dataset_id,
@@ -935,7 +1090,7 @@ async def dataset_fmri_qc(
             ),
         }
 
-    local_file = (data_root / selected).resolve()
+    local_file = context["local_file"]
 
     def _run() -> dict[str, Any]:
         viewer = VolumeViewer(local_file, modality="fmri")
@@ -955,6 +1110,60 @@ async def dataset_fmri_qc(
         }
 
     return await call(_run)
+
+
+class PersistentFmriQcBody(_PydanticModel):
+    path: Optional[str] = None
+    max_frames: int = 500
+    fd_threshold_mm: float = 0.5
+    dvars_threshold: Optional[float] = None
+
+
+@app.post("/dataset/{dataset_id}/fmri-qc/runs")
+async def start_persistent_fmri_qc(
+    dataset_id: str,
+    body: PersistentFmriQcBody = Body(default=PersistentFmriQcBody()),
+    snapshot: Optional[str] = Query(None),
+) -> dict[str, Any]:
+    from qortex.console.fmri_qc_runs import run_persistent_fmri_qc
+
+    if not 2 <= body.max_frames <= 2000:
+        raise HTTPException(status_code=400, detail="max_frames must be in [2, 2000]")
+    if body.fd_threshold_mm < 0 or (body.dvars_threshold is not None and body.dvars_threshold < 0):
+        raise HTTPException(status_code=400, detail="QC thresholds must be non-negative")
+    context = _local_bold_context(dataset_id, snapshot, body.path)
+    selected = context["selected"]
+    if selected is None or context["local_file"] is None:
+        raise HTTPException(status_code=409, detail="No selected locally downloaded BOLD NIfTI is available")
+    job = atlas_jobs.submit(
+        f"Persist fMRI QC for {dataset_id}:{selected}",
+        run_persistent_fmri_qc,
+        dataset_id=dataset_id,
+        snapshot=context["manifest"].snapshot,
+        source_path=selected,
+        local_file=context["local_file"],
+        max_frames=body.max_frames,
+        fd_threshold_mm=body.fd_threshold_mm,
+        dvars_threshold=body.dvars_threshold,
+        report_progress=True,
+    )
+    return {"job_id": job.id, "dataset_id": dataset_id, "snapshot": context["manifest"].snapshot, "path": selected}
+
+
+@app.get("/fmri-qc/runs/{run_id}")
+async def get_persistent_fmri_qc(run_id: str) -> dict[str, Any]:
+    from qortex.console.fmri_qc_runs import load_fmri_qc_run
+
+    return await call(load_fmri_qc_run, run_id)
+
+
+@app.get("/fmri-qc/runs/{run_id}/artifacts/{artifact}")
+async def get_persistent_fmri_qc_artifact(run_id: str, artifact: str) -> FileResponse:
+    from qortex.console.fmri_qc_runs import fmri_qc_artifact_path
+
+    path = await call(fmri_qc_artifact_path, run_id, artifact)
+    media_types = {".json": "application/json", ".csv": "text/csv", ".gz": "application/gzip"}
+    return FileResponse(path, filename=path.name, media_type=media_types.get(path.suffix.lower(), "application/octet-stream"))
 
 
 @app.get("/dataset/{dataset_id}/signal-analysis")
@@ -1946,6 +2155,70 @@ async def cohort_compose(body: CohortBody = Body(...)) -> dict[str, Any]:
     return to_jsonable(await call(_run))
 
 
+class CohortComparisonVariableBody(_PydanticModel):
+    column: str
+    kind: str
+
+
+class CohortComparisonBody(_PydanticModel):
+    dataset_ids: list[str]
+    variables: list[CohortComparisonVariableBody]
+    snapshots: Optional[dict[str, str]] = None
+    alpha: float = 0.05
+
+
+@app.post("/cohort/compare-participants")
+async def cohort_compare_participants(body: CohortComparisonBody = Body(...)) -> dict[str, Any]:
+    """Compare explicitly typed participant variables between two real datasets."""
+    from qortex import Dataset
+    from qortex.neuroclassic.cohort_comparison import compare_participant_cohorts
+
+    if len(body.dataset_ids) != 2 or len(set(body.dataset_ids)) != 2:
+        raise HTTPException(status_code=400, detail="Exactly two distinct dataset_ids are required")
+    if not body.variables:
+        raise HTTPException(status_code=400, detail="At least one comparison variable is required")
+    if not 0.0 < body.alpha < 1.0:
+        raise HTTPException(status_code=400, detail="alpha must be in (0, 1)")
+    for variable in body.variables:
+        if variable.kind not in {"numeric", "categorical"}:
+            raise HTTPException(status_code=400, detail=f"Variable {variable.column!r} kind must be numeric or categorical")
+
+    def _run() -> dict[str, Any]:
+        cohorts: dict[str, list[dict[str, Any]]] = {}
+        sources = []
+        required_columns = {variable.column for variable in body.variables}
+        for dataset_id in body.dataset_ids:
+            requested_snapshot = (body.snapshots or {}).get(dataset_id)
+            manifest = _manifest_for(dataset_id, requested_snapshot)
+            dataset = Dataset(dataset_id, snapshot=manifest.snapshot, manifest=manifest)
+            frame = dataset.participants()
+            missing_columns = sorted(required_columns - set(frame.columns))
+            if missing_columns:
+                raise ValueError(f"{dataset_id} participants.tsv lacks columns {missing_columns}")
+            cohorts[dataset_id] = frame.to_dicts()
+            record = next((item for item in manifest.files if item.path == "participants.tsv"), None)
+            sources.append({
+                "dataset_id": dataset_id,
+                "snapshot": manifest.snapshot,
+                "path": record.path if record else "participants.tsv",
+                "size_bytes": record.size if record else None,
+                "checksum_md5": record.checksum if record else None,
+                "rows": len(cohorts[dataset_id]),
+                "columns": list(frame.columns),
+            })
+        return compare_participant_cohorts(
+            cohorts,
+            variables=[{"column": item.column, "kind": item.kind} for item in body.variables],
+            alpha=body.alpha,
+            sources=sources,
+        )
+
+    try:
+        return to_jsonable(await call(_run))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 # ── Model catalog ──────────────────────────────────────────────────────────
 
 @app.get("/models")
@@ -1956,6 +2229,70 @@ async def list_models() -> list[dict[str, Any]]:
 @app.get("/models/status")
 async def model_runtime_status() -> dict[str, Any]:
     return atlas_models.runtime_summary()
+
+
+@app.get("/models/execution-profiles")
+async def model_execution_profiles() -> list[dict[str, Any]]:
+    from qortex.console.model_execution import list_model_execution_profiles
+
+    return list_model_execution_profiles()
+
+
+class ModelExecutionBody(_PydanticModel):
+    profile_id: str
+    parameters: Optional[dict[str, Any]] = None
+
+
+@app.post("/models/execute-public")
+async def execute_public_model_profile(body: ModelExecutionBody = Body(...)) -> dict[str, Any]:
+    from qortex.console.model_execution import get_model_execution_profile, run_model_execution_profile
+
+    try:
+        profile = get_model_execution_profile(body.profile_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    job = atlas_jobs.submit(
+        profile["display_name"],
+        run_model_execution_profile,
+        body.profile_id,
+        parameters=body.parameters or {},
+        report_progress=True,
+    )
+    return {
+        "job_id": job.id,
+        "profile_id": body.profile_id,
+        "result_contract": profile["result_contract"],
+    }
+
+
+@app.get("/models/cache")
+async def model_cache_inventory() -> dict[str, Any]:
+    from qortex.console.model_cache_control import model_cache_inventory as inspect_model_cache
+
+    return await call(inspect_model_cache)
+
+
+class ModelCacheRemovalBody(_PydanticModel):
+    confirmation_sha256: str
+
+
+@app.delete("/models/cache/{model_id}")
+async def remove_model_cache_artifact(
+    model_id: str,
+    body: ModelCacheRemovalBody = Body(...),
+) -> dict[str, Any]:
+    from qortex.console.model_cache_control import move_model_artifact_to_trash
+
+    try:
+        return await call(
+            move_model_artifact_to_trash,
+            model_id,
+            confirmation_sha256=body.confirmation_sha256,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 class PublicBratsValidationBody(_PydanticModel):
@@ -1996,6 +2333,104 @@ async def get_public_brats_artifact(run_id: str, artifact: str) -> FileResponse:
     path = await call(public_brats_artifact_path, run_id, artifact)
     media_type = "application/json" if path.suffix == ".json" else "application/gzip"
     return FileResponse(path, filename=path.name, media_type=media_type)
+
+
+class PublicDetectionValidationBody(_PydanticModel):
+    image_id: int = 397133
+    device: str = "auto"
+    score_threshold: float = 0.5
+    iou_threshold: float = 0.5
+
+
+@app.post("/models/detection/validate-public")
+async def start_public_detection_validation(
+    body: PublicDetectionValidationBody = Body(default=PublicDetectionValidationBody()),
+) -> dict[str, Any]:
+    """Run pinned pretrained Torchvision weights on a real COCO validation image."""
+    from qortex.neuroai.public_detection import run_public_detection_validation
+
+    if body.device not in {"auto", "cpu", "cuda"}:
+        raise HTTPException(status_code=400, detail="device must be auto, cpu, or cuda")
+    if not 0.0 < body.score_threshold < 1.0:
+        raise HTTPException(status_code=400, detail="score_threshold must be in (0, 1)")
+    if not 0.0 < body.iou_threshold <= 1.0:
+        raise HTTPException(status_code=400, detail="iou_threshold must be in (0, 1]")
+    job = atlas_jobs.submit(
+        f"Validate pretrained object detector on COCO val2017 image {body.image_id}",
+        run_public_detection_validation,
+        image_id=body.image_id,
+        device=body.device,
+        score_threshold=body.score_threshold,
+        iou_threshold=body.iou_threshold,
+        report_progress=True,
+    )
+    return {"job_id": job.id, "image_id": body.image_id}
+
+
+@app.get("/models/detection/runs/{run_id}")
+async def get_public_detection_validation(run_id: str) -> dict[str, Any]:
+    from qortex.neuroai.public_detection import load_public_detection_run
+
+    return await call(load_public_detection_run, run_id)
+
+
+@app.get("/models/detection/runs/{run_id}/artifacts/{artifact}")
+async def get_public_detection_artifact(run_id: str, artifact: str) -> FileResponse:
+    from qortex.neuroai.public_detection import public_detection_artifact_path
+
+    path = await call(public_detection_artifact_path, run_id, artifact)
+    media_types = {".json": "application/json", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png"}
+    return FileResponse(path, filename=path.name, media_type=media_types.get(path.suffix.lower(), "application/octet-stream"))
+
+
+class PublicRoiConnectivityBody(_PydanticModel):
+    max_frames: int = 168
+    fd_threshold_mm: float = 0.5
+    std_dvars_threshold: Optional[float] = None
+    connectivity_threshold: float = 0.3
+
+
+@app.post("/analysis/roi-connectivity/validate-public")
+async def start_public_roi_connectivity_validation(
+    body: PublicRoiConnectivityBody = Body(default=PublicRoiConnectivityBody()),
+) -> dict[str, Any]:
+    """Validate MNI atlas extraction and ROI connectivity on public BOLD data."""
+    from qortex.neuroclassic.public_roi_connectivity import run_public_roi_connectivity
+
+    if not 20 <= body.max_frames <= 168:
+        raise HTTPException(status_code=400, detail="max_frames must be in [20, 168]")
+    if body.fd_threshold_mm < 0 or (
+        body.std_dvars_threshold is not None and body.std_dvars_threshold < 0
+    ):
+        raise HTTPException(status_code=400, detail="scrubbing thresholds must be non-negative")
+    if not 0 < body.connectivity_threshold < 1:
+        raise HTTPException(status_code=400, detail="connectivity_threshold must be in (0, 1)")
+    job = atlas_jobs.submit(
+        "Validate Schaefer-100 ROI connectivity on public MNI BOLD",
+        run_public_roi_connectivity,
+        max_frames=body.max_frames,
+        fd_threshold_mm=body.fd_threshold_mm,
+        std_dvars_threshold=body.std_dvars_threshold,
+        connectivity_threshold=body.connectivity_threshold,
+        report_progress=True,
+    )
+    return {"job_id": job.id, "dataset_id": "development_fmri", "atlas_id": "Schaefer2018_100Parcels_7Networks"}
+
+
+@app.get("/analysis/roi-connectivity/runs/{run_id}")
+async def get_public_roi_connectivity_validation(run_id: str) -> dict[str, Any]:
+    from qortex.neuroclassic.public_roi_connectivity import load_public_roi_connectivity_run
+
+    return await call(load_public_roi_connectivity_run, run_id)
+
+
+@app.get("/analysis/roi-connectivity/runs/{run_id}/artifacts/{artifact}")
+async def get_public_roi_connectivity_artifact(run_id: str, artifact: str) -> FileResponse:
+    from qortex.neuroclassic.public_roi_connectivity import public_roi_connectivity_artifact_path
+
+    path = await call(public_roi_connectivity_artifact_path, run_id, artifact)
+    media_types = {".json": "application/json", ".csv": "text/csv", ".png": "image/png", ".gz": "application/gzip"}
+    return FileResponse(path, filename=path.name, media_type=media_types.get(path.suffix.lower(), "application/octet-stream"))
 
 
 # ── Jobs ──────────────────────────────────────────────────────────────────

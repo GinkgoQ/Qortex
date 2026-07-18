@@ -256,6 +256,7 @@ def run_public_brats_validation(
     dataset_root: Path | str | None = None,
     run_root: Path | str | None = None,
     on_progress: Callable[[int, int], None] | None = None,
+    execution_profile: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run pinned MONAI weights against one real, public BraTS 2023 case."""
     if device not in {"auto", "cpu", "cuda"}:
@@ -386,6 +387,7 @@ def run_public_brats_validation(
         "run_id": run_id,
         "status": "completed",
         "research_use_only": True,
+        "execution_profile": execution_profile,
         "model": {
             "id": MODEL_ID,
             "repo_id": MODEL_REPO_ID,

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 log = logging.getLogger(__name__)
 
@@ -29,6 +29,7 @@ from qortex.core.entities import (
     FilePreview,
     FileRecord,
     LocalIndexReport,
+    LabelPolicy,
     Manifest,
     ReadinessReport,
     SelectionSpec,
@@ -1387,6 +1388,8 @@ class Dataset:
         modality: str | None = None,
         target: str | None = None,
         local_path: Path | None = None,
+        label_policy: LabelPolicy | None = None,
+        split_strategy: Literal["subject", "subject_session", "recording"] = "subject",
     ) -> CanTrainReport:
         """Assess whether the dataset can support supervised training."""
         from qortex.decision import can_train
@@ -1396,6 +1399,8 @@ class Dataset:
             modality=modality,
             target=target,
             local_path=local_path or self._data_dir,
+            label_policy=label_policy,
+            split_strategy=split_strategy,
         )
 
     def first_batch(

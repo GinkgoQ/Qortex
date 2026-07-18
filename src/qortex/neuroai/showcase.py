@@ -19,6 +19,12 @@ from typing import Any
 
 import numpy as np
 
+# Showcase rendering runs in background job threads and writes files only.
+# Select a non-GUI backend before any function imports pyplot.
+import matplotlib
+
+matplotlib.use("Agg")
+
 
 QORTEX_COLORS: tuple[str, ...] = (
     "#79863c",

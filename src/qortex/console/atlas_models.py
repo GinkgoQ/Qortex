@@ -75,9 +75,13 @@ def list_models(*, cache: ModelCache | None = None) -> list[dict[str, Any]]:
     )
     from qortex.neuroai.models.zoo.registry import list_entries
     from qortex.neuroai.models.zoo.status import is_runtime_executable, runtime_status
+    from qortex.console.model_execution import list_model_execution_profiles
 
     model_cache = cache or ModelCache()
     cached = {entry.model_id: entry for entry in model_cache.list_cached()}
+    profiles_by_model: dict[str, list[dict[str, Any]]] = {}
+    for profile in list_model_execution_profiles():
+        profiles_by_model.setdefault(profile["model_id"], []).append(profile)
     rows: list[dict[str, Any]] = []
     for entry in list_entries():
         cache_entry = cached.get(entry.id)
@@ -108,6 +112,7 @@ def list_models(*, cache: ModelCache | None = None) -> list[dict[str, Any]]:
             "cached": cache_entry is not None,
             "cache": asdict(cache_entry) if cache_entry is not None else None,
             "compatibility_available": entry.id in MODEL_CATALOG,
+            "execution_profiles": profiles_by_model.get(entry.id, []),
         })
     return rows
 

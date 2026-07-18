@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -37,6 +38,7 @@ class ModelCache:
     """JSON-manifest-backed provenance record of downloaded model weights."""
 
     SCHEMA_VERSION = "1.0"
+    _LOCK = threading.RLock()
 
     def __init__(self, cache_dir: Path | str | None = None) -> None:
         self.cache_dir = Path(cache_dir) if cache_dir is not None else _default_cache_dir()
@@ -51,27 +53,34 @@ class ModelCache:
     def _save(self, entries: dict[str, dict]) -> None:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         payload = {"schema_version": self.SCHEMA_VERSION, "entries": list(entries.values())}
-        self.manifest_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        temporary = self.manifest_path.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        temporary.replace(self.manifest_path)
 
     def is_cached(self, model_id: str) -> bool:
-        return model_id in self._load()
+        with self._LOCK:
+            return model_id in self._load()
 
     def lookup(self, model_id: str) -> CacheEntry | None:
-        raw = self._load().get(model_id)
+        with self._LOCK:
+            raw = self._load().get(model_id)
         return CacheEntry(**raw) if raw else None
 
     def record(self, entry: CacheEntry) -> None:
-        entries = self._load()
-        entries[entry.model_id] = asdict(entry)
-        self._save(entries)
+        with self._LOCK:
+            entries = self._load()
+            entries[entry.model_id] = asdict(entry)
+            self._save(entries)
 
     def remove(self, model_id: str) -> None:
-        entries = self._load()
-        entries.pop(model_id, None)
-        self._save(entries)
+        with self._LOCK:
+            entries = self._load()
+            entries.pop(model_id, None)
+            self._save(entries)
 
     def list_cached(self) -> list[CacheEntry]:
-        return [CacheEntry(**raw) for raw in self._load().values()]
+        with self._LOCK:
+            return [CacheEntry(**raw) for raw in self._load().values()]
 
     def disk_usage(self) -> int:
         return sum(e.size_bytes for e in self.list_cached())

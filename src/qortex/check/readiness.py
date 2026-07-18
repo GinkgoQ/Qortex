@@ -42,10 +42,14 @@ def compute_readiness(
     conversion_target: str | None = None,
     inspect_loaders: bool = False,
     label_policy: LabelPolicy | None = None,
+    modality: str | None = None,
 ) -> ReadinessReport:
     """Return an actionable readiness report for a manifest/local dataset."""
     graph = get_manifest_graph(manifest)
-    recordings = graph.recordings()
+    recordings = [
+        recording for recording in graph.recordings()
+        if modality is None or recording.modality == modality
+    ]
     findings: list[ReadinessFinding] = []
     n_loadable = 0
     n_event_complete = 0

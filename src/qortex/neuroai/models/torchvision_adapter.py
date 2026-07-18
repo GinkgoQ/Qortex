@@ -25,6 +25,7 @@ class TorchvisionAdapter(ModelAdapter):
         self._model_name = spec.id
         self._pretrained = bool(spec.extra.get("pretrained", False))
         self._model = None
+        self._weights = None
         self._device = "cpu"
 
     def inspect(self) -> ModelProfile:
@@ -60,8 +61,8 @@ class TorchvisionAdapter(ModelAdapter):
         tv = _require_torchvision()
         self._device = _resolve_device(runtime.device)
         ctor = _resolve_constructor(tv, self._model_name)
-        weights = "DEFAULT" if self._pretrained else None
-        self._model = ctor(weights=weights).to(self._device)
+        self._weights = _resolve_weights(tv, ctor, self._spec.extra.get("weights"), self._pretrained)
+        self._model = ctor(weights=self._weights).to(self._device)
         self._model.eval()
         self._loaded = True
         log.info("Loaded torchvision model %s (pretrained=%s) on %s", self._model_name, self._pretrained, self._device)
@@ -88,23 +89,45 @@ class TorchvisionAdapter(ModelAdapter):
             boxes = det["boxes"].cpu().numpy().tolist()
             scores = det["scores"].cpu().numpy().tolist()
             labels = det["labels"].cpu().numpy().tolist()
+            categories = self._weights.meta.get("categories", []) if self._weights is not None else []
+            class_names = [
+                categories[int(label)] if 0 <= int(label) < len(categories) else f"class_{int(label)}"
+                for label in labels
+            ]
             return ModelOutput(
                 output_type="detection", raw=det,
-                metadata={"boxes": boxes, "scores": scores, "labels": labels},
+                metadata={
+                    "boxes": boxes,
+                    "scores": scores,
+                    "labels": labels,
+                    "class_names": class_names,
+                    "weights": self._weights.name if self._weights is not None else None,
+                    "weights_url": self._weights.url if self._weights is not None else None,
+                },
             )
 
         logits = out.cpu().numpy()[0]
         exp = np.exp(logits - logits.max())
         probs = exp / exp.sum()
         idx = int(np.argmax(probs))
+        categories = self._weights.meta.get("categories", []) if self._weights is not None else []
+        names = [categories[i] if i < len(categories) else f"class_{i}" for i in range(len(probs))]
         return ModelOutput(
-            output_type="classification", raw=out, class_index=idx, class_name=f"class_{idx}",
-            probabilities={f"class_{i}": float(p) for i, p in enumerate(probs)},
+            output_type="classification", raw=out, class_index=idx, class_name=names[idx],
+            probabilities={name: float(probability) for name, probability in zip(names, probs)},
         )
 
     def unload(self) -> None:
         self._model = None
+        self._weights = None
         self._loaded = False
+
+    @property
+    def weights(self) -> Any:
+        """Resolved Torchvision weights enum, including transforms and metadata."""
+        if self._weights is None:
+            raise RuntimeError("Model weights are unavailable — call load() with pretrained weights first")
+        return self._weights
 
 
 def _require_torchvision():
@@ -126,10 +149,22 @@ def _require_torchvision_torch():
 
 
 def _resolve_constructor(tv, name: str):
-    ctor = getattr(tv.models, name, None)
-    if ctor is None:
-        raise ValueError(f"Unknown torchvision model: {name!r}")
-    return ctor
+    try:
+        return tv.models.get_model_builder(name)
+    except ValueError:
+        raise ValueError(f"Unknown torchvision model: {name!r}") from None
+
+
+def _resolve_weights(tv, ctor: Any, requested: Any, pretrained: bool) -> Any:
+    if requested is None and not pretrained:
+        return None
+    weights_enum = tv.models.get_model_weights(ctor)
+    name = "DEFAULT" if requested is None else str(requested)
+    try:
+        return weights_enum[name]
+    except KeyError:
+        available = ", ".join(["DEFAULT", *[member.name for member in weights_enum]])
+        raise ValueError(f"Unknown weights {name!r} for model; available: {available}") from None
 
 
 def _infer_task(name: str) -> str:

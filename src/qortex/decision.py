@@ -19,12 +19,13 @@ from qortex.artifact import Artifact
 from qortex.check import compute_readiness
 from qortex.convert.pipeline import ConversionPipeline
 from qortex.convert.splits import SplitSpec
-from qortex.core.entities import DownloadPlan, Manifest, ReadinessFinding, SelectionSpec
+from qortex.core.entities import DownloadPlan, LabelPolicy, Manifest, ReadinessFinding, SelectionSpec
 from qortex.indexing import index_local_bids
 from qortex.manifest.graph import ManifestGraph, get_manifest_graph
 from qortex.plan.planner import DownloadPlanner
 
 DecisionStatus = Literal["possible", "uncertain", "not_possible"]
+SplitStrategy = Literal["subject", "subject_session", "recording"]
 MinimumGoal = Literal["label-check", "first-batch", "validation", "metadata"]
 MINIMUM_GOALS: frozenset[str] = frozenset({"label-check", "first-batch", "validation", "metadata"})
 
@@ -118,6 +119,10 @@ class CanTrainReport(BaseModel):
     n_label_ready: int
     required_download_bytes: int
     suggested_split: str
+    split_strategy: SplitStrategy = "subject"
+    split_group_count: int = 0
+    split_status: Literal["valid", "not_meaningful"] = "not_meaningful"
+    label_policy: LabelPolicy | None = None
     leakage_risks: list[str] = Field(default_factory=list)
     next_command: str | None = None
     findings: list[DecisionFinding] = Field(default_factory=list)
@@ -134,6 +139,7 @@ class CanTrainReport(BaseModel):
             f"Ready    : {self.n_label_ready}",
             f"Required : {self.required_download_bytes / 1e6:.1f} MB",
             f"Split    : {self.suggested_split}",
+            f"Groups   : {self.split_group_count} ({self.split_status})",
         ]
         if self.leakage_risks:
             lines.append("Leakage risks:")
@@ -328,25 +334,68 @@ def can_train(
     modality: str | None = None,
     target: str | None = None,
     local_path: Path | None = None,
+    label_policy: LabelPolicy | None = None,
+    split_strategy: SplitStrategy = "subject",
 ) -> CanTrainReport:
-    readiness = compute_readiness(manifest, local_path=local_path, conversion_target="sklearn")
+    readiness = compute_readiness(
+        manifest,
+        local_path=local_path,
+        conversion_target="sklearn",
+        label_policy=label_policy,
+        modality=modality,
+    )
     min_report = minimum_plan(manifest, goal="first-batch", modality=modality, target=target)
+    recordings = [
+        recording for recording in get_manifest_graph(manifest).recordings()
+        if modality is None or recording.modality == modality
+    ]
+    if split_strategy == "subject":
+        split_groups = {recording.subject for recording in recordings if recording.subject}
+    elif split_strategy == "subject_session":
+        split_groups = {
+            (recording.subject, recording.session)
+            for recording in recordings
+            if recording.subject and recording.session
+        }
+    else:
+        split_groups = {recording.id for recording in recordings}
+    split_group_count = len(split_groups)
+    split_status: Literal["valid", "not_meaningful"] = (
+        "valid" if split_group_count >= 2 else "not_meaningful"
+    )
     label_status: Literal["confirmed", "candidate", "missing"]
     if readiness.n_label_ready:
         label_status = "confirmed"
+    elif label_policy is not None:
+        label_status = "missing"
     elif readiness.n_event_complete:
         label_status = "candidate"
     else:
         label_status = "missing"
     risks = _training_leakage_risks(manifest)
     status: DecisionStatus
-    if label_status == "confirmed" and len(manifest.summary.subjects) >= 2:
+    if label_status == "confirmed" and split_status == "valid":
         status = "possible"
     elif label_status == "candidate":
         status = "uncertain"
     else:
         status = "not_possible"
     findings = [_decision_from_readiness(finding) for finding in readiness.findings]
+    if split_status == "not_meaningful":
+        findings.append(DecisionFinding(
+            severity="error",
+            code="split.insufficient_groups",
+            message=(
+                f"Split strategy {split_strategy!r} has {split_group_count} usable "
+                "group(s); at least two are required."
+            ),
+            recommendation="Choose a structurally available grouping or add independent groups.",
+        ))
+    elif split_strategy != "subject":
+        risks.append(
+            f"The explicit {split_strategy!r} split can place recordings from one subject "
+            "in multiple partitions; enforce subject independence if the evaluation claim requires it."
+        )
     if label_status == "candidate":
         findings.append(DecisionFinding(
             severity="warning",
@@ -361,11 +410,15 @@ def can_train(
         modality=modality,
         target=target,
         label_status=label_status,
-        n_subjects=manifest.summary.n_subjects,
+        n_subjects=len({recording.subject for recording in recordings if recording.subject}),
         n_recordings=readiness.n_recordings,
         n_label_ready=readiness.n_label_ready,
         required_download_bytes=min_report.plan.estimated_bytes,
-        suggested_split="subject" if manifest.summary.n_subjects >= 2 else "not meaningful: fewer than two subjects",
+        suggested_split=split_strategy,
+        split_strategy=split_strategy,
+        split_group_count=split_group_count,
+        split_status=split_status,
+        label_policy=label_policy,
         leakage_risks=risks,
         next_command=f"qortex minimum {manifest.dataset_id} --goal first-batch" + (f" --modality {modality}" if modality else ""),
         findings=findings,

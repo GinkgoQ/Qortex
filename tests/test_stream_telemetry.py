@@ -41,6 +41,6 @@ def test_stream_telemetry_uses_recorded_bytes_and_latency() -> None:
     report = telemetry.report()
 
     assert report["event_count"] == 2
+    assert report["summary"]["median_latency_seconds"] == 0.10500000000000001
     assert report["summary"]["response_data_bytes"] == 200
     assert report["summary"]["cache_byte_efficiency"] == 0.5
-
